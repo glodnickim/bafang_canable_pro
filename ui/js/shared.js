@@ -2,15 +2,18 @@
 /* global Plotly */
 
 // --- Torque unit conversion (EBICS contract: user sees kg, wire stays native mV) ---
-// Firmware normalizes the unloaded sensor to ~750 mV (zero) and treats 2000 mV as
-// full scale = 60 kg. Raw mV stays visible only in the Debug tab.
+// Physical reading scale: firmware normalizes the unloaded sensor to ~750 mV (zero)
+// and the full ADC range 3300 mV equals 60 kg. This is the RAW READING scale only.
+// The assist full-power point (TQ_FULL_SCALE_MV 2000 in firmware) is a separate
+// assist-mapping concept and must not distort the displayed sensor reading.
+// Raw mV stays visible only in the Debug tab.
 export const TORQUE_ZERO_MV = 750;
-export const TORQUE_FULL_SCALE_MV = 2000;
+export const TORQUE_SENSOR_MAX_MV = 3300;
 export const TORQUE_FULL_SCALE_KG = 60;
 
 export function torqueMvToKg(mv) {
     if (typeof mv !== 'number' || isNaN(mv)) return null;
-    const span = TORQUE_FULL_SCALE_MV - TORQUE_ZERO_MV;
+    const span = TORQUE_SENSOR_MAX_MV - TORQUE_ZERO_MV;
     let kg = (mv - TORQUE_ZERO_MV) * TORQUE_FULL_SCALE_KG / span;
     if (kg < 0) kg = 0;
     if (kg > TORQUE_FULL_SCALE_KG) kg = TORQUE_FULL_SCALE_KG;
@@ -21,7 +24,7 @@ export function torqueKgToMv(kg) {
     if (typeof kg !== 'number' || isNaN(kg)) return null;
     if (kg < 0) kg = 0;
     if (kg > TORQUE_FULL_SCALE_KG) kg = TORQUE_FULL_SCALE_KG;
-    const span = TORQUE_FULL_SCALE_MV - TORQUE_ZERO_MV;
+    const span = TORQUE_SENSOR_MAX_MV - TORQUE_ZERO_MV;
     return TORQUE_ZERO_MV + Math.round(kg * span / TORQUE_FULL_SCALE_KG);
 }
 
