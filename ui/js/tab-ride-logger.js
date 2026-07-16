@@ -3,6 +3,7 @@
 import {
     socket,
     rideLoggerElements,
+    torqueMvToKg,
 } from './shared.js';
 
 rideLoggerElements.startButton.onclick = () => {
@@ -91,7 +92,7 @@ export function updateRideChart(rowCsv) {
             [row.humanPower],
             [row.cadence],
             [row.speed],
-            [row.torque],
+            [torqueMvToKg(row.torque)],
             [assistLabel],
         ],
     };
@@ -110,7 +111,7 @@ Plotly.newPlot('rideLoggerChart', [
     { x: [], y: [], name: "Human Power (W)", line: { color: '#00cc66' } },
     { x: [], y: [], name: "Cadence (rpm)", yaxis: 'y2', line: { color: '#3399ff', width: 1 } },
     { x: [], y: [], name: "Speed (km/h)", yaxis: 'y2', line: { color: '#ffffff', width: 1.5 } },
-    { x: [], y: [], name: "Torque (mV)", yaxis: 'y3', line: { color: '#9933ff', dash: 'dot' }, visible: "legendonly" },
+    { x: [], y: [], name: "Torque (kg)", yaxis: 'y3', line: { color: '#9933ff', dash: 'dot' }, visible: "legendonly" },
     { x: [], y: [], name: "Assist Level", yaxis: 'y4', line: { color: '#ffa500', width: 2, shape: 'hv' } },
 ],
 {
@@ -121,7 +122,7 @@ Plotly.newPlot('rideLoggerChart', [
     xaxis: { title: "Time (s)", domain: [0.12, 0.88] },
     yaxis: { title: "Power (W)", titlefont: { color: "#ff4d4d" }, tickfont: { color: "#ff4d4d" } },
     yaxis2: { title: "RPM / km/h", anchor: "x", overlaying: "y", side: "right", titlefont: { color: "#3399ff" }, tickfont: { color: "#3399ff" } },
-    yaxis3: { title: "Torque (mV)", anchor: "free", overlaying: "y", side: "right", position: 0.98, titlefont: { color: "#9933ff" }, tickfont: { color: "#9933ff" } },
+    yaxis3: { title: "Torque (kg)", anchor: "free", overlaying: "y", side: "right", position: 0.98, titlefont: { color: "#9933ff" }, tickfont: { color: "#9933ff" } },
     yaxis4: {
         title: "Assist", anchor: "free", overlaying: "y", side: "left", position: 0.02,
         type: 'category', categoryarray: ['walk', '0', '1', '2', '3', '4', '5'], categoryorder: 'array',

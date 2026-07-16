@@ -4,10 +4,11 @@ import {
     sensorElements,
     safeSetText,
     addLog,
+    torqueMvToKg,
 } from './shared.js';
 
 export function updateSensorUI() {
-    safeSetText(sensorElements.sensorTorqueValue, state.sensorRealtime?.torque);
+    safeSetText(sensorElements.sensorTorqueValue, torqueMvToKg(state.sensorRealtime?.torque));
     safeSetText(sensorElements.sensorCadenceValue, state.sensorRealtime?.cadence);
 
     if (sensorElements.realtimePlaceholder) {

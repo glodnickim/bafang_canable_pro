@@ -13,6 +13,7 @@ import {
     startRampContainer, startRampPlaceholder,
     pasCurvesContainerM820, pasCurvesPlaceholderM820,
     startRampContainerM820, startRampPlaceholderM820,
+    torqueMvToKg, torqueKgToMv, TORQUE_FULL_SCALE_KG,
 } from './shared.js';
 
 export function updateGearsUI() {
@@ -101,22 +102,22 @@ export function updateGearsUI() {
         cellSpeed.appendChild(inputSpeed);
         cellSpeed.append(' %');
 
-        const assistRatioMaxValue = p0.assist_ratio_upper_limit;
         const cellinputassistRatio = row.insertCell();
         const inputRatio = document.createElement('input');
         inputRatio.type = 'number';
-        inputRatio.min = 1;
-        inputRatio.max = assistRatioMaxValue;
-        inputRatio.step = 1;
+        inputRatio.min = 0;
+        inputRatio.max = TORQUE_FULL_SCALE_KG;
+        inputRatio.step = 0.1;
         inputRatio.value = (p0.assist_ratio_levels[internalIndex] && typeof p0.assist_ratio_levels[internalIndex].assist_ratio_level === 'number')
-                               ? p0.assist_ratio_levels[internalIndex].assist_ratio_level : '';
-        inputRatio.placeholder = `1-${assistRatioMaxValue}`;
+                               ? torqueMvToKg(p0.assist_ratio_levels[internalIndex].assist_ratio_level) : '';
+        inputRatio.placeholder = `0-${TORQUE_FULL_SCALE_KG} kg`;
+        inputRatio.title = `Stored as native mV (${p0.assist_ratio_levels[internalIndex]?.assist_ratio_level ?? 'N/A'} mV); sent unchanged unless edited`;
         inputRatio.dataset.internalType = 'p0';
         inputRatio.dataset.internalIndex = internalIndex.toString();
         inputRatio.dataset.param = 'assist_ratio_level';
         inputRatio.addEventListener('change', handleAssistInputChange);
         cellinputassistRatio.appendChild(inputRatio);
-        cellinputassistRatio.append('');
+        cellinputassistRatio.append(' kg');
 
         const cellAccel = row.insertCell();
         const inputAccel = document.createElement('input');
@@ -466,7 +467,10 @@ export function handleAssistInputChange(event) {
     const internalType = input.dataset.internalType;
     const internalIndex = parseInt(input.dataset.internalIndex, 10);
     const param = input.dataset.param;
-    let value = parseInt(input.value, 10);
+    let value = (param === 'assist_ratio_level')
+        ? torqueKgToMv(parseFloat(input.value))
+        : parseInt(input.value, 10);
+    if (value === null) value = NaN;
 
     if (isNaN(internalIndex) || !param || isNaN(value)) {
         console.warn("Could not update assist level - invalid input data", input?.dataset, input.value);
@@ -515,11 +519,12 @@ export function handleAssistInputChange(event) {
         targetObject[targetArrayName][internalIndex][targetParamName] = value;
         console.log(`Updated ${internalType.toUpperCase()} Internal Assist Index ${internalIndex}, Param ${targetParamName} to ${value}`);
         if (gearsElements.autoCorrectionCheckbox && gearsElements.autoCorrectionCheckbox.checked) {
+            const toDisplay = (v) => (param === 'assist_ratio_level') ? torqueMvToKg(v) : v;
             for (let i = (internalIndex + 1); i < 9; i++) {
                 if (targetObject[targetArrayName][i] && targetObject[targetArrayName][i][targetParamName] < value) {
                     targetObject[targetArrayName][i][targetParamName] = value;
                     const nInput = document.querySelector(`input[data-internal-type="${internalType}"][data-internal-index="${i}"][data-param="${targetParamName}"]`);
-                    if (nInput) nInput.value = value;
+                    if (nInput) nInput.value = toDisplay(value);
                     console.log(`Updated ${internalType.toUpperCase()} Internal Assist Index ${i}, Param ${targetParamName} to ${value} because previoues level was bigger`);
                 }
             }
@@ -527,7 +532,7 @@ export function handleAssistInputChange(event) {
                 if (targetObject[targetArrayName][i] && targetObject[targetArrayName][i][targetParamName] > value) {
                     targetObject[targetArrayName][i][targetParamName] = value;
                     const nInput = document.querySelector(`input[data-internal-type="${internalType}"][data-internal-index="${i}"][data-param="${targetParamName}"]`);
-                    if (nInput) nInput.value = value;
+                    if (nInput) nInput.value = toDisplay(value);
                     console.log(`Updated ${internalType.toUpperCase()} Internal Assist Index ${i}, Param ${targetParamName} to ${value} because next level was bigger`);
                 }
             }

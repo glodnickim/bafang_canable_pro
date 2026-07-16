@@ -6,6 +6,7 @@ import {
     getNullableNumber, getNullableBoolean,
     addLog, waitFor, delay,
     sendCustomFrame, encodeToHex,
+    torqueMvToKg,
 } from './shared.js';
 
 export function updateControllerStateUI() {
@@ -18,7 +19,7 @@ export function updateControllerUI() {
     safeSetText(controllerElements.rt0RemainDistValue, state.controllerRealtime0?.remaining_distance, (val) => getNullableNumber(val, 2));
     safeSetText(controllerElements.rt0SingleTripValue, state.controllerRealtime0?.single_trip, (val) => getNullableNumber(val, 2));
     safeSetText(controllerElements.rt0CadenceValue, state.controllerRealtime0?.cadence);
-    safeSetText(controllerElements.rt0TorqueValue, state.controllerRealtime0?.torque);
+    safeSetText(controllerElements.rt0TorqueValue, torqueMvToKg(state.controllerRealtime0?.torque));
     // Realtime 1
     safeSetText(controllerElements.rt1VoltageValue, state.controllerRealtime1?.voltage, (val) => getNullableNumber(val, 2));
     safeSetText(controllerElements.rt1TempValue, state.controllerRealtime1?.temperature);
