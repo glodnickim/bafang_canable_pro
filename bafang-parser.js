@@ -348,6 +348,48 @@ class BafangCanControllerParser {
 		 }
 
     }
+
+    // FW-006: profile bank blob (0x6020) — 8B header + 5x35B level records + CRC16-CCITT
+    static bankBlob(packet) {
+        const BLOB_LEN = 185, HEADER = 8, RECORD = 35, LEVELS = 5;
+        const d = packet?.data;
+        if (!Array.isArray(d) || d.length < BLOB_LEN) {
+            return { parseError: true, error: `Invalid bank blob length ${d?.length}` };
+        }
+        if (d[0] !== 0x45 || d[1] !== 0x42 || d[2] !== 1) {
+            return { parseError: true, error: 'Bad bank blob magic/version' };
+        }
+        let crc = 0xFFFF;
+        const crcAt = HEADER + LEVELS * RECORD;
+        for (let i = 0; i < crcAt; i++) {
+            crc ^= d[i] << 8;
+            for (let b = 0; b < 8; b++) crc = ((crc & 0x8000) ? (crc << 1) ^ 0x1021 : crc << 1) & 0xFFFF;
+        }
+        if (((d[crcAt + 1] << 8) | d[crcAt]) !== crc) {
+            return { parseError: true, error: 'Bank blob CRC mismatch' };
+        }
+        const u16 = (o) => d[o] | (d[o + 1] << 8);
+        const levels = [];
+        for (let l = 0; l < LEVELS; l++) {
+            const r = HEADER + l * RECORD;
+            levels.push({
+                mode_type: d[r], support_ratio_pct: u16(r + 1),
+                support_min_pct: u16(r + 3), support_max_pct: u16(r + 5),
+                reference_power_w: u16(r + 7), progression_pct: d[r + 9],
+                emtb_parameter: d[r + 10], emtb_based_on_power: d[r + 11] !== 0,
+                emtb_reference_voltage_mv: u16(r + 12), torque_assist_factor: d[r + 14],
+                max_motor_power_w: u16(r + 15), max_iq_pct: d[r + 17],
+                assist_without_rotation: d[r + 18] !== 0,
+                without_rotation_threshold_mv: u16(r + 19),
+                startup_boost_enabled: d[r + 21] !== 0, startup_boost_mode: d[r + 22],
+                startup_boost_strength_pct: u16(r + 23), startup_boost_end_rpm: d[r + 25],
+                smooth_start_enabled: d[r + 26] !== 0, smooth_start_ms: u16(r + 27),
+                release_ms: u16(r + 29), power_rise_filter_ms: u16(r + 31),
+                power_fall_filter_ms: u16(r + 33),
+            });
+        }
+        return { bank_index: d[3], active_bank: d[6], levels };
+    }
 }
 
 class BafangCanDisplayParser {

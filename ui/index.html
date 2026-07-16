@@ -46,6 +46,7 @@
             <button class="tab-button" data-tab="sensor">Sensor</button>
             <button class="tab-button" data-tab="battery">Battery</button>
             <button class="tab-button" data-tab="gears">Assist (Full)</button>
+            <button class="tab-button" data-tab="banks">Banks</button>
             <button class="tab-button" data-tab="gearsM820">Assist (Ltd)</button>
             <button class="tab-button" data-tab="info">Info</button>
             <button class="tab-button" data-tab="debug">Debug</button>
@@ -825,6 +826,40 @@
                 <h3 class="section-subtitle mt-6">Start Ramp Curves</h3>
                 <div id="startRampPlaceholder" class="chart-placeholder">Start Ramp data not yet available. Please Sync.</div>
                 <div id="startRampContainer" style="display:none"><div id="startRampChart"></div></div>
+            </div>
+
+            <!-- #tab-banks ================================================= -->
+            <div class="tab-content" id="tab-banks">
+                <div class="flex items-center justify-between mb-5 flex-wrap gap-2">
+                    <h2 class="section-title text-lg">Profile Banks (EBICS Ride Core)</h2>
+                    <div class="flex gap-2 flex-wrap">
+                        <button id="banksReadButton" class="btn btn-blue">Read Banks</button>
+                        <button id="banksApplyButton" class="btn btn-orange">Apply (RAM)</button>
+                        <button id="banksSaveButton" class="btn btn-red">Save (Flash)</button>
+                    </div>
+                </div>
+                <p class="text-sm mb-2">Active bank on controller: <b id="activeBankLabel">N/A</b>
+                   &nbsp;|&nbsp; Handlebar gesture: at BOOST bounce BOOST&harr;SPORT+ twice within ~2.5 s
+                   (HMI speed briefly shows 10 = bank 1, 20 = bank 2). Requires firmware 0.0163+.</p>
+                <div id="banksPlaceholder" class="placeholder-text">Bank data not yet received. Click Read Banks.</div>
+                <div id="banksContainer" style="display:none">
+                    <div id="bankSection0" class="mb-6">
+                        <h3 class="section-subtitle">Bank 1
+                            &nbsp; Mode: <select id="bankMode0" class="border rounded px-1"></select>
+                        </h3>
+                        <div class="overflow-x-auto mb-1"><table class="description-table w-full border-collapse text-sm">
+                            <thead id="bankTableHead0"></thead><tbody id="bankTableBody0"></tbody>
+                        </table></div>
+                    </div>
+                    <div id="bankSection1" class="mb-6">
+                        <h3 class="section-subtitle">Bank 2
+                            &nbsp; Mode: <select id="bankMode1" class="border rounded px-1"></select>
+                        </h3>
+                        <div class="overflow-x-auto mb-1"><table class="description-table w-full border-collapse text-sm">
+                            <thead id="bankTableHead1"></thead><tbody id="bankTableBody1"></tbody>
+                        </table></div>
+                    </div>
+                </div>
             </div>
 
             <!-- #tab-gearsM820 ============================================= -->

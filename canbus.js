@@ -419,6 +419,11 @@ class CanBusService extends EventEmitter {
                 this.cachedParameter2= { ...parsedData }; // Cache it
                 if (!parsedData.parseError) {parsedData._rawBytes = [...frame.data]}; // Add raw bytes
             }
+            else if (subCode === 0x20) { //FW-006: profile bank blob
+                parsedData = BafangCanControllerParser.bankBlob(frame);
+                dataType = 'controller_bank';
+                if (!parsedData.parseError) { parsedData._rawBytes = [...frame.data]; }
+            }
             else if (subCode === 0x17) {
                 dataType = 'controller_params_6017';
                 parsedData = { _rawBytes: [...frame.data] };
@@ -759,6 +764,57 @@ class CanBusService extends EventEmitter {
         console.log(`Initiating Calibrate Position Sensor command...`);
         // Use the method that tracks ACKs
         return this.writeShortParameterWithAck(DeviceNetworkId.DRIVE_UNIT, cmd, data);
+    }
+
+    // --- FW-006: profile banks (0x6020 read / 0x6021 RAM write / 0x6022 persist) ---
+    static serializeBankBlob(bankObj) {
+        const HEADER = 8, RECORD = 35, LEVELS = 5, BLOB_LEN = 185;
+        const d = new Array(BLOB_LEN).fill(0);
+        d[0] = 0x45; d[1] = 0x42; d[2] = 1;
+        d[3] = bankObj.bank_index & 1; d[4] = LEVELS; d[5] = RECORD;
+        d[6] = bankObj.active_bank ?? 0; d[7] = 0;
+        const u16 = (o, v) => { d[o] = v & 0xFF; d[o + 1] = (v >> 8) & 0xFF; };
+        (bankObj.levels || []).slice(0, LEVELS).forEach((lv, i) => {
+            const r = HEADER + i * RECORD;
+            d[r] = lv.mode_type & 0xFF;
+            u16(r + 1, lv.support_ratio_pct); u16(r + 3, lv.support_min_pct);
+            u16(r + 5, lv.support_max_pct); u16(r + 7, lv.reference_power_w);
+            d[r + 9] = lv.progression_pct & 0xFF; d[r + 10] = lv.emtb_parameter & 0xFF;
+            d[r + 11] = lv.emtb_based_on_power ? 1 : 0;
+            u16(r + 12, lv.emtb_reference_voltage_mv); d[r + 14] = lv.torque_assist_factor & 0xFF;
+            u16(r + 15, lv.max_motor_power_w); d[r + 17] = lv.max_iq_pct & 0xFF;
+            d[r + 18] = lv.assist_without_rotation ? 1 : 0;
+            u16(r + 19, lv.without_rotation_threshold_mv);
+            d[r + 21] = lv.startup_boost_enabled ? 1 : 0; d[r + 22] = lv.startup_boost_mode & 0xFF;
+            u16(r + 23, lv.startup_boost_strength_pct); d[r + 25] = lv.startup_boost_end_rpm & 0xFF;
+            d[r + 26] = lv.smooth_start_enabled ? 1 : 0; u16(r + 27, lv.smooth_start_ms);
+            u16(r + 29, lv.release_ms); u16(r + 31, lv.power_rise_filter_ms);
+            u16(r + 33, lv.power_fall_filter_ms);
+        });
+        let crc = 0xFFFF;
+        const crcAt = HEADER + LEVELS * RECORD;
+        for (let i = 0; i < crcAt; i++) {
+            crc ^= d[i] << 8;
+            for (let b = 0; b < 8; b++) crc = ((crc & 0x8000) ? (crc << 1) ^ 0x1021 : crc << 1) & 0xFFFF;
+        }
+        u16(crcAt, crc);
+        return d;
+    }
+
+    async readBank(bankIndex) {
+        const cmd = { canCommandCode: 0x60, canCommandSubCode: 0x20 };
+        return this.readParameter(DeviceNetworkId.DRIVE_UNIT, cmd, [bankIndex & 1]);
+    }
+
+    async writeBank(bankObj) {
+        const cmd = { canCommandCode: 0x60, canCommandSubCode: 0x21 };
+        const bytes = CanBusService.serializeBankBlob(bankObj);
+        return this.writeLongParameterWithAck(DeviceNetworkId.DRIVE_UNIT, cmd, bytes);
+    }
+
+    async saveBanks() {
+        const cmd = { canCommandCode: 0x60, canCommandSubCode: 0x22 };
+        return this.writeShortParameterWithAck(DeviceNetworkId.DRIVE_UNIT, cmd, [0x01]);
     }
     async sendRawFrame(idHexString, dataHexString) { const commandString = `${idHexString}#${dataHexString}`; return await this.sendFrame(commandString); }
 

@@ -20,6 +20,7 @@ import { populateHexEditor, handleCustomRaw } from './tab-debug.js';
 import { updateFwUpdateProgress, addFwUpdateLog } from './tab-firmware.js';
 import { addSnifferLog } from './tab-sniffer.js';
 import { updateRideChart } from './tab-ride-logger.js';
+import { updateBanksUI } from './tab-banks.js';
 
 socket.onopen = () => {
     addLog('STATUS', 'WebSocket connection opened.');
@@ -130,6 +131,23 @@ socket.onmessage = (event) => {
                 case 'controller_realtime_0': state.controllerRealtime0 = parsedEvent.data; needsControllerUpdate = true; break;
                 case 'controller_state': state.controllerState = parsedEvent.data; needsControllerStateUpdate = true; break;
                 case 'controller_realtime_1': state.controllerRealtime1 = parsedEvent.data; needsControllerUpdate = true; break;
+                case 'controller_bank': //FW-006: profile bank blob
+                    if (parsedEvent.data && !parsedEvent.data.parseError) {
+                        state.lastBanks = state.lastBanks || {};
+                        state.lastBanks[parsedEvent.data.bank_index] =
+                            JSON.parse(JSON.stringify(parsedEvent.data));
+                        updateBanksUI();
+                        addLog('DATA', `Bank ${parsedEvent.data.bank_index + 1} received`);
+                    } else {
+                        addLog('ERR', `Bank read failed: ${parsedEvent.data?.error}`);
+                    }
+                    break;
+                case 'bank_write_result':
+                    addLog('ACK', `Bank write: ${parsedEvent.data?.success ? 'OK' : 'FAILED'}${parsedEvent.data?.timedOut ? ' (timeout)' : ''}`);
+                    break;
+                case 'bank_save_result':
+                    addLog('ACK', `Bank save request: ${parsedEvent.data?.success ? 'accepted (writes at standstill)' : 'FAILED'}`);
+                    break;
                 case 'controller_params_0':
                     state.controllerParams0 = parsedEvent.data;
                     state.lastControllerP0 = JSON.parse(JSON.stringify(parsedEvent.data || {}));

@@ -271,6 +271,32 @@ const wss = new WebSocket.Server({ server });
 		return true; // Command was handled (or failed validation within this handler)
 	}
 
+	// --- FW-006: profile bank commands ---
+	async function handleBankCommands(ws, messageString) {
+		if (messageString.startsWith('READ_BANK:')) {
+			const idx = parseInt(messageString.substring('READ_BANK:'.length), 10);
+			if (isNaN(idx) || idx < 0 || idx > 1) { ws.send('ERROR: READ_BANK expects 0 or 1'); return true; }
+			try { await canbus.readBank(idx); } catch (e) { ws.send(`ERROR: READ_BANK failed: ${e.message}`); }
+			return true;
+		}
+		if (messageString.startsWith('WRITE_BANK:')) {
+			try {
+				const bankObj = JSON.parse(messageString.substring('WRITE_BANK:'.length));
+				const result = await canbus.writeBank(bankObj);
+				ws.send(JSON.stringify({ type: 'bank_write_result', data: result }));
+			} catch (e) { ws.send(`ERROR: WRITE_BANK failed: ${e.message}`); }
+			return true;
+		}
+		if (messageString === 'SAVE_BANKS') {
+			try {
+				const result = await canbus.saveBanks();
+				ws.send(JSON.stringify({ type: 'bank_save_result', data: result }));
+			} catch (e) { ws.send(`ERROR: SAVE_BANKS failed: ${e.message}`); }
+			return true;
+		}
+		return false;
+	}
+
 	async function handleReadRawCommand(ws, messageString, sendResult) {
 		if (!messageString.startsWith('READ_RAW:')) return false;
 
@@ -793,6 +819,7 @@ const wss = new WebSocket.Server({ server });
 				let handled = false;
 				if (!handled) handled = await handleConnectionCommands(ws, messageString);
 				if (!handled) handled = await handleReadCommands(ws, messageString, sendResult);
+				if (!handled) handled = await handleBankCommands(ws, messageString);
 				if (!handled) handled = await handleReadRawCommand(ws, messageString, sendResult);
 				if (!handled) handled = await handleWriteShortCommands(ws, messageString, sendResult);
 				if (!handled) handled = await handleWriteShortRawCommand(ws, messageString, sendResult);
