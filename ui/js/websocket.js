@@ -136,6 +136,7 @@ socket.onmessage = (event) => {
                         state.lastBanks = state.lastBanks || {};
                         state.lastBanks[parsedEvent.data.bank_index] =
                             JSON.parse(JSON.stringify(parsedEvent.data));
+                        state.banksSynced = true;
                         updateBanksUI();
                         addLog('DATA', `Bank ${parsedEvent.data.bank_index + 1} received`);
                     } else {
@@ -151,6 +152,7 @@ socket.onmessage = (event) => {
                 case 'controller_tuning': //FW-010: global ride-feel tuning blob
                     if (parsedEvent.data && !parsedEvent.data.parseError) {
                         state.lastTuning = JSON.parse(JSON.stringify(parsedEvent.data));
+                        state.tuningSynced = true;
                         updateTuningUI();
                         addLog('DATA', 'Tuning received');
                     } else {

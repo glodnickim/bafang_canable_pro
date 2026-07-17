@@ -28,6 +28,43 @@ state.lastBanks = state.lastBanks || {};
 
 const el = (id) => document.getElementById(id);
 
+// Offline defaults — mirror firmware assist_modes.c default_levels / emtb_levels.
+// Preview only: a real "Read" overwrites these. Keep in sync with the firmware
+// defaults if they change there.
+function defaultLevel(mode, support, emtb, torque) {
+    return {
+        mode_type: mode, support_ratio_pct: support,
+        support_min_pct: support, support_max_pct: support,
+        reference_power_w: 200, progression_pct: 0,
+        emtb_parameter: emtb, emtb_based_on_power: true,
+        emtb_reference_voltage_mv: 36000, torque_assist_factor: torque,
+        max_motor_power_w: 0, max_iq_pct: 100,
+        assist_without_rotation: false, without_rotation_threshold_mv: 18,
+        startup_boost_enabled: true, startup_boost_mode: 0,
+        startup_boost_strength_pct: 200, startup_boost_end_rpm: 45,
+        smooth_start_enabled: false, smooth_start_ms: 300,
+        release_ms: 0, power_rise_filter_ms: 0, power_fall_filter_ms: 0,
+    };
+}
+
+function defaultBank(bankIndex) {
+    const mode = bankIndex === 1 ? 3 : 1; // bank 1 = eMTB, bank 0 = Power Linear
+    const S = [100, 200, 320, 420, 520];
+    const E = [60, 100, 140, 160, 180];
+    const T = [50, 80, 120, 160, 200];
+    return {
+        bank_index: bankIndex,
+        active_bank: 0,
+        levels: S.map((s, i) => defaultLevel(mode, s, E[i], T[i])),
+    };
+}
+
+const DEFAULT_TUNING = {
+    iq_rise_slow_ms: 600, iq_rise_fast_ms: 300,
+    iq_fall_slow_ms: 1000, iq_fall_fast_ms: 140,
+    startup_boost_cadence_step: 20,
+};
+
 function buildModeSelect(bankIndex) {
     const select = el(`bankMode${bankIndex}`);
     if (!select || select.options.length) return;
@@ -89,13 +126,21 @@ function renderBank(bankIndex) {
 }
 
 export function updateBanksUI() {
-    const anyBank = state.lastBanks[0] || state.lastBanks[1];
-    el('banksPlaceholder').style.display = anyBank ? 'none' : 'block';
-    el('banksContainer').style.display = anyBank ? 'block' : 'none';
+    // Seed offline defaults so the config is always visible, even before a Read.
+    if (!state.lastBanks[0]) state.lastBanks[0] = defaultBank(0);
+    if (!state.lastBanks[1]) state.lastBanks[1] = defaultBank(1);
+
+    el('banksContainer').style.display = 'block';
+    const ph = el('banksPlaceholder');
+    ph.style.display = 'block';
+    ph.textContent = state.banksSynced
+        ? 'Values read from controller.'
+        : '⚠ Showing default values — click Read Banks to load the controller’s actual configuration.';
+
     const active = state.lastBanks[0]?.active_bank ?? state.lastBanks[1]?.active_bank;
-    el('activeBankLabel').textContent = (active === undefined) ? 'N/A' :
+    el('activeBankLabel').textContent = (!state.banksSynced || active === undefined) ? 'N/A (not read)' :
         `Bank ${active + 1} (${active ? 'eMTB default' : 'Power default'})`;
-    [0, 1].forEach((i) => { if (state.lastBanks[i]) renderBank(i); });
+    [0, 1].forEach((i) => renderBank(i));
 }
 
 el('banksReadButton').onclick = () => {
@@ -133,10 +178,15 @@ const TUNING_FIELDS = [
 ];
 
 function renderTuning() {
+    if (!state.lastTuning) state.lastTuning = { ...DEFAULT_TUNING };
     const t = state.lastTuning;
     const body = el('tuningTableBody');
-    if (!t || !body) return;
-    el('tuningPlaceholder').style.display = 'none';
+    if (!body) return;
+    const ph = el('tuningPlaceholder');
+    ph.style.display = 'block';
+    ph.textContent = state.tuningSynced
+        ? 'Values read from controller.'
+        : '⚠ Showing default values — click Read Tuning to load the controller’s actual values.';
     el('tuningContainer').style.display = 'block';
     body.innerHTML = '';
     TUNING_FIELDS.forEach((f) => {
@@ -179,3 +229,7 @@ el('tuningSaveButton').onclick = () => {
     socket.send('SAVE_BANKS');
     addLog('SAVE_REQ', 'Persist tuning + banks (flash write deferred to standstill)');
 };
+
+// Render config immediately with offline defaults so the fields are always visible.
+updateBanksUI();
+updateTuningUI();
