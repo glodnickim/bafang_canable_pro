@@ -122,3 +122,60 @@ el('banksSaveButton').onclick = () => {
     socket.send('SAVE_BANKS');
     addLog('SAVE_REQ', 'Persist banks (flash write deferred to standstill)');
 };
+
+// --- FW-010: global ride-feel tuning (shares the same 0x6022 flash-persist trigger as banks) ---
+const TUNING_FIELDS = [
+    { key: 'iq_rise_slow_ms', label: 'Acceleration, low speed/cadence (ms)', min: 20, max: 5000, step: 10 },
+    { key: 'iq_rise_fast_ms', label: 'Acceleration, high speed/cadence (ms)', min: 20, max: 5000, step: 10 },
+    { key: 'iq_fall_slow_ms', label: 'Deceleration, low speed/cadence (ms)', min: 20, max: 5000, step: 10 },
+    { key: 'iq_fall_fast_ms', label: 'Deceleration, high speed/cadence (ms)', min: 20, max: 5000, step: 10 },
+    { key: 'startup_boost_cadence_step', label: 'Startup boost cadence step (1-100, higher = fades faster)', min: 1, max: 100, step: 1 },
+];
+
+function renderTuning() {
+    const t = state.lastTuning;
+    const body = el('tuningTableBody');
+    if (!t || !body) return;
+    el('tuningPlaceholder').style.display = 'none';
+    el('tuningContainer').style.display = 'block';
+    body.innerHTML = '';
+    TUNING_FIELDS.forEach((f) => {
+        const row = body.insertRow();
+        row.insertCell().textContent = f.label;
+        const cell = row.insertCell();
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.min = f.min; input.max = f.max; input.step = f.step;
+        input.value = t[f.key] ?? 0;
+        input.style.width = '6em';
+        input.addEventListener('change', () => {
+            let v = parseInt(input.value, 10);
+            if (isNaN(v)) v = f.min;
+            v = Math.min(f.max, Math.max(f.min, v));
+            input.value = v;
+            t[f.key] = v;
+        });
+        cell.appendChild(input);
+    });
+}
+
+export function updateTuningUI() {
+    renderTuning();
+}
+
+el('tuningReadButton').onclick = () => {
+    addLog('REQ', 'Reading global tuning...');
+    socket.send('READ_TUNING');
+};
+
+el('tuningApplyButton').onclick = () => {
+    if (!state.lastTuning) { addLog('ERR', 'No tuning data. Read Tuning first.'); return; }
+    socket.send(`WRITE_TUNING:${JSON.stringify(state.lastTuning)}`);
+    addLog('SAVE_REQ', 'Tuning -> controller RAM');
+};
+
+el('tuningSaveButton').onclick = () => {
+    if (!confirm('Persist tuning (and banks) to controller flash? (Written at full standstill.)')) return;
+    socket.send('SAVE_BANKS');
+    addLog('SAVE_REQ', 'Persist tuning + banks (flash write deferred to standstill)');
+};

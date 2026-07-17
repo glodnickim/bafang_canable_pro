@@ -860,6 +860,18 @@
                         </table></div>
                     </div>
                 </div>
+
+                <h3 class="section-subtitle mt-6">Global Ride-Feel Tuning</h3>
+                <p class="text-sm mb-2">Motor acceleration/deceleration ramps (shared by both riding engines) and the
+                   ride-core startup boost cadence decay. Requires firmware 0.0164+.
+                   <button id="tuningReadButton" class="btn btn-blue ml-2">Read Tuning</button>
+                   <button id="tuningApplyButton" class="btn btn-orange">Apply (RAM)</button>
+                   <button id="tuningSaveButton" class="btn btn-red">Save (Flash)</button>
+                </p>
+                <div id="tuningPlaceholder" class="placeholder-text">Tuning data not yet received. Click Read Tuning.</div>
+                <div id="tuningContainer" style="display:none" class="overflow-x-auto mb-1">
+                    <table class="description-table w-full border-collapse text-sm"><tbody id="tuningTableBody"></tbody></table>
+                </div>
             </div>
 
             <!-- #tab-gearsM820 ============================================= -->

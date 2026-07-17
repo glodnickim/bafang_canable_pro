@@ -390,6 +390,32 @@ class BafangCanControllerParser {
         }
         return { bank_index: d[3], active_bank: d[6], levels };
     }
+
+    // FW-010: global ride-feel tuning blob (0x6023) — 4B header + 5 u16 fields + CRC16-CCITT
+    static tuningBlob(packet) {
+        const BLOB_LEN = 16;
+        const d = packet?.data;
+        if (!Array.isArray(d) || d.length < BLOB_LEN) {
+            return { parseError: true, error: `Invalid tuning blob length ${d?.length}` };
+        }
+        if (d[0] !== 0x54 || d[1] !== 0x55 || d[2] !== 1) {
+            return { parseError: true, error: 'Bad tuning blob magic/version' };
+        }
+        let crc = 0xFFFF;
+        for (let i = 0; i < 14; i++) {
+            crc ^= d[i] << 8;
+            for (let b = 0; b < 8; b++) crc = ((crc & 0x8000) ? (crc << 1) ^ 0x1021 : crc << 1) & 0xFFFF;
+        }
+        if (((d[15] << 8) | d[14]) !== crc) {
+            return { parseError: true, error: 'Tuning blob CRC mismatch' };
+        }
+        const u16 = (o) => d[o] | (d[o + 1] << 8);
+        return {
+            iq_rise_slow_ms: u16(4), iq_rise_fast_ms: u16(6),
+            iq_fall_slow_ms: u16(8), iq_fall_fast_ms: u16(10),
+            startup_boost_cadence_step: u16(12),
+        };
+    }
 }
 
 class BafangCanDisplayParser {

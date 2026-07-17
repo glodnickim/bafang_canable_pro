@@ -424,6 +424,11 @@ class CanBusService extends EventEmitter {
                 dataType = 'controller_bank';
                 if (!parsedData.parseError) { parsedData._rawBytes = [...frame.data]; }
             }
+            else if (subCode === 0x23) { //FW-010: global ride-feel tuning blob
+                parsedData = BafangCanControllerParser.tuningBlob(frame);
+                dataType = 'controller_tuning';
+                if (!parsedData.parseError) { parsedData._rawBytes = [...frame.data]; }
+            }
             else if (subCode === 0x17) {
                 dataType = 'controller_params_6017';
                 parsedData = { _rawBytes: [...frame.data] };
@@ -815,6 +820,34 @@ class CanBusService extends EventEmitter {
     async saveBanks() {
         const cmd = { canCommandCode: 0x60, canCommandSubCode: 0x22 };
         return this.writeShortParameterWithAck(DeviceNetworkId.DRIVE_UNIT, cmd, [0x01]);
+    }
+
+    // --- FW-010: global ride-feel tuning (0x6023 read / 0x6024 RAM write; persisted by saveBanks() 0x6022) ---
+    static serializeTuningBlob(t) {
+        const d = new Array(16).fill(0);
+        d[0] = 0x54; d[1] = 0x55; d[2] = 1; d[3] = 0;
+        const u16 = (o, v) => { d[o] = v & 0xFF; d[o + 1] = (v >> 8) & 0xFF; };
+        u16(4, t.iq_rise_slow_ms); u16(6, t.iq_rise_fast_ms);
+        u16(8, t.iq_fall_slow_ms); u16(10, t.iq_fall_fast_ms);
+        u16(12, t.startup_boost_cadence_step);
+        let crc = 0xFFFF;
+        for (let i = 0; i < 14; i++) {
+            crc ^= d[i] << 8;
+            for (let b = 0; b < 8; b++) crc = ((crc & 0x8000) ? (crc << 1) ^ 0x1021 : crc << 1) & 0xFFFF;
+        }
+        u16(14, crc);
+        return d;
+    }
+
+    async readTuning() {
+        const cmd = { canCommandCode: 0x60, canCommandSubCode: 0x23 };
+        return this.readParameter(DeviceNetworkId.DRIVE_UNIT, cmd);
+    }
+
+    async writeTuning(tuningObj) {
+        const cmd = { canCommandCode: 0x60, canCommandSubCode: 0x24 };
+        const bytes = CanBusService.serializeTuningBlob(tuningObj);
+        return this.writeLongParameterWithAck(DeviceNetworkId.DRIVE_UNIT, cmd, bytes);
     }
     async sendRawFrame(idHexString, dataHexString) { const commandString = `${idHexString}#${dataHexString}`; return await this.sendFrame(commandString); }
 

@@ -20,7 +20,7 @@ import { populateHexEditor, handleCustomRaw } from './tab-debug.js';
 import { updateFwUpdateProgress, addFwUpdateLog } from './tab-firmware.js';
 import { addSnifferLog } from './tab-sniffer.js';
 import { updateRideChart } from './tab-ride-logger.js';
-import { updateBanksUI } from './tab-banks.js';
+import { updateBanksUI, updateTuningUI } from './tab-banks.js';
 
 socket.onopen = () => {
     addLog('STATUS', 'WebSocket connection opened.');
@@ -147,6 +147,18 @@ socket.onmessage = (event) => {
                     break;
                 case 'bank_save_result':
                     addLog('ACK', `Bank save request: ${parsedEvent.data?.success ? 'accepted (writes at standstill)' : 'FAILED'}`);
+                    break;
+                case 'controller_tuning': //FW-010: global ride-feel tuning blob
+                    if (parsedEvent.data && !parsedEvent.data.parseError) {
+                        state.lastTuning = JSON.parse(JSON.stringify(parsedEvent.data));
+                        updateTuningUI();
+                        addLog('DATA', 'Tuning received');
+                    } else {
+                        addLog('ERR', `Tuning read failed: ${parsedEvent.data?.error}`);
+                    }
+                    break;
+                case 'tuning_write_result':
+                    addLog('ACK', `Tuning write: ${parsedEvent.data?.success ? 'OK' : 'FAILED'}${parsedEvent.data?.timedOut ? ' (timeout)' : ''}`);
                     break;
                 case 'controller_params_0':
                     state.controllerParams0 = parsedEvent.data;

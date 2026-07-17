@@ -294,6 +294,18 @@ const wss = new WebSocket.Server({ server });
 			} catch (e) { ws.send(`ERROR: SAVE_BANKS failed: ${e.message}`); }
 			return true;
 		}
+		if (messageString === 'READ_TUNING') {
+			try { await canbus.readTuning(); } catch (e) { ws.send(`ERROR: READ_TUNING failed: ${e.message}`); }
+			return true;
+		}
+		if (messageString.startsWith('WRITE_TUNING:')) {
+			try {
+				const tuningObj = JSON.parse(messageString.substring('WRITE_TUNING:'.length));
+				const result = await canbus.writeTuning(tuningObj);
+				ws.send(JSON.stringify({ type: 'tuning_write_result', data: result }));
+			} catch (e) { ws.send(`ERROR: WRITE_TUNING failed: ${e.message}`); }
+			return true;
+		}
 		return false;
 	}
 
