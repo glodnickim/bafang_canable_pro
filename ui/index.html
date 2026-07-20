@@ -17,6 +17,8 @@
                 <div id="statusIndicator" class="status-indicator"></div>
                 <span id="statusText" class="font-medium text-gray-600">Disconnected</span>
                 <div id="canDeviceName" class="text-center text-olive font-semibold ml-3 text-sm"></div>
+                <span id="controllerFlavorBadge" class="controller-flavor-badge" data-flavor="unknown"
+                    title="Waiting for CAN connection.">Controller: unknown</span>
             </div>
             <h1 class="text-xl font-bold text-olive tracking-tight">
                 <span style="color: black;">Bafang</span> / <span style="color: blue;">EBiCS</span> CANable Pro
@@ -47,6 +49,14 @@
             <button class="tab-button" data-tab="battery">Battery</button>
             <button class="tab-button" data-tab="gears">Assist (Full)</button>
             <button class="tab-button" data-tab="banks">Banks</button>
+            <button class="tab-button ebics-tab-button" data-tab="ebics-live" data-ebics-only="true" style="display:none">EBICS Live</button>
+            <button class="tab-button ebics-tab-button" data-tab="ebics-profiles" data-ebics-only="true" style="display:none">EBICS Profiles</button>
+            <button class="tab-button ebics-tab-button" data-tab="ebics-torque" data-ebics-only="true" style="display:none">EBICS Torque</button>
+            <button class="tab-button ebics-tab-button" data-tab="ebics-dynamics" data-ebics-only="true" style="display:none">EBICS Dynamics</button>
+            <button class="tab-button ebics-tab-button" data-tab="ebics-limits" data-ebics-only="true" style="display:none">EBICS Limits</button>
+            <button class="tab-button ebics-tab-button" data-tab="ebics-walk" data-ebics-only="true" style="display:none">EBICS Walk</button>
+            <button class="tab-button ebics-tab-button" data-tab="ebics-legacy" data-ebics-only="true" style="display:none">EBICS Legacy</button>
+            <button class="tab-button ebics-tab-button" data-tab="ebics-system" data-ebics-only="true" style="display:none">EBICS System</button>
             <button class="tab-button" data-tab="gearsM820">Assist (Ltd)</button>
             <button class="tab-button" data-tab="info">Info</button>
             <button class="tab-button" data-tab="debug">Debug</button>
@@ -872,6 +882,341 @@
                 <div id="tuningContainer" style="display:none" class="overflow-x-auto mb-1">
                     <table class="description-table w-full border-collapse text-sm"><tbody id="tuningTableBody"></tbody></table>
                 </div>
+            </div>
+
+            <!-- #tab-ebics-live =========================================== -->
+            <div class="tab-content ebics-tab" id="tab-ebics-live">
+                <div class="ebics-heading">
+                    <div>
+                        <div class="ebics-kicker">EBICS Ride Core</div>
+                        <h2 class="section-title text-lg">Live ride data</h2>
+                    </div>
+                    <span class="ebics-readonly-pill">Live / read-only</span>
+                </div>
+                <div class="ebics-metric-grid">
+                    <div class="ebics-metric"><span>Active bank</span><b id="ebicsLiveBank">N/A</b></div>
+                    <div class="ebics-metric"><span>Assist level</span><b id="ebicsLiveLevel">N/A</b></div>
+                    <div class="ebics-metric"><span>Ride engine</span><b id="ebicsLiveMode">N/A</b></div>
+                    <div class="ebics-metric"><span>Pedal load</span><b><span id="ebicsLiveTorqueKg">N/A</span> kg</b></div>
+                    <div class="ebics-metric"><span>Cadence</span><b><span id="ebicsLiveCadence">N/A</span> rpm</b></div>
+                    <div class="ebics-metric"><span>Speed</span><b><span id="ebicsLiveSpeed">N/A</span> km/h</b></div>
+                    <div class="ebics-metric"><span>Electrical power</span><b><span id="ebicsLivePower">N/A</span> W</b></div>
+                    <div class="ebics-metric"><span>Battery current</span><b><span id="ebicsLiveCurrent">N/A</span> A</b></div>
+                    <div class="ebics-metric"><span>Controller temp.</span><b><span id="ebicsLiveControllerTemp">N/A</span> °C</b></div>
+                    <div class="ebics-metric"><span>Motor temp.</span><b><span id="ebicsLiveMotorTemp">N/A</span> °C</b></div>
+                    <div class="ebics-metric"><span>Controller state</span><b id="ebicsLiveControllerState">N/A</b></div>
+                    <div class="ebics-metric"><span>Remaining capacity</span><b><span id="ebicsLiveRemainingCapacity">N/A</span> %</b></div>
+                    <div class="ebics-metric"><span>Remaining distance</span><b><span id="ebicsLiveRemainingDistance">N/A</span> km</b></div>
+                    <div class="ebics-metric"><span>Last trip</span><b><span id="ebicsLiveLastTrip">N/A</span> km</b></div>
+                </div>
+                <div class="ebics-chart-card mt-5">
+                    <div class="ebics-card-title">Rolling telemetry</div>
+                    <div id="ebicsLiveChart" class="ebics-chart"></div>
+                </div>
+                <div class="info-message mt-4">
+                    <span>Control owner and active limiter are not exposed by the current EBICS protocol yet. The UI shows N/A instead of estimating them.</span>
+                </div>
+            </div>
+
+            <!-- #tab-ebics-profiles ======================================= -->
+            <div class="tab-content ebics-tab" id="tab-ebics-profiles">
+                <div class="ebics-heading">
+                    <div>
+                        <div class="ebics-kicker">EBICS Ride Core</div>
+                        <h2 class="section-title text-lg">Profiles</h2>
+                    </div>
+                    <div class="flex gap-2 flex-wrap">
+                        <button id="ebicsProfilesReadButton" class="btn btn-blue">Read banks</button>
+                        <button id="ebicsProfilesApplyButton" class="btn btn-orange">Apply selected bank (RAM)</button>
+                        <button id="ebicsProfilesSaveButton" class="btn btn-red">Save all (Flash)</button>
+                    </div>
+                </div>
+                <div class="ebics-toolbar">
+                    <label>Bank <select id="ebicsProfileBankSelect" class="form-select"><option value="0">Bank 1</option><option value="1">Bank 2</option></select></label>
+                    <label>Assist level <select id="ebicsProfileLevelSelect" class="form-select"></select></label>
+                    <label>Ride engine <select id="ebicsProfileModeSelect" class="form-select"></select></label>
+                    <span id="ebicsProfilesSource" class="ebics-source-note">Not read from controller</span>
+                </div>
+                <div class="ebics-two-column mt-4">
+                    <section class="ebics-card">
+                        <div class="ebics-card-title">Engine-specific settings</div>
+                        <div id="ebicsProfileModeFields" class="ebics-field-grid"></div>
+                    </section>
+                    <section class="ebics-card">
+                        <div class="ebics-card-title">Shared safety and ride settings</div>
+                        <div id="ebicsProfileSharedFields" class="ebics-field-grid"></div>
+                    </section>
+                </div>
+                <div class="ebics-chart-card mt-5">
+                    <div class="ebics-card-title">Selected engine preview</div>
+                    <div id="ebicsProfileChart" class="ebics-chart ebics-profile-chart"></div>
+                    <small class="form-hint">Preview is calculated before controller runtime safety, thermal and current limiters.</small>
+                </div>
+            </div>
+
+            <!-- #tab-ebics-torque ========================================= -->
+            <div class="tab-content ebics-tab" id="tab-ebics-torque">
+                <div class="ebics-heading">
+                    <div><div class="ebics-kicker">EBICS Ride Core</div><h2 class="section-title text-lg">Torque sensor</h2></div>
+                    <span class="ebics-readonly-pill" id="ebicsTorqueSourcePill">Scale: default (estimated)</span>
+                </div>
+                <div class="ebics-two-column">
+                    <section class="ebics-card">
+                        <div class="ebics-card-title">Current pedal load</div>
+                        <div class="ebics-gauge"><div id="ebicsTorqueGaugeFill" class="ebics-gauge-fill"></div></div>
+                        <div class="ebics-gauge-value"><b id="ebicsTorqueKg">0.0</b> kg <span>/ 60 kg</span></div>
+                        <div class="flex gap-2 mt-2"><button id="ebicsTorqueReadButton" class="btn btn-blue">Read live</button></div>
+                        <p class="form-hint">Firmware is the source of truth for kg once it answers. Until then an estimated default scale is used (740 mV zero, 1620 mV = 60 kg).</p>
+                    </section>
+                    <section class="ebics-card">
+                        <div class="ebics-card-title">Sensor status</div>
+                        <div class="ebics-status-list">
+                            <div><span>Zero point</span><b>Automatic on every startup</b></div>
+                            <div><span>Calibration source</span><b id="ebicsTorqueCalSource">Default</b></div>
+                            <div><span>Current zero</span><b><span id="ebicsTorqueZero">N/A</span> mV</b></div>
+                            <div><span>Full scale (60 kg)</span><b><span id="ebicsTorqueFullScale">N/A</span> mV</b></div>
+                            <div><span>Selected level minimum load</span><b><span id="ebicsTorqueMinLoadKg">N/A</span> kg</b></div>
+                        </div>
+                    </section>
+                </div>
+                <section class="ebics-card mt-4">
+                    <div class="ebics-card-title">Load calibration (optional)</div>
+                    <p class="form-hint">Hang a known weight (10–30 kg recommended) on the pedal with the crank horizontal. The firmware measures the signal and computes the full scale. Skipping this keeps the default scale — the bike always rides.</p>
+                    <div class="ebics-status-list mt-2">
+                        <div><span>State</span><b id="ebicsCalState">Idle</b></div>
+                        <div><span>Last error</span><b id="ebicsCalError">None</b></div>
+                        <div><span>Preview full scale</span><b><span id="ebicsCalPreviewSpan">N/A</span> mV</b></div>
+                    </div>
+                    <div class="flex items-center gap-2 mt-3 flex-wrap">
+                        <label>Reference weight (kg): <input id="ebicsCalRefKg" type="number" min="5" max="30" step="0.1" value="11" style="width:6em"></label>
+                        <button id="ebicsCalStart" class="btn btn-blue">1. Start (no load)</button>
+                        <button id="ebicsCalCapture" class="btn btn-blue">2. Capture load</button>
+                        <button id="ebicsCalSave" class="btn btn-red">3. Save</button>
+                        <button id="ebicsCalCancel" class="btn">Cancel</button>
+                        <button id="ebicsCalRestore" class="btn">Restore default</button>
+                    </div>
+                </section>
+            </div>
+
+            <!-- #tab-ebics-dynamics ======================================= -->
+            <div class="tab-content ebics-tab" id="tab-ebics-dynamics">
+                <div class="ebics-heading">
+                    <div><div class="ebics-kicker">EBICS Ride Core</div><h2 class="section-title text-lg">Dynamics</h2></div>
+                    <div class="flex gap-2 flex-wrap">
+                        <button id="ebicsDynamicsReadButton" class="btn btn-blue">Read tuning</button>
+                        <button id="ebicsDynamicsApplyButton" class="btn btn-orange">Apply (RAM)</button>
+                        <button id="ebicsDynamicsSaveButton" class="btn btn-red">Save (Flash)</button>
+                    </div>
+                </div>
+                <p class="text-sm mb-3">Low and high speed/cadence ramps are separate because the controller blends between two response times as riding speed and cadence rise.</p>
+                <div class="ebics-two-column mt-5">
+                    <div class="ebics-chart-card">
+                        <div class="ebics-card-title">Acceleration — current rise</div>
+                        <div id="ebicsDynamicsAccelerationFields" class="ebics-field-grid ebics-dynamics-field-grid"></div>
+                        <div id="ebicsDynamicsAccelerationChart" class="ebics-chart"></div>
+                        <small class="form-hint">Start point: 0 ms / 0%. The marked endpoint is the configured time to reach 100%.</small>
+                    </div>
+                    <div class="ebics-chart-card">
+                        <div class="ebics-card-title">Deceleration — current fall</div>
+                        <div id="ebicsDynamicsDecelerationFields" class="ebics-field-grid ebics-dynamics-field-grid"></div>
+                        <div id="ebicsDynamicsDecelerationChart" class="ebics-chart"></div>
+                        <small class="form-hint">Start point: 0 ms / 100%. The marked endpoint is the configured time to reach 0%.</small>
+                    </div>
+                </div>
+                <div class="ebics-chart-card mt-5">
+                    <div class="ebics-card-title">Startup boost decay</div>
+                    <div id="ebicsDynamicsBoostFields" class="ebics-field-grid ebics-dynamics-field-grid"></div>
+                    <div id="ebicsDynamicsBoostChart" class="ebics-chart"></div>
+                </div>
+            </div>
+
+            <!-- #tab-ebics-limits ========================================= -->
+            <div class="tab-content ebics-tab" id="tab-ebics-limits">
+                <div class="ebics-heading">
+                    <div><div class="ebics-kicker">EBICS Ride Core</div><h2 class="section-title text-lg">Limits</h2></div>
+                    <div class="flex gap-2 flex-wrap">
+                        <button id="ebicsLimitsSyncButton" class="btn btn-blue">Sync controller blocks</button>
+                        <button id="ebicsLimitsApplyButton" class="btn btn-orange">Apply limits and speed</button>
+                    </div>
+                </div>
+                <div class="ebics-toolbar">
+                    <label>Bank <select id="ebicsLimitsBankSelect" class="form-select"><option value="0">Bank 1</option><option value="1">Bank 2</option></select></label>
+                    <label>Assist level <select id="ebicsLimitsLevelSelect" class="form-select"></select></label>
+                </div>
+                <div class="ebics-metric-grid mt-4">
+                    <div class="ebics-metric"><span>Battery current limit</span><b><span id="ebicsLimitBatteryCurrent">N/A</span> A</b></div>
+                    <div class="ebics-metric"><span>Stored low-charge current</span><b><span id="ebicsLimitMotorCurrent">N/A</span> A</b></div>
+                    <div class="ebics-metric"><span>Level max power</span><b><span id="ebicsLimitPower">N/A</span> W</b></div>
+                    <div class="ebics-metric"><span>Level max Iq</span><b><span id="ebicsLimitIq">N/A</span> %</b></div>
+                    <div class="ebics-metric"><span>Live current</span><b><span id="ebicsLimitLiveCurrent">N/A</span> A</b></div>
+                    <div class="ebics-metric"><span>Live electrical power</span><b><span id="ebicsLimitLivePower">N/A</span> W</b></div>
+                </div>
+                <div class="ebics-chart-card mt-5"><div class="ebics-card-title">Live value versus configured ceiling</div><div id="ebicsLimitsChart" class="ebics-chart"></div></div>
+                <div class="ebics-toolbar mt-5"><span id="ebicsCompatibilitySourceLimits" class="ebics-source-note">Preview values — sync before writing</span></div>
+                <div class="ebics-two-column mt-4">
+                    <section class="ebics-card">
+                        <div class="ebics-card-title">Electrical and battery limits (0x6011)</div>
+                        <div id="ebicsLimitsElectricalFields" class="ebics-field-grid"></div>
+                        <div id="ebicsLimpSocSummary" class="ebics-limp-summary mt-3">Limp SoC scale will appear after sync.</div>
+                    </section>
+                    <section class="ebics-card">
+                        <div class="ebics-card-title">Speed, wheel and legal settings</div>
+                        <div id="ebicsLimitsSpeedFields" class="ebics-field-grid"></div>
+                    </section>
+                </div>
+                <div class="info-message mt-4"><span>These controls replace the EBICS-used electrical, battery and speed fields from Controller Settings. Unused factory bytes remain available only in Debug.</span></div>
+            </div>
+
+            <!-- #tab-ebics-walk =========================================== -->
+            <div class="tab-content ebics-tab" id="tab-ebics-walk">
+                <div class="ebics-heading">
+                    <div><div class="ebics-kicker">EBICS Ride Core</div><h2 class="section-title text-lg">Walk assist</h2></div>
+                    <div class="flex gap-2 flex-wrap">
+                        <button id="ebicsWalkSyncButton" class="btn btn-blue">Sync</button>
+                        <button id="ebicsWalkApplyButton" class="btn btn-orange">Apply Walk settings</button>
+                    </div>
+                </div>
+                <div class="ebics-metric-grid">
+                    <div class="ebics-metric"><span>Walk current (legacy byte)</span><b id="ebicsWalkCurrent">N/A</b></div>
+                    <div class="ebics-metric"><span>Walk speed</span><b><span id="ebicsWalkSpeed">N/A</span> km/h</b></div>
+                    <div class="ebics-metric"><span>Minimum ERPS</span><b>N/A</b></div>
+                    <div class="ebics-metric"><span>Maximum ERPS</span><b>N/A</b></div>
+                    <div class="ebics-metric"><span>Ramp</span><b>N/A</b></div>
+                </div>
+                <section class="ebics-card mt-5">
+                    <div class="ebics-card-title">Functional Legacy Walk settings (0x6011)</div>
+                    <div id="ebicsWalkFields" class="ebics-field-grid"></div>
+                    <small id="ebicsCompatibilitySourceWalk" class="form-hint">Preview values — sync before writing</small>
+                </section>
+                <div class="info-message mt-4"><span>Walk current and target speed can now be read and written here. Dedicated ERPS and walk-ramp fields remain pending until firmware exposes their protocol.</span></div>
+            </div>
+
+            <!-- #tab-ebics-legacy ========================================= -->
+            <div class="tab-content ebics-tab" id="tab-ebics-legacy">
+                <div class="ebics-heading">
+                    <div><div class="ebics-kicker">EBICS Ride Core</div><h2 class="section-title text-lg">Legacy compatibility blocks</h2></div>
+                    <div class="flex gap-2 flex-wrap">
+                        <button id="ebicsLegacySyncButton" class="btn btn-blue">Sync P0 / P1 / P2</button>
+                        <button id="ebicsLegacyApplyButton" class="btn btn-orange">Apply Legacy blocks</button>
+                    </div>
+                </div>
+                <div class="ebics-toolbar mb-4">
+                    <span class="ebics-readonly-pill">0x6010 / 0x6011 / 0x6012 / 0x62D9</span>
+                    <span id="ebicsCompatibilitySourceLegacy" class="ebics-source-note">Preview values — sync before writing</span>
+                    <label class="ebics-inline-check"><input id="ebicsLegacyAutoCorrectionCheckbox" type="checkbox" checked> Keep level values ascending</label>
+                </div>
+                <section class="ebics-card mb-5">
+                    <div class="ebics-card-title">Legacy advanced controls</div>
+                    <div id="ebicsLegacyAdvancedFields" class="ebics-field-grid"></div>
+                </section>
+                <h3 class="section-subtitle">Five assist levels</h3>
+                <div class="overflow-x-auto mb-5"><table class="description-table assist-table w-full border-collapse text-sm">
+                    <thead><tr><th>Level</th><th>Motor current (%)</th><th>Speed limit (%)</th><th>Ride mode / TQ filter</th><th>Lower torque threshold (kg)</th></tr></thead>
+                    <tbody id="ebicsLegacyAssistTableBody"></tbody>
+                </table>
+                <small class="form-hint">Legacy lower torque threshold is limited to 31.2 kg because the current firmware map reaches full current at TQ_FULL_SCALE_MV=2000. The 0-60 kg scale remains the raw torque sensor display range.</small></div>
+                <h3 class="section-subtitle">Legacy assist_profile[5][6]</h3>
+                <div class="overflow-x-auto mb-5"><table class="description-table assist-table w-full border-collapse text-sm">
+                    <thead><tr><th>Level</th><th>0–3</th><th>3–6</th><th>6–9</th><th>9–12</th><th>12–15</th><th>15–18 mph</th></tr></thead>
+                    <tbody id="ebicsLegacyProfileTableBody"></tbody>
+                </table></div>
+                <h3 class="section-subtitle">Extended Boost storage</h3>
+                <p class="text-sm mb-2">Values are preserved for compatibility, but Extended Boost is disabled in the current firmware.</p>
+                <div class="overflow-x-auto mb-5"><table class="description-table assist-table w-full border-collapse text-sm">
+                    <thead><tr><th>Level</th><th>Strength (%)</th><th>Duration (raw)</th></tr></thead>
+                    <tbody id="ebicsLegacyBoostTableBody"></tbody>
+                </table></div>
+                <h3 class="section-subtitle">Block status</h3>
+                <div class="overflow-x-auto"><table class="description-table w-full border-collapse text-sm"><thead><tr><th>Block</th><th>EBICS field</th><th>Current value</th><th>Status</th></tr></thead><tbody id="ebicsLegacyTableBody"></tbody></table></div>
+            </div>
+
+            <!-- #tab-ebics-system ========================================= -->
+            <div class="tab-content ebics-tab" id="tab-ebics-system">
+                <div class="ebics-heading">
+                    <div><div class="ebics-kicker">EBICS Ride Core</div><h2 class="section-title text-lg">System and protocol</h2></div>
+                    <div class="flex gap-2 flex-wrap">
+                        <button id="ebicsSystemSyncButton" class="btn btn-blue">Sync all controller settings</button>
+                        <button id="ebicsSystemApplyButton" class="btn btn-orange">Apply system settings</button>
+                        <button id="ebicsProbeAgainButton" class="btn btn-secondary">Detect again</button>
+                    </div>
+                </div>
+                <div class="ebics-status-list ebics-card">
+                    <div><span>Detected controller</span><b id="ebicsDetectionState">Controller: unknown</b></div>
+                    <div><span>Detection evidence</span><b id="ebicsDetectionReason">Waiting for CAN connection.</b></div>
+                    <div><span>Ride Core bank schema</span><b>Version 1</b></div>
+                    <div><span>Factory Bafang compatibility</span><b>Kept active</b></div>
+                </div>
+                <section class="ebics-card mt-4">
+                    <div class="ebics-card-title">Ride engine (developer)</div>
+                    <div class="warning-message">
+                        <span><b>Warning:</b> "TSDZ (new)" runs the new EBICS ride-core assist (Power/eMTB/Torque) — never tested on this hub motor. First switch with the rear wheel in the air, then a safe area. "Legacy" is the proven default. The switch applies only at a full standstill and is remembered across restarts.</span>
+                    </div>
+                    <div class="ebics-status-list mt-2">
+                        <div><span>Active engine</span><b id="ebicsEngineActive">N/A</b></div>
+                        <div><span>Pending (applies at standstill)</span><b id="ebicsEnginePending">None</b></div>
+                    </div>
+                    <div class="flex items-center gap-2 mt-3 flex-wrap">
+                        <button id="ebicsEngineReadButton" class="btn btn-blue">Read status</button>
+                        <button id="ebicsEngineLegacyButton" class="btn">Set Legacy</button>
+                        <button id="ebicsEngineTsdzButton" class="btn btn-red">Set TSDZ (new)</button>
+                    </div>
+                </section>
+                <section class="ebics-card mt-4">
+                    <div class="ebics-card-title">TSDZ diagnostics (peak-hold)</div>
+                    <p class="form-hint">Values are the PEAK since the last read — so a brief press is catchable. Method: click "Read once" (clears peaks), press the pedal / crank a bit, then click "Read once" again to see the captured peak of each value. Watch which one stays near zero — that is where the assist collapses. Needs firmware 0.0173+ on the TSDZ engine.</p>
+                    <div class="flex items-center gap-2 mt-2 flex-wrap">
+                        <button id="ebicsDiagReadButton" class="btn btn-blue">Read once</button>
+                        <label><input id="ebicsDiagAuto" type="checkbox"> Auto (2 Hz)</label>
+                    </div>
+                    <div class="ebics-status-list mt-2">
+                        <div><span>Cadence seen by mode</span><b><span id="diagCadence">N/A</span> rpm</b></div>
+                        <div><span>Torque to assist</span><b><span id="diagTorque">N/A</span> mV</b></div>
+                        <div><span>Human power</span><b><span id="diagHumanPower">N/A</span> W</b></div>
+                        <div><span>Support ratio</span><b><span id="diagSupport">N/A</span> %</b></div>
+                        <div><span>Motor power (requested)</span><b><span id="diagMotorPower">N/A</span> W</b></div>
+                        <div><span>Battery current (requested)</span><b><span id="diagBatCurrent">N/A</span> mA</b></div>
+                        <div><span>iq requested (by mode)</span><b id="diagIqRequest">N/A</b></div>
+                        <div><span>iq setpoint (reaching motor)</span><b id="diagIqSetpoint">N/A</b></div>
+                        <div><span>Speed</span><b><span id="diagSpeed">N/A</span> km/h</b></div>
+                    </div>
+                </section>
+                <div class="ebics-two-column mt-5">
+                    <section class="ebics-card">
+                        <div class="ebics-card-title">Motor and sensor configuration</div>
+                        <div id="ebicsSystemMotorFields" class="ebics-field-grid"></div>
+                    </section>
+                    <section class="ebics-card">
+                        <div class="ebics-card-title">PAS, throttle and Legacy timing</div>
+                        <div id="ebicsSystemRideFields" class="ebics-field-grid"></div>
+                    </section>
+                </div>
+                <div class="ebics-toolbar mt-4"><span id="ebicsCompatibilitySourceSystem" class="ebics-source-note">Preview values — sync before writing</span></div>
+                <h3 class="section-subtitle mt-6">Controller service</h3>
+                <div class="flex gap-2 flex-wrap mb-4">
+                    <button id="ebicsCalibratePositionButton" class="btn btn-warning">Calibrate position sensor</button>
+                    <button id="ebicsRestoreControllerDefaultsButton" class="btn btn-danger">Restore controller defaults</button>
+                    <button id="ebicsClearControllerErrorsButton" class="btn btn-secondary">Clear controller errors</button>
+                </div>
+                <div class="warning-message mb-4"><span>Position calibration spins the motor. Restore controller defaults uses native 0x6101 and overwrites saved controller settings. Torque zero calibration is intentionally absent: EBICS always performs torque zero automatically.</span></div>
+                <details class="ebics-advanced-service mb-4">
+                    <summary>Advanced service</summary>
+                    <p class="form-hint">Use only after a P1/P2 checksum mismatch. This rewrites the last-read block with a recalculated checksum.</p>
+                    <div class="flex gap-2 flex-wrap mt-2">
+                        <button id="ebicsRepairP1ChecksumButton" class="btn btn-secondary">Repair P1 checksum from last read</button>
+                        <button id="ebicsRepairP2ChecksumButton" class="btn btn-secondary">Repair P2 checksum from last read</button>
+                    </div>
+                </details>
+                <div class="overflow-x-auto"><table class="description-table w-full border-collapse text-sm"><thead><tr><th>Code</th><th>Description</th><th>Recommendation</th></tr></thead><tbody id="ebicsControllerErrorsTableBody"></tbody></table></div>
+                <h3 class="section-subtitle mt-6">Implemented EBICS transport</h3>
+                <div class="overflow-x-auto"><table class="description-table w-full border-collapse text-sm"><thead><tr><th>CAN block</th><th>Operation</th><th>UI use</th></tr></thead><tbody>
+                    <tr><td>0x6020</td><td>Read profile bank</td><td>Detection, Profiles, Limits</td></tr>
+                    <tr><td>0x6021</td><td>Apply profile bank to RAM</td><td>Profiles</td></tr>
+                    <tr><td>0x6022</td><td>Persist banks and tuning at standstill</td><td>Profiles, Dynamics</td></tr>
+                    <tr><td>0x6023</td><td>Read global tuning</td><td>Dynamics</td></tr>
+                    <tr><td>0x6024</td><td>Apply global tuning to RAM</td><td>Dynamics</td></tr>
+                    <tr><td>0x6101</td><td>Restore controller defaults in EBICS firmware</td><td>System</td></tr>
+                </tbody></table></div>
+                <div class="warning-message mt-4"><span>Saved-vs-runtime comparison, revert, torque calibration endpoints, active owner/limiter and dedicated walk ERPS are intentionally marked unavailable until firmware exposes them.</span></div>
             </div>
 
             <!-- #tab-gearsM820 ============================================= -->

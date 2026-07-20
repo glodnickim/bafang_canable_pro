@@ -20,6 +20,10 @@
 - Run `npm install` in terminal to download all dependencies
 - Run `node server.js` in terminal
 
+## EBICS Ride Core interface
+
+The source build contains a parallel, auto-detected EBICS interface while retaining all factory Bafang tabs. Implementation status and the hardware test procedure are documented in [documentation/EBICS_PARALLEL_UI_IMPLEMENTATION_PL.md](documentation/EBICS_PARALLEL_UI_IMPLEMENTATION_PL.md).
+
 ## (STM32G431) Required: candlelight firmware flashing 
 - For Canable 2.0 (STM32G431) use [HUD ECU Hacker candlelight firmware and updater](https://www.netcult.ch/elmue/CANable%20Firmware%20Update/)
 

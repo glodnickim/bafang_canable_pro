@@ -59,6 +59,201 @@
 .tab-content { display: none; }
 .tab-content.active { display: block; }
 
+/* ====== EBICS PARALLEL INTERFACE ====== */
+.controller-flavor-badge {
+    display: inline-flex;
+    align-items: center;
+    min-height: 24px;
+    padding: 2px 9px;
+    border-radius: 999px;
+    border: 1px solid #cbd5e1;
+    color: #475569;
+    background: #f8fafc;
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+.controller-flavor-badge[data-flavor="detecting"] { color: #1d4ed8; border-color: #93c5fd; background: #eff6ff; }
+.controller-flavor-badge[data-flavor="factory_bafang"] { color: #3f6212; border-color: #bef264; background: #f7fee7; }
+.controller-flavor-badge[data-flavor="ebics"] { color: #1e40af; border-color: #60a5fa; background: #dbeafe; }
+.ebics-tab-button { color: #1d4ed8; }
+.ebics-tab-button.active { color: #ffffff; background: #2563eb; border-color: #2563eb; }
+.ebics-tab { --ebics-blue: #2563eb; --ebics-dark: #0f172a; }
+.ebics-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+.ebics-kicker {
+    margin-bottom: 2px;
+    color: var(--ebics-blue);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+}
+.ebics-readonly-pill,
+.ebics-source-note {
+    display: inline-flex;
+    align-items: center;
+    min-height: 28px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: #eff6ff;
+    color: #1d4ed8;
+    border: 1px solid #bfdbfe;
+    font-size: 11px;
+    font-weight: 700;
+}
+.ebics-toolbar {
+    display: flex;
+    align-items: end;
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: 12px;
+    border: 1px solid #dbeafe;
+    border-radius: 10px;
+    background: #f8fbff;
+}
+.ebics-toolbar label { display: grid; gap: 4px; color: #475569; font-size: 11px; font-weight: 700; }
+.ebics-toolbar .ebics-inline-check {
+    display: inline-flex;
+    align-items: center;
+    align-self: center;
+    gap: 7px;
+    min-height: 30px;
+    padding: 4px 10px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    background: #ffffff;
+}
+.ebics-inline-check input { width: 16px; height: 16px; }
+.ebics-toolbar .form-select { min-width: 145px; }
+.ebics-two-column {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+}
+.ebics-card,
+.ebics-chart-card {
+    min-width: 0;
+    padding: 16px;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    background: #ffffff;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
+}
+.ebics-card-title { margin-bottom: 12px; color: var(--ebics-dark); font-size: 13px; font-weight: 800; }
+.ebics-field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 14px; }
+.ebics-dynamics-field-grid { grid-template-columns: 1fr; margin-bottom: 12px; }
+.ebics-field {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(90px, 132px);
+    align-items: center;
+    gap: 10px;
+    min-height: 40px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #f1f5f9;
+}
+.ebics-field label { color: #475569; font-size: 12px; font-weight: 600; }
+.ebics-field input[type="number"], .ebics-field select { width: 100%; }
+.ebics-field input[type="checkbox"] { justify-self: end; width: 18px; height: 18px; }
+.ebics-limp-summary {
+    padding: 10px 12px;
+    border: 1px solid #bfdbfe;
+    border-radius: 10px;
+    background: #eff6ff;
+    color: #1e40af;
+    font-size: 12px;
+    line-height: 1.35;
+}
+.ebics-limp-title {
+    margin-bottom: 8px;
+    font-weight: 800;
+}
+.ebics-limp-table {
+    width: 100%;
+    margin-bottom: 8px;
+    border-collapse: collapse;
+}
+.ebics-limp-table td {
+    padding: 4px 0;
+    border-top: 1px solid #bfdbfe;
+    vertical-align: top;
+}
+.ebics-limp-table td:last-child {
+    padding-left: 12px;
+    font-weight: 800;
+    text-align: right;
+    white-space: nowrap;
+}
+.ebics-limp-note {
+    color: #1e3a8a;
+}
+.ebics-limp-chart {
+    width: 100%;
+    height: 280px;
+    margin: 4px 0 8px;
+}
+.ebics-metric-grid { display: grid; grid-template-columns: repeat(5, minmax(125px, 1fr)); gap: 10px; }
+.ebics-profile-chart { height: 380px; min-height: 380px; margin-bottom: 8px; }
+.ebics-advanced-service {
+    padding: 10px 12px;
+    border: 1px dashed #cbd5e1;
+    border-radius: 10px;
+    background: #f8fafc;
+}
+.ebics-advanced-service summary {
+    cursor: pointer;
+    color: #475569;
+    font-size: 12px;
+    font-weight: 700;
+}
+.ebics-metric {
+    display: grid;
+    gap: 6px;
+    min-height: 78px;
+    padding: 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    background: linear-gradient(145deg, #ffffff, #f8fafc);
+}
+.ebics-metric span:first-child { color: #64748b; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+.ebics-metric b { align-self: end; color: #0f172a; font-size: 17px; }
+.ebics-chart { width: 100%; min-height: 300px; }
+.ebics-gauge {
+    position: relative;
+    height: 18px;
+    margin: 24px 0 12px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: #e2e8f0;
+}
+.ebics-gauge-fill { width: 0; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #22c55e, #2563eb); transition: width .2s ease; }
+.ebics-gauge-value { color: #0f172a; font-size: 28px; }
+.ebics-gauge-value span { color: #94a3b8; font-size: 13px; }
+.ebics-status-list { display: grid; gap: 0; }
+.ebics-status-list > div { display: grid; grid-template-columns: minmax(150px, 35%) 1fr; gap: 12px; padding: 10px 0; border-bottom: 1px solid #e2e8f0; }
+.ebics-status-list > div:last-child { border-bottom: 0; }
+.ebics-status-list span { color: #64748b; }
+.ebics-status-list b { color: #0f172a; overflow-wrap: anywhere; }
+
+@media (max-width: 1100px) {
+    .ebics-metric-grid { grid-template-columns: repeat(3, minmax(125px, 1fr)); }
+    .ebics-field-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 760px) {
+    .ebics-two-column { grid-template-columns: 1fr; }
+    .ebics-metric-grid { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+    .ebics-field { grid-template-columns: 1fr minmax(90px, 45%); }
+}
+@media (max-width: 430px) {
+    .ebics-metric-grid { grid-template-columns: 1fr; }
+}
+
 /* ====== COMPONENT CLASSES ====== */
 .section-title {
     font-weight: 700;

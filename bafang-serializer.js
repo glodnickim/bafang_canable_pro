@@ -354,10 +354,10 @@ function prepareParameter1WriteData(canbusInstance, value) {
         new_pkg[58] = value.displayless_mode ? 1 : 0;
         new_pkg[59] = value.lamps_always_on ? 1 : 0;  
 		
-        const walkSpeedRaw = value.walk_assist_speed; // This is already scaled x100 by parser if it comes from device
+        const walkSpeedRaw = value.walk_assist_speed; // User-facing km/h; wire format is km/h x100.
         let scaledWalkSpeed;
         if (walkSpeedRaw !== undefined && walkSpeedRaw !== null) {
-            scaledWalkSpeed = (Math.max(0, Math.min(600, Math.round(walkSpeedRaw))) * 100);
+            scaledWalkSpeed = Math.round(Math.max(0, Math.min(6, walkSpeedRaw)) * 100);
         } else {
             scaledWalkSpeed = 300; // Default to 3km/h * 100
         }

@@ -7,7 +7,7 @@ import {
     addLog, autoPopup, updateStatus,
     updateCanInterfaceDisplay,
     getProductionDateFromSerial, calculateStartPulse,
-    wheelDiameterTable,
+    wheelDiameterTable, torqueModel,
 } from './shared.js';
 import { updateDisplayUI, createErrorsTable } from './tab-display.js';
 import { updateControllerUI, updateControllerStateUI } from './tab-controller.js';
@@ -21,6 +21,10 @@ import { updateFwUpdateProgress, addFwUpdateLog } from './tab-firmware.js';
 import { addSnifferLog } from './tab-sniffer.js';
 import { updateRideChart } from './tab-ride-logger.js';
 import { updateBanksUI, updateTuningUI } from './tab-banks.js';
+import {
+    startControllerDetection, resetControllerDetection, confirmEbicsController,
+} from './ebics-detection.js';
+import { updateEbicsUI, updateTorqueCalUI, updateEngineUI, updateDiagUI } from './tab-ebics.js';
 
 socket.onopen = () => {
     addLog('STATUS', 'WebSocket connection opened.');
@@ -28,6 +32,7 @@ socket.onopen = () => {
 };
 
 socket.onclose = () => {
+    resetControllerDetection('WebSocket connection to CANable server was closed.');
     updateCanInterfaceDisplay('DEVICE_NOT_FOUND');
     statusText.textContent = 'Disconnected (WebSocket Closed)';
     canDeviceNameElement.textContent = 'Connection to server lost.';
@@ -35,6 +40,7 @@ socket.onclose = () => {
 };
 
 socket.onerror = (error) => {
+    resetControllerDetection('WebSocket error; controller family is unknown.');
     console.error("WebSocket Error:", error);
     updateCanInterfaceDisplay('DEVICE_NOT_FOUND');
     statusText.textContent = `Disconnected (WebSocket Error: ${error.message || 'Unknown'})`;
@@ -71,6 +77,11 @@ socket.onmessage = (event) => {
             state.currentCanDeviceName = null;
         }
         updateCanInterfaceDisplay(statusType, state.currentCanDeviceName);
+        if (statusType === 'CONNECTED') {
+            startControllerDetection();
+        } else if (['NOT_FOUND', 'DISCONNECTED_DEVICE_STILL_PRESENT', 'DISCONNECTING'].includes(statusType)) {
+            resetControllerDetection('CAN controller is not connected.');
+        }
     }
     else if (message.startsWith('CAN_STATUS:')) {
         const statusMsg = message.substring('CAN_STATUS:'.length).trim();
@@ -133,9 +144,12 @@ socket.onmessage = (event) => {
                 case 'controller_realtime_1': state.controllerRealtime1 = parsedEvent.data; needsControllerUpdate = true; break;
                 case 'controller_bank': //FW-006: profile bank blob
                     if (parsedEvent.data && !parsedEvent.data.parseError) {
+                        confirmEbicsController('Valid EBICS Ride Core bank signature, schema version and CRC received.');
                         state.lastBanks = state.lastBanks || {};
                         state.lastBanks[parsedEvent.data.bank_index] =
                             JSON.parse(JSON.stringify(parsedEvent.data));
+                        state.ebicsReceivedBanks = state.ebicsReceivedBanks || {};
+                        state.ebicsReceivedBanks[parsedEvent.data.bank_index] = true;
                         state.banksSynced = true;
                         updateBanksUI();
                         addLog('DATA', `Bank ${parsedEvent.data.bank_index + 1} received`);
@@ -161,6 +175,39 @@ socket.onmessage = (event) => {
                     break;
                 case 'tuning_write_result':
                     addLog('ACK', `Tuning write: ${parsedEvent.data?.success ? 'OK' : 'FAILED'}${parsedEvent.data?.timedOut ? ' (timeout)' : ''}`);
+                    break;
+                case 'controller_torque': //FW-013: torque load telemetry + calibration status
+                    if (parsedEvent.data && !parsedEvent.data.parseError) {
+                        state.lastTorque = parsedEvent.data;
+                        // Firmware is the authoritative kg source once its telemetry answers.
+                        torqueModel.source = 'firmware';
+                        torqueModel.spanMv = parsedEvent.data.span_native || torqueModel.spanMv;
+                        torqueModel.calibrationSource = parsedEvent.data.calibration_source === 1 ? 'user' : 'default';
+                        updateTorqueCalUI(parsedEvent.data);
+                    } else {
+                        addLog('ERR', `Torque telemetry failed: ${parsedEvent.data?.error}`);
+                    }
+                    break;
+                case 'torque_cal_result':
+                    addLog('ACK', `Torque calibration op: ${parsedEvent.data?.success ? 'OK' : 'FAILED'}${parsedEvent.data?.timedOut ? ' (timeout)' : ''}`);
+                    break;
+                case 'controller_system': //FW-014: ride engine status
+                    if (parsedEvent.data && !parsedEvent.data.parseError) {
+                        state.lastSystem = parsedEvent.data;
+                        updateEngineUI(parsedEvent.data);
+                    } else {
+                        addLog('ERR', `System status failed: ${parsedEvent.data?.error}`);
+                    }
+                    break;
+                case 'engine_set_result':
+                    addLog('ACK', `Engine switch request: ${parsedEvent.data?.success ? 'OK (applies at standstill)' : 'FAILED'}${parsedEvent.data?.timedOut ? ' (timeout)' : ''}`);
+                    setTimeout(() => { if (socket.readyState === WebSocket.OPEN) socket.send('READ_SYSTEM'); }, 400);
+                    break;
+                case 'controller_diag': //FW-015: TSDZ ride-core diagnostics
+                    if (parsedEvent.data && !parsedEvent.data.parseError) {
+                        state.lastDiag = parsedEvent.data;
+                        updateDiagUI(parsedEvent.data);
+                    }
                     break;
                 case 'controller_params_0':
                     state.controllerParams0 = parsedEvent.data;
@@ -355,6 +402,7 @@ socket.onmessage = (event) => {
             if (needsStartRampChartUpdate) updateStartRampChartUnified(false);
             if (needsPasChartUpdateM820) updatePasCurvesChartUnified(true);
             if (needsStartRampChartUpdateM820) updateStartRampChartUnified(true);
+            updateEbicsUI(parsedEvent.type);
 
         } catch (e) {
             console.error("Error processing BAFANG_DATA:", e);

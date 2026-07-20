@@ -13,6 +13,8 @@ import './tab-sensor.js';
 import './tab-battery.js';
 import './tab-gears-m820.js';
 import './tab-banks.js';
+import './ebics-detection.js';
+import './tab-ebics.js';
 import './tab-info.js';
 import './tab-firmware.js';
 import './tab-sniffer.js';

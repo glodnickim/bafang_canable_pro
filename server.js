@@ -306,6 +306,36 @@ const wss = new WebSocket.Server({ server });
 			} catch (e) { ws.send(`ERROR: WRITE_TUNING failed: ${e.message}`); }
 			return true;
 		}
+		if (messageString === 'READ_TORQUE') {
+			try { await canbus.readTorque(); } catch (e) { ws.send(`ERROR: READ_TORQUE failed: ${e.message}`); }
+			return true;
+		}
+		if (messageString.startsWith('TORQUE_CAL:')) {
+			try {
+				const parts = messageString.substring('TORQUE_CAL:'.length).split(':');
+				const op = parseInt(parts[0], 10);
+				const refCentikg = parts.length > 1 ? parseInt(parts[1], 10) : 0;
+				const result = await canbus.torqueCalOp(op, refCentikg);
+				ws.send(JSON.stringify({ type: 'torque_cal_result', data: result }));
+			} catch (e) { ws.send(`ERROR: TORQUE_CAL failed: ${e.message}`); }
+			return true;
+		}
+		if (messageString === 'READ_SYSTEM') {
+			try { await canbus.readSystem(); } catch (e) { ws.send(`ERROR: READ_SYSTEM failed: ${e.message}`); }
+			return true;
+		}
+		if (messageString === 'READ_DIAG') {
+			try { await canbus.readDiagnostics(); } catch (e) { ws.send(`ERROR: READ_DIAG failed: ${e.message}`); }
+			return true;
+		}
+		if (messageString.startsWith('SET_ENGINE:')) {
+			try {
+				const engine = parseInt(messageString.substring('SET_ENGINE:'.length), 10);
+				const result = await canbus.setEngine(engine);
+				ws.send(JSON.stringify({ type: 'engine_set_result', data: result }));
+			} catch (e) { ws.send(`ERROR: SET_ENGINE failed: ${e.message}`); }
+			return true;
+		}
 		return false;
 	}
 

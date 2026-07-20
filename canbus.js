@@ -429,6 +429,21 @@ class CanBusService extends EventEmitter {
                 dataType = 'controller_tuning';
                 if (!parsedData.parseError) { parsedData._rawBytes = [...frame.data]; }
             }
+            else if (subCode === 0x25) { //FW-013: torque load telemetry + calibration status
+                parsedData = BafangCanControllerParser.torqueTelemetry(frame);
+                dataType = 'controller_torque';
+                if (!parsedData.parseError) { parsedData._rawBytes = [...frame.data]; }
+            }
+            else if (subCode === 0x28) { //FW-014: system status (ride engine)
+                parsedData = BafangCanControllerParser.systemStatus(frame);
+                dataType = 'controller_system';
+                if (!parsedData.parseError) { parsedData._rawBytes = [...frame.data]; }
+            }
+            else if (subCode === 0x29) { //FW-015: TSDZ ride-core diagnostics
+                parsedData = BafangCanControllerParser.rideDiagnostics(frame);
+                dataType = 'controller_diag';
+                if (!parsedData.parseError) { parsedData._rawBytes = [...frame.data]; }
+            }
             else if (subCode === 0x17) {
                 dataType = 'controller_params_6017';
                 parsedData = { _rawBytes: [...frame.data] };
@@ -848,6 +863,35 @@ class CanBusService extends EventEmitter {
         const cmd = { canCommandCode: 0x60, canCommandSubCode: 0x24 };
         const bytes = CanBusService.serializeTuningBlob(tuningObj);
         return this.writeLongParameterWithAck(DeviceNetworkId.DRIVE_UNIT, cmd, bytes);
+    }
+
+    // --- FW-013: torque load telemetry (0x6025 read) + calibration ops (0x6026 short write) ---
+    async readTorque() {
+        const cmd = { canCommandCode: 0x60, canCommandSubCode: 0x25 };
+        return this.readParameter(DeviceNetworkId.DRIVE_UNIT, cmd);
+    }
+
+    async torqueCalOp(op, referenceCentikg = 0) {
+        // op: 1 start, 2 capture-load(+ref), 3 commit, 4 cancel, 5 restore-default
+        const cmd = { canCommandCode: 0x60, canCommandSubCode: 0x26 };
+        const data = [op & 0xFF, referenceCentikg & 0xFF, (referenceCentikg >> 8) & 0xFF, 0, 0];
+        return this.writeShortParameterWithAck(DeviceNetworkId.DRIVE_UNIT, cmd, data);
+    }
+
+    // --- FW-014: ride engine switch (0x6027 short write) + system status (0x6028 read) ---
+    async setEngine(engine) {
+        const cmd = { canCommandCode: 0x60, canCommandSubCode: 0x27 };
+        return this.writeShortParameterWithAck(DeviceNetworkId.DRIVE_UNIT, cmd, [engine ? 1 : 0, 0, 0, 0, 0]);
+    }
+
+    async readSystem() {
+        const cmd = { canCommandCode: 0x60, canCommandSubCode: 0x28 };
+        return this.readParameter(DeviceNetworkId.DRIVE_UNIT, cmd);
+    }
+
+    async readDiagnostics() {
+        const cmd = { canCommandCode: 0x60, canCommandSubCode: 0x29 };
+        return this.readParameter(DeviceNetworkId.DRIVE_UNIT, cmd);
     }
     async sendRawFrame(idHexString, dataHexString) { const commandString = `${idHexString}#${dataHexString}`; return await this.sendFrame(commandString); }
 

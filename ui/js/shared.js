@@ -1,32 +1,57 @@
 // shared.js — ES Module
 /* global Plotly */
 
-// --- Torque unit conversion (EBICS contract: user sees kg, wire stays native mV) ---
-// Reverse-engineered factory sensor characteristic (linear): base 750 mV = 0 kg,
-// 40 mV per 1 kg, so 60 kg = 3150 mV; anything above 3150 mV reads as 60 kg.
-// This is the RAW READING scale only. The assist full-power point
-// (TQ_FULL_SCALE_MV 2000 in firmware) is a separate assist-mapping concept
-// and must not distort the displayed sensor reading.
-// Raw mV stays visible only in the Debug tab.
-export const TORQUE_ZERO_MV = 750;
-export const TORQUE_MV_PER_KG = 40;
+// --- Torque unit model (EBICS: firmware is the source of truth for kg) ---
+// Firmware measures the resting signal automatically (zero) and, when calibrated
+// or by default, converts to 0.01 kg on-controller. Canable prefers the
+// firmware value (torque_load_centikg via 0x6025). When the controller does not
+// expose that telemetry, an "Estimated" fallback uses the MEASURED default
+// characteristic (zero 740 mV, span 1620 mV = 60 kg, ~27 mV/kg). The old
+// 750/40/3150 guess is gone. TQ_FULL_SCALE_MV (assist mapping) is unrelated.
+export const TORQUE_ZERO_MV = 740;               // measured resting normalization
+export const TORQUE_DEFAULT_SPAN_MV = 1620;      // measured span for 60 kg
 export const TORQUE_FULL_SCALE_KG = 60;
-export const TORQUE_FULL_SCALE_MV = TORQUE_ZERO_MV + TORQUE_FULL_SCALE_KG * TORQUE_MV_PER_KG; // 3150
 
-export function torqueMvToKg(mv) {
+// torqueModel: mutable so detection/telemetry can switch source.
+//   source: 'firmware' (kg from controller), 'estimated' (default fallback),
+//           'bafang' (no EBICS model — raw mV only, handled by callers).
+//   spanMv: active native span (updated from 0x6025 when firmware source).
+export const torqueModel = { source: 'estimated', spanMv: TORQUE_DEFAULT_SPAN_MV, calibrationSource: 'default' };
+
+export function torqueEstimatedMvToKg(mv) {
     if (typeof mv !== 'number' || isNaN(mv)) return null;
-    let kg = (mv - TORQUE_ZERO_MV) / TORQUE_MV_PER_KG;
+    let kg = ((mv - TORQUE_ZERO_MV) / torqueModel.spanMv) * TORQUE_FULL_SCALE_KG;
     if (kg < 0) kg = 0;
     if (kg > TORQUE_FULL_SCALE_KG) kg = TORQUE_FULL_SCALE_KG;
     return Math.round(kg * 10) / 10;
 }
 
-export function torqueKgToMv(kg) {
+export function torqueKgToMvDelta(kg) {
     if (typeof kg !== 'number' || isNaN(kg)) return null;
     if (kg < 0) kg = 0;
     if (kg > TORQUE_FULL_SCALE_KG) kg = TORQUE_FULL_SCALE_KG;
-    return TORQUE_ZERO_MV + Math.round(kg * TORQUE_MV_PER_KG);
+    return TORQUE_ZERO_MV + Math.round((kg / TORQUE_FULL_SCALE_KG) * torqueModel.spanMv);
 }
+
+// Display helper: firmware centikg wins; otherwise estimate from raw mV.
+export function torqueDisplayKg(rawMv, firmwareCentikg) {
+    if (torqueModel.source === 'firmware' && typeof firmwareCentikg === 'number') {
+        return Math.round(firmwareCentikg) / 100;
+    }
+    return torqueEstimatedMvToKg(rawMv);
+}
+
+export function torqueIsEstimated() {
+    return torqueModel.source !== 'firmware';
+}
+
+// Back-compat shims for callers not yet migrated (kept minimal, estimated model).
+export function torqueMvToKg(mv) { return torqueEstimatedMvToKg(mv); }
+export function torqueKgToMv(kg) { return torqueKgToMvDelta(kg); }
+export const TORQUE_MV_PER_KG = TORQUE_DEFAULT_SPAN_MV / TORQUE_FULL_SCALE_KG; // 27
+export const TORQUE_FULL_SCALE_MV = TORQUE_ZERO_MV + TORQUE_DEFAULT_SPAN_MV;   // 2360
+export const LEGACY_TORQUE_MAP_FULL_SCALE_MV = 2000;
+export const LEGACY_TORQUE_LINEAR_MAX_KG = Math.floor(((LEGACY_TORQUE_MAP_FULL_SCALE_MV - TORQUE_ZERO_MV) / (TORQUE_DEFAULT_SPAN_MV / TORQUE_FULL_SCALE_KG)) * 10) / 10;
 
 // --- WebSocket ---
 export const socket = new WebSocket('ws://' + window.location.host);
@@ -73,6 +98,14 @@ export const state = {
     isCanConnected: false,
     isCanDeviceFound: false,
     currentCanDeviceName: null,
+    // Controller family detection. Detection is read-only and an EBICS result
+    // is accepted only after a valid Ride Core bank frame was parsed.
+    controllerFlavor: 'unknown',
+    controllerFlavorReason: 'Waiting for CAN connection.',
+    ebicsDetectionGeneration: 0,
+    ebicsReceivedBanks: {},
+    ebicsCompatibilityReceived: {},
+    ebicsCompatibilityDraft: null,
     // Debug tab local state
     currentRawParamType: null,
 };
@@ -943,6 +976,7 @@ export function switchTab(targetTabId) {
     });
     if (targetTabId == "ride-logger")
         Plotly.Plots.resize('rideLoggerChart');
+    window.dispatchEvent(new CustomEvent('app-tab-changed', { detail: { tab: targetTabId } }));
 }
 
 export function getNullableNumber(value, precision = -1) { return (value === null || value === undefined || isNaN(value)) ? na : (precision >= 0 ? value.toFixed(precision) : value); }

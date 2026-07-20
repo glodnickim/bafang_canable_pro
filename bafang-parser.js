@@ -416,6 +416,92 @@ class BafangCanControllerParser {
             startup_boost_cadence_step: u16(12),
         };
     }
+
+    // FW-015: TSDZ ride-core diagnostics (0x6029) — 24 B, CRC16-CCITT
+    static rideDiagnostics(packet) {
+        const d = packet?.data;
+        if (!Array.isArray(d) || d.length < 24) {
+            return { parseError: true, error: `Invalid diagnostics length ${d?.length}` };
+        }
+        if (d[0] !== 0x44 || d[1] !== 0x47 || d[2] !== 1) {
+            return { parseError: true, error: 'Bad diagnostics magic/version' };
+        }
+        let crc = 0xFFFF;
+        for (let i = 0; i < 22; i++) { crc ^= d[i] << 8; for (let b = 0; b < 8; b++) crc = ((crc & 0x8000) ? (crc << 1) ^ 0x1021 : crc << 1) & 0xFFFF; }
+        if (((d[23] << 8) | d[22]) !== crc) {
+            return { parseError: true, error: 'Diagnostics CRC mismatch' };
+        }
+        const u16 = (o) => d[o] | (d[o + 1] << 8);
+        const i16 = (o) => { const v = u16(o); return v >= 32768 ? v - 65536 : v; };
+        return {
+            ride_engine: d[3],
+            cadence_for_assist: d[4],
+            without_rotation_active: d[5] !== 0,
+            torque_for_assist_mv: u16(6),
+            human_power_w: u16(8),
+            support_ratio_pct: u16(10),
+            motor_power_w: u16(12),
+            requested_battery_current_ma: u16(14),
+            iq_request: i16(16),
+            iq_setpoint: i16(18),   // actual value reaching the FOC after limits/dynamics
+            speed_x100: u16(20),
+        };
+    }
+
+    // FW-014: system status (0x6028) — 8 B single frame: 'S','Y',ver, engine, pending, 0,0, crcLo
+    static systemStatus(packet) {
+        const d = packet?.data;
+        if (!Array.isArray(d) || d.length < 8) {
+            return { parseError: true, error: `Invalid system status length ${d?.length}` };
+        }
+        if (d[0] !== 0x53 || d[1] !== 0x59 || d[2] !== 1) {
+            return { parseError: true, error: 'Bad system status magic/version' };
+        }
+        let c = 0xFFFF;
+        for (let i = 0; i < 7; i++) { c ^= d[i] << 8; for (let b = 0; b < 8; b++) c = ((c & 0x8000) ? (c << 1) ^ 0x1021 : c << 1) & 0xFFFF; }
+        if ((c & 0xFF) !== d[7]) {
+            return { parseError: true, error: 'System status CRC mismatch' };
+        }
+        return {
+            ride_engine: d[3],                                  // 0 Legacy, 1 TSDZ
+            ride_engine_pending: d[4] === 0xFF ? null : d[4],   // null = none
+        };
+    }
+
+    // FW-013: torque load telemetry + calibration status (0x6025) — 24 B, CRC16-CCITT
+    static torqueTelemetry(packet) {
+        const BLOB_LEN = 24;
+        const d = packet?.data;
+        if (!Array.isArray(d) || d.length < BLOB_LEN) {
+            return { parseError: true, error: `Invalid torque telemetry length ${d?.length}` };
+        }
+        if (d[0] !== 0x54 || d[1] !== 0x43 || d[2] !== 1) {
+            return { parseError: true, error: 'Bad torque telemetry magic/version' };
+        }
+        let crc = 0xFFFF;
+        for (let i = 0; i < 22; i++) {
+            crc ^= d[i] << 8;
+            for (let b = 0; b < 8; b++) crc = ((crc & 0x8000) ? (crc << 1) ^ 0x1021 : crc << 1) & 0xFFFF;
+        }
+        if (((d[23] << 8) | d[22]) !== crc) {
+            return { parseError: true, error: 'Torque telemetry CRC mismatch' };
+        }
+        const u16 = (o) => d[o] | (d[o + 1] << 8);
+        return {
+            capabilities: d[3],
+            load_centikg: u16(4),
+            zero_effective_native: u16(6),
+            delta_native: u16(8),
+            span_native: u16(10),
+            calibration_source: d[12], // 0 default, 1 user
+            calibration_state: d[13],
+            calibration_error: d[14],
+            sensor_valid: d[15] !== 0,
+            reference_centikg: u16(16),
+            preview_span_native: u16(18),
+            full_scale_native: u16(20),
+        };
+    }
 }
 
 class BafangCanDisplayParser {

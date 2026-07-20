@@ -132,7 +132,7 @@ class Logger {
                 this.logObject.cadence = data.cadence;
                 this.logObject.torque = data.torque;
                 this.logObject.single_trip = data.single_trip;
-                this.logObject.human_power = this.calculateHumanPower(data.cadence,data.torque,17);
+                this.logObject.human_power = this.calculateHumanPower(data.cadence,data.torque,16.5); //crank 165 mm
                 break;
             case 'controller_realtime_1':
                 //console.log('p1:',this.timestamp1 - timestamp_ms)
@@ -172,17 +172,18 @@ class Logger {
      */
     calculateHumanPower(cadence, torqueSensorMV, crankLengthCm) {
         // 1. Resting Threshold (Offset)
-        // Based on your data: 0kg corresponds to 750mV.
-        const V_ZERO = 750;
-        
+        // Measured with reference weights: rest normalizes to ~740 mV.
+        const V_ZERO = 740;
+        // Measured default sensor span: 1620 mV over 60 kg (~27 mV/kg).
+        const MV_PER_KG = 1620 / 60;
+
         // Return 0 if there is no pressure on the pedals or the bike is stationary.
         if (torqueSensorMV <= V_ZERO || cadence <= 0) {
             return 0;
         }
 
-        // 2. Convert Voltage (mV) to Mass (kg)
-        // 200mV = 5kg increment (1kg = 40mV step).
-        const massKg = (torqueSensorMV - V_ZERO) / 40;
+        // 2. Convert Voltage (mV) to Mass (kg) using the measured characteristic.
+        const massKg = (torqueSensorMV - V_ZERO) / MV_PER_KG;
 
         // 3. Convert Mass to Force (N)
         // F = m * g (where g is Earth's gravity constant ≈ 9.81 m/s^2).
