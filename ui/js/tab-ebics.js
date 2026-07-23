@@ -1,4 +1,4 @@
-// tab-ebics.js — separate EBICS Ride Core views kept alongside factory tabs
+// tab-ebics.js — separate eVistDrive Ride Core views kept alongside factory tabs
 /* global Plotly */
 import {
     state, socket, addLog, torqueMvToKg, torqueModel,
@@ -550,45 +550,45 @@ function bindControls() {
 
     el('ebicsProfilesReadButton')?.addEventListener('click', () => {
         if (!socketReady()) return;
-        addLog('REQ', 'Reading EBICS profile banks...');
+        addLog('REQ', 'Reading eVistDrive profile banks...');
         socket.send('READ_BANK:0');
         setTimeout(() => { if (socket.readyState === WebSocket.OPEN) socket.send('READ_BANK:1'); }, 400);
     });
     el('ebicsProfilesApplyButton')?.addEventListener('click', () => {
         if (!socketReady()) return;
         const selected = selectedLevel();
-        if (!selected.bank) { addLog('ERR', 'No EBICS bank data to apply.'); return; }
+        if (!selected.bank) { addLog('ERR', 'No eVistDrive bank data to apply.'); return; }
         if (!state.ebicsReceivedBanks?.[selected.bankIndex]) {
-            addLog('ERR', `Read EBICS bank ${selected.bankIndex + 1} before applying changes.`);
+            addLog('ERR', `Read eVistDrive bank ${selected.bankIndex + 1} before applying changes.`);
             return;
         }
         socket.send(`WRITE_BANK:${JSON.stringify(selected.bank)}`);
-        addLog('SAVE_REQ', `EBICS bank ${selected.bankIndex + 1} -> controller RAM`);
+        addLog('SAVE_REQ', `eVistDrive bank ${selected.bankIndex + 1} -> controller RAM`);
     });
     el('ebicsProfilesSaveButton')?.addEventListener('click', () => {
-        if (!socketReady() || !confirm('Persist both EBICS banks and tuning to flash at full standstill?')) return;
+        if (!socketReady() || !confirm('Persist both eVistDrive banks and tuning to flash at full standstill?')) return;
         socket.send('SAVE_BANKS');
-        addLog('SAVE_REQ', 'Persist EBICS banks and tuning at standstill');
+        addLog('SAVE_REQ', 'Persist eVistDrive banks and tuning at standstill');
     });
     el('ebicsDynamicsReadButton')?.addEventListener('click', () => {
         if (!socketReady()) return;
         socket.send('READ_TUNING');
-        addLog('REQ', 'Reading EBICS global tuning...');
+        addLog('REQ', 'Reading eVistDrive global tuning...');
     });
     el('ebicsDynamicsApplyButton')?.addEventListener('click', () => {
         if (!socketReady()) return;
         if (!state.tuningSynced) {
-            addLog('ERR', 'Read EBICS tuning before applying changes.');
+            addLog('ERR', 'Read eVistDrive tuning before applying changes.');
             return;
         }
         ensureTuningDefaults();
         socket.send(`WRITE_TUNING:${JSON.stringify(state.lastTuning)}`);
-        addLog('SAVE_REQ', 'EBICS tuning -> controller RAM');
+        addLog('SAVE_REQ', 'eVistDrive tuning -> controller RAM');
     });
     el('ebicsDynamicsSaveButton')?.addEventListener('click', () => {
-        if (!socketReady() || !confirm('Persist EBICS tuning and banks to flash at full standstill?')) return;
+        if (!socketReady() || !confirm('Persist eVistDrive tuning and banks to flash at full standstill?')) return;
         socket.send('SAVE_BANKS');
-        addLog('SAVE_REQ', 'Persist EBICS tuning and banks at standstill');
+        addLog('SAVE_REQ', 'Persist eVistDrive tuning and banks at standstill');
     });
 
     // FW-013: torque telemetry live read + load calibration operations

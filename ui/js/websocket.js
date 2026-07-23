@@ -144,7 +144,7 @@ socket.onmessage = (event) => {
                 case 'controller_realtime_1': state.controllerRealtime1 = parsedEvent.data; needsControllerUpdate = true; break;
                 case 'controller_bank': //FW-006: profile bank blob
                     if (parsedEvent.data && !parsedEvent.data.parseError) {
-                        confirmEbicsController('Valid EBICS Ride Core bank signature, schema version and CRC received.');
+                        confirmEbicsController('Valid eVistDrive Ride Core bank signature, schema version and CRC received.');
                         state.lastBanks = state.lastBanks || {};
                         state.lastBanks[parsedEvent.data.bank_index] =
                             JSON.parse(JSON.stringify(parsedEvent.data));

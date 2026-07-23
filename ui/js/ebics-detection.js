@@ -22,7 +22,7 @@ function updateDetectionUI() {
         [CONTROLLER_FLAVOR.UNKNOWN]: 'Controller: unknown',
         [CONTROLLER_FLAVOR.DETECTING]: 'Controller: detecting…',
         [CONTROLLER_FLAVOR.FACTORY]: 'Controller: factory Bafang',
-        [CONTROLLER_FLAVOR.EBICS]: 'Controller: EBICS',
+        [CONTROLLER_FLAVOR.EBICS]: 'Controller: eVistDrive',
     };
     const flavorLabel = labels[flavor] || labels[CONTROLLER_FLAVOR.UNKNOWN];
     const visibleLabel = EBICS_UI_PREVIEW_WITHOUT_DETECTION && flavor !== CONTROLLER_FLAVOR.EBICS
@@ -78,8 +78,8 @@ export function startControllerDetection() {
     state.ebicsDetectionGeneration += 1;
     const generation = state.ebicsDetectionGeneration;
     if (detectionTimer) clearTimeout(detectionTimer);
-    setFlavor(CONTROLLER_FLAVOR.DETECTING, 'Read-only EBICS Ride Core bank probe in progress.');
-    addLog('INFO', 'Detecting controller family with a read-only EBICS bank probe.');
+    setFlavor(CONTROLLER_FLAVOR.DETECTING, 'Read-only eVistDrive Ride Core bank probe in progress.');
+    addLog('INFO', 'Detecting controller family with a read-only eVistDrive bank probe.');
     socket.send('READ_BANK:0');
 
     detectionTimer = setTimeout(() => {
@@ -87,12 +87,12 @@ export function startControllerDetection() {
         detectionTimer = null;
         setFlavor(
             CONTROLLER_FLAVOR.FACTORY,
-            'No valid EBICS Ride Core bank signature was received; factory Bafang interface remains active.',
+            'No valid eVistDrive Ride Core bank signature was received; factory Bafang interface remains active.',
         );
     }, DETECTION_TIMEOUT_MS);
 }
 
-export function confirmEbicsController(reason = 'Valid EBICS Ride Core bank signature and CRC received.') {
+export function confirmEbicsController(reason = 'Valid eVistDrive Ride Core bank signature and CRC received.') {
     state.ebicsDetectionGeneration += 1;
     if (detectionTimer) clearTimeout(detectionTimer);
     detectionTimer = null;

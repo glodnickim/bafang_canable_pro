@@ -49,14 +49,14 @@
             <button class="tab-button" data-tab="battery">Battery</button>
             <button class="tab-button" data-tab="gears">Assist (Full)</button>
             <button class="tab-button" data-tab="banks">Banks</button>
-            <button class="tab-button ebics-tab-button" data-tab="ebics-live" data-ebics-only="true" style="display:none">EBICS Live</button>
-            <button class="tab-button ebics-tab-button" data-tab="ebics-profiles" data-ebics-only="true" style="display:none">EBICS Profiles</button>
-            <button class="tab-button ebics-tab-button" data-tab="ebics-torque" data-ebics-only="true" style="display:none">EBICS Torque</button>
-            <button class="tab-button ebics-tab-button" data-tab="ebics-dynamics" data-ebics-only="true" style="display:none">EBICS Dynamics</button>
-            <button class="tab-button ebics-tab-button" data-tab="ebics-limits" data-ebics-only="true" style="display:none">EBICS Limits</button>
-            <button class="tab-button ebics-tab-button" data-tab="ebics-walk" data-ebics-only="true" style="display:none">EBICS Walk</button>
-            <button class="tab-button ebics-tab-button" data-tab="ebics-legacy" data-ebics-only="true" style="display:none">EBICS Legacy</button>
-            <button class="tab-button ebics-tab-button" data-tab="ebics-system" data-ebics-only="true" style="display:none">EBICS System</button>
+            <button class="tab-button ebics-tab-button" data-tab="ebics-live" data-ebics-only="true" style="display:none">eVistDrive Live</button>
+            <button class="tab-button ebics-tab-button" data-tab="ebics-profiles" data-ebics-only="true" style="display:none">eVistDrive Profiles</button>
+            <button class="tab-button ebics-tab-button" data-tab="ebics-torque" data-ebics-only="true" style="display:none">eVistDrive Torque</button>
+            <button class="tab-button ebics-tab-button" data-tab="ebics-dynamics" data-ebics-only="true" style="display:none">eVistDrive Dynamics</button>
+            <button class="tab-button ebics-tab-button" data-tab="ebics-limits" data-ebics-only="true" style="display:none">eVistDrive Limits</button>
+            <button class="tab-button ebics-tab-button" data-tab="ebics-walk" data-ebics-only="true" style="display:none">eVistDrive Walk</button>
+            <button class="tab-button ebics-tab-button" data-tab="ebics-legacy" data-ebics-only="true" style="display:none">eVistDrive Legacy</button>
+            <button class="tab-button ebics-tab-button" data-tab="ebics-system" data-ebics-only="true" style="display:none">eVistDrive System</button>
             <button class="tab-button" data-tab="gearsM820">Assist (Ltd)</button>
             <button class="tab-button" data-tab="info">Info</button>
             <button class="tab-button" data-tab="debug">Debug</button>
@@ -841,7 +841,7 @@
             <!-- #tab-banks ================================================= -->
             <div class="tab-content" id="tab-banks">
                 <div class="flex items-center justify-between mb-5 flex-wrap gap-2">
-                    <h2 class="section-title text-lg">Profile Banks (EBICS Ride Core)</h2>
+                    <h2 class="section-title text-lg">Profile Banks (eVistDrive Ride Core)</h2>
                     <div class="flex gap-2 flex-wrap">
                         <button id="banksReadButton" class="btn btn-blue">Read Banks</button>
                         <button id="banksApplyButton" class="btn btn-orange">Apply (RAM)</button>
@@ -888,7 +888,7 @@
             <div class="tab-content ebics-tab" id="tab-ebics-live">
                 <div class="ebics-heading">
                     <div>
-                        <div class="ebics-kicker">EBICS Ride Core</div>
+                        <div class="ebics-kicker">eVistDrive Ride Core</div>
                         <h2 class="section-title text-lg">Live ride data</h2>
                     </div>
                     <span class="ebics-readonly-pill">Live / read-only</span>
@@ -914,7 +914,7 @@
                     <div id="ebicsLiveChart" class="ebics-chart"></div>
                 </div>
                 <div class="info-message mt-4">
-                    <span>Control owner and active limiter are not exposed by the current EBICS protocol yet. The UI shows N/A instead of estimating them.</span>
+                    <span>Control owner and active limiter are not exposed by the current eVistDrive protocol yet. The UI shows N/A instead of estimating them.</span>
                 </div>
             </div>
 
@@ -922,7 +922,7 @@
             <div class="tab-content ebics-tab" id="tab-ebics-profiles">
                 <div class="ebics-heading">
                     <div>
-                        <div class="ebics-kicker">EBICS Ride Core</div>
+                        <div class="ebics-kicker">eVistDrive Ride Core</div>
                         <h2 class="section-title text-lg">Profiles</h2>
                     </div>
                     <div class="flex gap-2 flex-wrap">
@@ -957,7 +957,7 @@
             <!-- #tab-ebics-torque ========================================= -->
             <div class="tab-content ebics-tab" id="tab-ebics-torque">
                 <div class="ebics-heading">
-                    <div><div class="ebics-kicker">EBICS Ride Core</div><h2 class="section-title text-lg">Torque sensor</h2></div>
+                    <div><div class="ebics-kicker">eVistDrive Ride Core</div><h2 class="section-title text-lg">Torque sensor</h2></div>
                     <span class="ebics-readonly-pill" id="ebicsTorqueSourcePill">Scale: default (estimated)</span>
                 </div>
                 <div class="ebics-two-column">
@@ -1001,7 +1001,7 @@
             <!-- #tab-ebics-dynamics ======================================= -->
             <div class="tab-content ebics-tab" id="tab-ebics-dynamics">
                 <div class="ebics-heading">
-                    <div><div class="ebics-kicker">EBICS Ride Core</div><h2 class="section-title text-lg">Dynamics</h2></div>
+                    <div><div class="ebics-kicker">eVistDrive Ride Core</div><h2 class="section-title text-lg">Dynamics</h2></div>
                     <div class="flex gap-2 flex-wrap">
                         <button id="ebicsDynamicsReadButton" class="btn btn-blue">Read tuning</button>
                         <button id="ebicsDynamicsApplyButton" class="btn btn-orange">Apply (RAM)</button>
@@ -1033,7 +1033,7 @@
             <!-- #tab-ebics-limits ========================================= -->
             <div class="tab-content ebics-tab" id="tab-ebics-limits">
                 <div class="ebics-heading">
-                    <div><div class="ebics-kicker">EBICS Ride Core</div><h2 class="section-title text-lg">Limits</h2></div>
+                    <div><div class="ebics-kicker">eVistDrive Ride Core</div><h2 class="section-title text-lg">Limits</h2></div>
                     <div class="flex gap-2 flex-wrap">
                         <button id="ebicsLimitsSyncButton" class="btn btn-blue">Sync controller blocks</button>
                         <button id="ebicsLimitsApplyButton" class="btn btn-orange">Apply limits and speed</button>
@@ -1094,7 +1094,7 @@
             <!-- #tab-ebics-legacy ========================================= -->
             <div class="tab-content ebics-tab" id="tab-ebics-legacy">
                 <div class="ebics-heading">
-                    <div><div class="ebics-kicker">EBICS Ride Core</div><h2 class="section-title text-lg">Legacy compatibility blocks</h2></div>
+                    <div><div class="ebics-kicker">eVistDrive Ride Core</div><h2 class="section-title text-lg">Legacy compatibility blocks</h2></div>
                     <div class="flex gap-2 flex-wrap">
                         <button id="ebicsLegacySyncButton" class="btn btn-blue">Sync P0 / P1 / P2</button>
                         <button id="ebicsLegacyApplyButton" class="btn btn-orange">Apply Legacy blocks</button>
@@ -1127,13 +1127,13 @@
                     <tbody id="ebicsLegacyBoostTableBody"></tbody>
                 </table></div>
                 <h3 class="section-subtitle">Block status</h3>
-                <div class="overflow-x-auto"><table class="description-table w-full border-collapse text-sm"><thead><tr><th>Block</th><th>EBICS field</th><th>Current value</th><th>Status</th></tr></thead><tbody id="ebicsLegacyTableBody"></tbody></table></div>
+                <div class="overflow-x-auto"><table class="description-table w-full border-collapse text-sm"><thead><tr><th>Block</th><th>eVistDrive field</th><th>Current value</th><th>Status</th></tr></thead><tbody id="ebicsLegacyTableBody"></tbody></table></div>
             </div>
 
             <!-- #tab-ebics-system ========================================= -->
             <div class="tab-content ebics-tab" id="tab-ebics-system">
                 <div class="ebics-heading">
-                    <div><div class="ebics-kicker">EBICS Ride Core</div><h2 class="section-title text-lg">System and protocol</h2></div>
+                    <div><div class="ebics-kicker">eVistDrive Ride Core</div><h2 class="section-title text-lg">System and protocol</h2></div>
                     <div class="flex gap-2 flex-wrap">
                         <button id="ebicsSystemSyncButton" class="btn btn-blue">Sync all controller settings</button>
                         <button id="ebicsSystemApplyButton" class="btn btn-orange">Apply system settings</button>
@@ -1149,7 +1149,7 @@
                 <section class="ebics-card mt-4">
                     <div class="ebics-card-title">Ride engine (developer)</div>
                     <div class="warning-message">
-                        <span><b>Warning:</b> "TSDZ (new)" runs the new EBICS ride-core assist (Power/eMTB/Torque) — never tested on this hub motor. First switch with the rear wheel in the air, then a safe area. "Legacy" is the proven default. The switch applies only at a full standstill and is remembered across restarts.</span>
+                        <span><b>Warning:</b> "TSDZ (new)" runs the new eVistDrive ride-core assist (Power/eMTB/Torque) — never tested on this hub motor. First switch with the rear wheel in the air, then a safe area. "Legacy" is the proven default. The switch applies only at a full standstill and is remembered across restarts.</span>
                     </div>
                     <div class="ebics-status-list mt-2">
                         <div><span>Active engine</span><b id="ebicsEngineActive">N/A</b></div>
@@ -1197,7 +1197,7 @@
                     <button id="ebicsRestoreControllerDefaultsButton" class="btn btn-danger">Restore controller defaults</button>
                     <button id="ebicsClearControllerErrorsButton" class="btn btn-secondary">Clear controller errors</button>
                 </div>
-                <div class="warning-message mb-4"><span>Position calibration spins the motor. Restore controller defaults uses native 0x6101 and overwrites saved controller settings. Torque zero calibration is intentionally absent: EBICS always performs torque zero automatically.</span></div>
+                <div class="warning-message mb-4"><span>Position calibration spins the motor. Restore controller defaults uses native 0x6101 and overwrites saved controller settings. Torque zero calibration is intentionally absent: eVistDrive always performs torque zero automatically.</span></div>
                 <details class="ebics-advanced-service mb-4">
                     <summary>Advanced service</summary>
                     <p class="form-hint">Use only after a P1/P2 checksum mismatch. This rewrites the last-read block with a recalculated checksum.</p>
@@ -1207,14 +1207,14 @@
                     </div>
                 </details>
                 <div class="overflow-x-auto"><table class="description-table w-full border-collapse text-sm"><thead><tr><th>Code</th><th>Description</th><th>Recommendation</th></tr></thead><tbody id="ebicsControllerErrorsTableBody"></tbody></table></div>
-                <h3 class="section-subtitle mt-6">Implemented EBICS transport</h3>
+                <h3 class="section-subtitle mt-6">Implemented eVistDrive transport</h3>
                 <div class="overflow-x-auto"><table class="description-table w-full border-collapse text-sm"><thead><tr><th>CAN block</th><th>Operation</th><th>UI use</th></tr></thead><tbody>
                     <tr><td>0x6020</td><td>Read profile bank</td><td>Detection, Profiles, Limits</td></tr>
                     <tr><td>0x6021</td><td>Apply profile bank to RAM</td><td>Profiles</td></tr>
                     <tr><td>0x6022</td><td>Persist banks and tuning at standstill</td><td>Profiles, Dynamics</td></tr>
                     <tr><td>0x6023</td><td>Read global tuning</td><td>Dynamics</td></tr>
                     <tr><td>0x6024</td><td>Apply global tuning to RAM</td><td>Dynamics</td></tr>
-                    <tr><td>0x6101</td><td>Restore controller defaults in EBICS firmware</td><td>System</td></tr>
+                    <tr><td>0x6101</td><td>Restore controller defaults in eVistDrive firmware</td><td>System</td></tr>
                 </tbody></table></div>
                 <div class="warning-message mt-4"><span>Saved-vs-runtime comparison, revert, torque calibration endpoints, active owner/limiter and dedicated walk ERPS are intentionally marked unavailable until firmware exposes them.</span></div>
             </div>

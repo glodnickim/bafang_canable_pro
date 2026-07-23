@@ -1,4 +1,4 @@
-// ebics-compat.js — functional EBICS views for legacy Controller/Assist blocks
+// ebics-compat.js — functional eVistDrive views for legacy Controller/Assist blocks
 import {
     state, socket, addLog, waitFor, delay,
     sendCustomFrame, encodeToHex,
@@ -217,7 +217,7 @@ function limpStage2Active(stage1, stage2) {
     return isNumber(stage2) && stage2 > 0 && stage2 < stage1 && stage2 !== LIMP_DISABLED;
 }
 
-// Mirrors compute_limp_factor() in EBICS firmware, including its final 30% floor clamp.
+// Mirrors compute_limp_factor() in eVistDrive firmware, including its final 30% floor clamp.
 function firmwareLimpScalePct(soc, stage1, stage2) {
     if (limpStage1Disabled(stage1)) return 100;
 
@@ -373,7 +373,7 @@ function renderLimitsFields() {
         { key: 'current_limit', label: 'Maximum battery current', unit: 'A', min: 1, max: 60, step: 1 },
         {
             key: 'max_current_on_low_charge', label: 'Stored low-charge current byte', unit: 'A', min: 0, max: 100, step: 1,
-            help: 'Stored in P1[9]. Current EBICS limp formula scales phase-current max and does not use this byte directly.',
+            help: 'Stored in P1[9]. Current eVistDrive limp formula scales phase-current max and does not use this byte directly.',
         },
         { key: 'overvoltage', label: 'Overvoltage cutoff', unit: 'V', min: 0, max: 100, step: 1 },
         {
@@ -635,13 +635,13 @@ async function readBlock(command, reset, predicate, key) {
     reset();
     socket.send(command);
     const received = await waitFor(predicate, 1800, 50);
-    if (!received) addLog('WARN', `Timeout while reading EBICS compatibility ${key}.`);
+    if (!received) addLog('WARN', `Timeout while reading eVistDrive compatibility ${key}.`);
     return received;
 }
 
 export async function syncAllCompatibilityData() {
     if (!socketReady()) return;
-    addLog('REQ', 'Syncing EBICS compatibility Controller/Assist blocks...');
+    addLog('REQ', 'Syncing eVistDrive compatibility Controller/Assist blocks...');
     state.ebicsCompatibilityReceived = {};
     await readBlock('READ:2:96:7', () => { state.controllerErrors = null; }, () => Array.isArray(state.controllerErrors), 'errors');
     await readBlock('READ:2:96:16', () => { state.lastControllerP0 = null; }, () => state.lastControllerP0 !== null, 'P0');
@@ -695,25 +695,25 @@ const SYSTEM_P1_KEYS = [
 
 function applyLimits() {
     if (!requireRead(['p1', 'speed'], 'apply limits and speed')) return;
-    if (!confirm('Apply EBICS electrical, battery, legal and speed settings to the controller?')) return;
+    if (!confirm('Apply eVistDrive electrical, battery, legal and speed settings to the controller?')) return;
     const draft = ensureDraft();
     socket.send(`WRITE_LONG_P1:${JSON.stringify(p1Subset(LIMIT_P1_KEYS))}`);
     socket.send(`WRITE_LONG_SPEED:${JSON.stringify(draft.speed)}`);
-    addLog('SAVE_REQ', 'EBICS limits P1 + speed block');
+    addLog('SAVE_REQ', 'eVistDrive limits P1 + speed block');
 }
 
 function applyWalk() {
     if (!requireRead(['p1'], 'apply Walk settings')) return;
-    if (!confirm('Apply EBICS Legacy Walk current and target speed?')) return;
+    if (!confirm('Apply eVistDrive Legacy Walk current and target speed?')) return;
     socket.send(`WRITE_LONG_P1:${JSON.stringify(p1Subset(WALK_P1_KEYS))}`);
-    addLog('SAVE_REQ', 'EBICS Walk settings');
+    addLog('SAVE_REQ', 'eVistDrive Walk settings');
 }
 
 function applySystem() {
     if (!requireRead(['p1'], 'apply system settings')) return;
-    if (!confirm('Apply EBICS motor, PAS, throttle and Legacy timing settings?')) return;
+    if (!confirm('Apply eVistDrive motor, PAS, throttle and Legacy timing settings?')) return;
     socket.send(`WRITE_LONG_P1:${JSON.stringify(p1Subset(SYSTEM_P1_KEYS))}`);
-    addLog('SAVE_REQ', 'EBICS system settings');
+    addLog('SAVE_REQ', 'eVistDrive system settings');
 }
 
 async function applyLegacy() {
@@ -723,7 +723,7 @@ async function applyLegacy() {
     const clampNotice = clamped
         ? `\n\nLower torque threshold values above ${LEGACY_TORQUE_LINEAR_MAX_KG.toFixed(1)} kg will be clamped before writing.`
         : '';
-    if (!confirm(`Apply EBICS Legacy P0, assist-level P1, P2 and TS coefficient?${clampNotice}`)) return;
+    if (!confirm(`Apply eVistDrive Legacy P0, assist-level P1, P2 and TS coefficient?${clampNotice}`)) return;
     socket.send(`WRITE_LONG_P0:${JSON.stringify(p0)}`);
     await delay(500);
     socket.send(`WRITE_LONG_P1:${JSON.stringify({
@@ -734,7 +734,7 @@ async function applyLegacy() {
     socket.send(`WRITE_LONG_P2:${JSON.stringify(draft.p2)}`);
     await delay(500);
     socket.send(`WRITE_STARTUP_ANGLE:${draft.startup_angle}`);
-    addLog('SAVE_REQ', 'EBICS Legacy P0/P1/P2 + TS coefficient');
+    addLog('SAVE_REQ', 'eVistDrive Legacy P0/P1/P2 + TS coefficient');
 }
 
 async function clearControllerErrors() {
@@ -747,27 +747,27 @@ async function clearControllerErrors() {
     sendCustomFrame(encodeToHex(5, 2, 6, '0000'), '');
     await delay(500);
     socket.send('READ:2:96:7');
-    addLog('SAVE_REQ', 'Clear controller errors from EBICS System');
+    addLog('SAVE_REQ', 'Clear controller errors from eVistDrive System');
 }
 
 function calibratePosition() {
     if (!socketReady()) return;
     if (!confirm('WARNING: the motor will spin. Remove the chain and secure the bike. Continue?')) return;
     socket.send('WRITE_SHORT:2:98:0:0000000000');
-    addLog('SAVE_REQ', 'Calibrate position sensor from EBICS System');
+    addLog('SAVE_REQ', 'Calibrate position sensor from eVistDrive System');
 }
 
 async function restoreControllerDefaults() {
     if (!socketReady()) return;
     const confirmed = confirm(
-        'Restore controller defaults using native EBICS 0x6101?\n\n'
+        'Restore controller defaults using native eVistDrive0x6101?\n\n'
         + 'This overwrites saved controller settings in EEPROM, including P0/P1/P2 Legacy settings, TS coefficient, Walk settings, limits, bank/tuning flags and related controller defaults.\n\n'
-        + 'EBICS torque zero remains automatic; this is not manual torque-zero calibration.\n\n'
+        + 'eVistDrive torque zero remains automatic; this is not manual torque-zero calibration.\n\n'
         + 'Continue?'
     );
     if (!confirmed) return;
     socket.send('WRITE_SHORT:2:97:1');
-    addLog('SAVE_REQ', 'Restore controller defaults from EBICS System (native 0x6101)');
+    addLog('SAVE_REQ', 'Restore controller defaults from eVistDrive System (native 0x6101)');
     await delay(1200);
     await syncAllCompatibilityData();
 }
@@ -784,7 +784,7 @@ function repairChecksum(block) {
     setTimeout(() => {
         if (socket.readyState === WebSocket.OPEN) socket.send(block === 'P1' ? 'READ:2:96:17' : 'READ:2:96:18');
     }, 1000);
-    addLog('SAVE_REQ', `Repair ${block} checksum from EBICS System`);
+    addLog('SAVE_REQ', `Repair ${block} checksum from eVistDrive System`);
 }
 
 function bindButtons() {
