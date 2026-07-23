@@ -20,6 +20,7 @@ import './tab-firmware.js';
 import './tab-sniffer.js';
 import './tab-ride-logger.js';
 import './tab-data-backup.js';
+import './tab-visibility.js';
 
 // --- Initial State ---
 populateWheelSelect();

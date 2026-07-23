@@ -24,6 +24,11 @@
                 <span style="color: black;">Bafang</span> / <span style="color: blue;">EBiCS</span> CANable Pro
 
             </h1>
+            <label class="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer select-none"
+                title="Chowa stare karty fabryczne Bafang: Controller, Display, Sensor, Battery, Assist (Full/Ltd), Banks">
+                <input type="checkbox" id="hideFactoryTabsCheckbox" class="w-4 h-4 accent-olive">
+                Ukryj karty fabryczne
+            </label>
             <button id="connectCanButton" disabled class="btn btn-primary">Connect</button>
         </div>
     </div>
@@ -43,12 +48,12 @@
 
         <!-- Tab Bar -->
         <div class="tab-buttons overflow-x-auto border-b border-gray-200 px-2 pt-2 flex gap-0.5 flex-nowrap bg-gray-50">
-            <button class="tab-button active" data-tab="controller">Controller</button>
-            <button class="tab-button" data-tab="display">Display</button>
-            <button class="tab-button" data-tab="sensor">Sensor</button>
-            <button class="tab-button" data-tab="battery">Battery</button>
-            <button class="tab-button" data-tab="gears">Assist (Full)</button>
-            <button class="tab-button" data-tab="banks">Banks</button>
+            <button class="tab-button active" data-tab="controller" data-factory-tab="true">Controller</button>
+            <button class="tab-button" data-tab="display" data-factory-tab="true">Display</button>
+            <button class="tab-button" data-tab="sensor" data-factory-tab="true">Sensor</button>
+            <button class="tab-button" data-tab="battery" data-factory-tab="true">Battery</button>
+            <button class="tab-button" data-tab="gears" data-factory-tab="true">Assist (Full)</button>
+            <button class="tab-button" data-tab="banks" data-factory-tab="true">Banks</button>
             <button class="tab-button ebics-tab-button" data-tab="ebics-live" data-ebics-only="true" style="display:none">eVistDrive Live</button>
             <button class="tab-button ebics-tab-button" data-tab="ebics-profiles" data-ebics-only="true" style="display:none">eVistDrive Profiles</button>
             <button class="tab-button ebics-tab-button" data-tab="ebics-torque" data-ebics-only="true" style="display:none">eVistDrive Torque</button>
@@ -57,7 +62,7 @@
             <button class="tab-button ebics-tab-button" data-tab="ebics-walk" data-ebics-only="true" style="display:none">eVistDrive Walk</button>
             <button class="tab-button ebics-tab-button" data-tab="ebics-legacy" data-ebics-only="true" style="display:none">eVistDrive Legacy</button>
             <button class="tab-button ebics-tab-button" data-tab="ebics-system" data-ebics-only="true" style="display:none">eVistDrive System</button>
-            <button class="tab-button" data-tab="gearsM820">Assist (Ltd)</button>
+            <button class="tab-button" data-tab="gearsM820" data-factory-tab="true">Assist (Ltd)</button>
             <button class="tab-button" data-tab="info">Info</button>
             <button class="tab-button" data-tab="debug">Debug</button>
             <button class="tab-button" data-tab="fwUpdate">Firmware</button>
