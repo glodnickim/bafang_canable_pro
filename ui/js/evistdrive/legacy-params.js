@@ -925,11 +925,71 @@ function applyWalk() {
     addLog('SAVE_REQ', `Walk settings -> ${readIndexes.map((i) => `bank ${i + 1}`).join(', ')} (RAM; use Save Flash to keep them)`);
 }
 
-function saveWalkCutoff() {
+// Send one bank to controller RAM and wait for the controller to confirm it.
+// A bank blob is ~190 bytes of multi-frame traffic, so the wait is generous.
+async function writeBankAndWait(index, timeoutMs = 5000) {
+    state.lastBankWriteResult = null;
+    socket.send(`WRITE_BANK:${JSON.stringify(state.lastBanks[index])}`);
+    const answered = await waitFor(() => state.lastBankWriteResult !== null, timeoutMs, 50);
+    if (!answered) return { ok: false, reason: 'no answer from the controller' };
+    const result = state.lastBankWriteResult;
+    return result.success
+        ? { ok: true }
+        : { ok: false, reason: result.timedOut ? 'timed out' : (result.error || 'the controller rejected it') };
+}
+
+// "Save both banks (Flash)" used to send SAVE_BANKS on its own. SAVE_BANKS only tells the
+// controller to persist what it already holds in RAM, so edits made in this card — which
+// live in the browser until a WRITE_BANK — were never part of the save: flash got the old
+// values, and the next Read brought them straight back. Editing 50 to 40 RPM, saving, and
+// reading 50 again was exactly that.
+//
+// So: write both banks to RAM, confirm each, and only then persist.
+async function saveWalkCutoff() {
     if (!requireRead(['banks'], 'save Walk settings')) return;
-    if (!confirm('Persist Walk Assist settings for both banks, plus tuning, to flash? Written at full standstill.')) return;
-    socket.send('SAVE_BANKS');
-    addLog('SAVE_REQ', 'Persist both banks + tuning incl. Walk settings (flash write deferred to standstill)');
+    // Both banks specifically — SAVE_BANKS persists both, so sending only one to RAM would
+    // flash the edited bank next to a stale one.
+    if (!(state.ebicsReceivedBanks?.[0] && state.ebicsReceivedBanks?.[1])) {
+        addLog('ERR', 'Read both banks before saving to flash — one unread bank would be written to flash with stale values.');
+        setWalkStatus('Read both banks first.', true);
+        return;
+    }
+    if (!confirm('Write both banks to controller RAM and then persist them, plus tuning, to flash?\n\nThe flash write happens at full standstill.')) return;
+
+    const button = el('ebicsWalkCutoffSaveButton');
+    if (button) button.disabled = true;
+    try {
+        for (const index of [0, 1]) {
+            setWalkStatus(`Writing bank ${index + 1} to RAM...`);
+            // state.lastBanks[index] is the bank as read, carrying its own schema version
+            // and its assist levels untouched — this card only edits the Walk fields on it.
+            const written = await writeBankAndWait(index);
+            if (!written.ok) {
+                const message = `Bank ${index + 1} was not written (${written.reason}) — nothing has been saved to flash.`;
+                addLog('ERR', message);
+                setWalkStatus(message, true);
+                return;
+            }
+            addLog('ACK', `Bank ${index + 1} written to controller RAM.`);
+        }
+
+        setWalkStatus('Both banks in RAM. Requesting the flash write...');
+        state.lastBankSaveResult = null;
+        socket.send('SAVE_BANKS');
+        const answered = await waitFor(() => state.lastBankSaveResult !== null, 5000, 50);
+        if (!answered || !state.lastBankSaveResult?.success) {
+            const reason = !answered ? 'no answer from the controller' : (state.lastBankSaveResult?.error || 'the controller rejected it');
+            const message = `Both banks are in RAM, but the flash write was refused (${reason}). They will be lost at power-off.`;
+            addLog('ERR', message);
+            setWalkStatus(message, true);
+            return;
+        }
+        const done = 'Both banks written to RAM and accepted for flash — the controller writes them at full standstill.';
+        addLog('SAVE_REQ', done);
+        setWalkStatus(done);
+    } finally {
+        if (button) button.disabled = false;
+    }
 }
 
 function applySystem() {

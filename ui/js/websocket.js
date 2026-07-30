@@ -222,9 +222,21 @@ socket.onmessage = (event) => {
                     }
                     break;
                 case 'bank_write_result':
+                    // Recorded, not just logged: "Save to flash" has to write both banks to
+                    // RAM first and must know each one landed before moving on. Only one
+                    // write is ever outstanding, so a single slot is enough.
+                    state.lastBankWriteResult = {
+                        success: !!parsedEvent.data?.success,
+                        timedOut: !!parsedEvent.data?.timedOut,
+                        error: parsedEvent.data?.error || '',
+                    };
                     addLog('ACK', `Bank write: ${parsedEvent.data?.success ? 'OK' : 'FAILED'}${parsedEvent.data?.timedOut ? ' (timeout)' : ''}`);
                     break;
                 case 'bank_save_result':
+                    state.lastBankSaveResult = {
+                        success: !!parsedEvent.data?.success,
+                        error: parsedEvent.data?.error || '',
+                    };
                     addLog('ACK', `Bank save request: ${parsedEvent.data?.success ? 'accepted (writes at standstill)' : 'FAILED'}`);
                     break;
                 case 'controller_tuning': //FW-010: global ride-feel tuning blob
