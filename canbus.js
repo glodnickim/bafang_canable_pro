@@ -31,6 +31,23 @@ function formatBufferForLog(buffer) {
 
 
 
+// How seriously to take a libusb failure.
+//
+//   'fatal' — the device is gone. Tear the link down now.
+//   'soft'  — the transfer failed but the device may well still be there. Do NOT tear
+//             down on the first one: sendRawFrameWithRetry() in fw-updater.js retries by
+//             design, and killing a firmware flash over one recoverable error would be
+//             far worse than the delay of waiting for a second opinion.
+function classifyUsbError(err) {
+    const text = `${err?.message || err || ''}`;
+    if (text.includes('LIBUSB_ERROR_NO_DEVICE') || text.includes('LIBUSB_ERROR_NOT_FOUND')) return 'fatal';
+    if (text.includes('no USB device handle')) return 'fatal';
+    if (text.includes('LIBUSB_ERROR_IO') || text.includes('LIBUSB_ERROR_PIPE')
+        || text.includes('LIBUSB_ERROR_TIMEOUT') || text.includes('LIBUSB_ERROR_OTHER')
+        || text.includes('did not answer in time')) return 'soft';
+    return 'soft';
+}
+
 class CanBusService extends EventEmitter {
     constructor() {
         super();
@@ -1005,20 +1022,70 @@ class CanBusService extends EventEmitter {
                 frameToSend.data.setUint8(i, dataBytes[i]); 
             frameToSend.echo_id = 0xFFFFFFFF; frameToSend.channel = 0; frameToSend.flags = 0; frameToSend.reserved = 0; 
             //console.log(`Sending CAN frame: ID=${idHex}, Data=[${dataBytes.map(b => b.toString(16).padStart(2,'0')).join(',')}]`);
-            const success = await this.canDevice.writeCANFrame(frameToSend); 
-            if (!success) { 
-                console.error('CAN -> Failed send'); return false; } return true; 
+            const success = await this.canDevice.writeCANFrame(frameToSend);
+            if (!success) {
+                console.error('CAN -> Failed send');
+                // A refused write is a hint, not a verdict — let the next liveness check
+                // decide, instead of guessing from one failed frame.
+                this.probeNowRequested = true;
+                return false; }
+            this.lastTxOkAt = Date.now(); // a frame got out: the link works
+            return true;
             } catch (err) {
                 console.error('Error sending CAN frame:', err);
-                if (`${err.message || err}`.includes('LIBUSB_ERROR_NOT_FOUND') ||
-                    `${err.message || err}`.includes('LIBUSB_ERROR_NO_DEVICE')) {
+                if (classifyUsbError(err) === 'fatal') {
                     this._handleCanError(err);
+                } else {
+                    // Soft error: do not tear the link down over one transfer. Ask the
+                    // next liveness check to probe rather than trust recent traffic.
+                    this.probeNowRequested = true;
                 }
                 throw err;
             }
     }
 
     isConnected() { return this.isStarted; }
+
+    // How long recent traffic counts as proof of life before we bother the adapter.
+    static LIVENESS_QUIET_MS = 4000;
+
+    /**
+     * Is the link to the adapter actually alive?
+     *
+     * isConnected() only reports a flag set once at open time, which is why a link that
+     * died while the host slept still read as "connected". This answers the question for
+     * real, in two stages:
+     *
+     *   1. Passive — if frames arrived (or we sent one) in the last few seconds, the link
+     *      demonstrably works. Free, instant, and true whenever the bike is running.
+     *   2. Active — only once it goes quiet, ask the adapter over USB. Never touches the
+     *      CAN bus, so a parked bike stays "alive" instead of looking dead.
+     *
+     * A failure here reports through _handleCanError, so callers do not have to.
+     */
+    async checkAlive({ force = false } = {}) {
+        if (!this.isStarted) return { ok: false, reason: 'not connected' };
+
+        const probeRequested = force || this.probeNowRequested;
+        this.probeNowRequested = false;
+        const quietFor = Date.now() - Math.max(this.lastRxAt, this.lastTxOkAt);
+        if (!probeRequested && quietFor < CanBusService.LIVENESS_QUIET_MS) {
+            return { ok: true, via: 'traffic' };
+        }
+
+        const probe = await this.canDevice.probeAlive();
+        if (probe.ok) return { ok: true, via: probe.skipped ? 'probe in flight' : 'probe' };
+
+        const severity = classifyUsbError(probe.error);
+        if (severity === 'soft') {
+            // One soft failure is not proof. Say so, and make the next check probe again
+            // rather than trusting the quiet-bus shortcut — the caller counts the strikes.
+            this.probeNowRequested = true;
+            return { ok: false, soft: true, reason: probe.error };
+        }
+        this._handleCanError(new Error(probe.error));
+        return { ok: false, reason: probe.error };
+    }
 
     async close() {
         if (!this.canDevice) {
