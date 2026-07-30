@@ -48,6 +48,22 @@ class CanBusService extends EventEmitter {
         this.cachedParameter1 = null;
         this.cachedParameter2 = null;
         this.cachedSpeedParams = null; // Added for completeness
+
+        // Proof-of-life timestamps for checkAlive(). Frames arriving (or a frame we
+        // managed to send) prove the USB link works without asking the adapter anything.
+        this.lastRxAt = 0;
+        this.lastTxOkAt = 0;
+        // Set by a soft libusb error so the next liveness check probes instead of
+        // trusting the quiet-bus shortcut. Read and cleared by checkAlive().
+        this.probeNowRequested = false;
+
+        // Bound ONCE, here, not in init(). GSUsb.on() only pushes onto an array — it has
+        // no off() and close() never clears it — and this.canDevice is never replaced. A
+        // per-connect registration would therefore stack a new handler on every reconnect,
+        // so after N sleep/wake cycles every frame would be parsed N times and every ACK
+        // sent N times. Auto-recovery reconnects on its own, which makes that a loop.
+        this.canDevice.on('frame', (frame) => this._handleFrameReceived(frame));
+        this.canDevice.on('error', (err) => this._handleCanError(err));
     }
 
     getConnectedDeviceName() {
@@ -94,9 +110,11 @@ class CanBusService extends EventEmitter {
             console.log(`[CanBusService] CAN device started successfully at ${BAFANG_CAN_BITRATE} bps. Device: ${this.connectedDeviceName}`);
             this.emit('can_status', true, `CAN device connected (${this.connectedDeviceName}).`);
 
-
-            this.canDevice.on('frame', (frame) => this._handleFrameReceived(frame));
-            this.canDevice.on('error', (err) => this._handleCanError(err));
+            // 'frame' / 'error' are bound once in the constructor — see the note there.
+            // A fresh connection starts with a clean liveness slate.
+            this.lastRxAt = Date.now();
+            this.lastTxOkAt = 0;
+            this.probeNowRequested = false;
 
             try {
                 await this.canDevice.startPolling();
@@ -192,6 +210,9 @@ class CanBusService extends EventEmitter {
     }
 
     async _handleFrameReceived(rawFrame) {
+        // Before any parsing: a frame arriving at all — even a malformed one — proves the
+        // USB link is alive, which is what checkAlive() needs to know.
+        this.lastRxAt = Date.now();
         try {
             this.emit('raw_frame_received', rawFrame);
             const bafangFrame = this._mapRawFrameToBafangFrame(rawFrame);
@@ -649,7 +670,29 @@ class CanBusService extends EventEmitter {
         if (wasStarted) {
             this.emit('can_error', `CAN Error: ${err.message || err}`);
             this.emit('can_status', false, `CAN device error: ${err.message || err}`);
+            // Emits first so the UI turns red immediately, then release the handle:
+            // clearing isStarted alone leaves an open zombie handle behind, and the
+            // reconnect that follows can then fail with LIBUSB_ERROR_BUSY.
+            this._releaseDeadHandle();
         }
+     }
+
+    // Best-effort teardown after a link failure. Every step is optional and raced
+    // against a timer, because closing a handle whose device stopped answering can
+    // block inside libusb — and this runs on the path that is supposed to make the
+    // app responsive again, so it must never be the thing that hangs.
+    async _releaseDeadHandle(timeoutMs = 5000) {
+        const teardown = (async () => {
+            try { await this.canDevice.stopPolling(); } catch (e) { console.warn('[CanBusService] stopPolling after error failed:', e.message); }
+            try { await this.canDevice.stop(); } catch (e) { console.warn('[CanBusService] stop after error failed:', e.message); }
+        })();
+        await Promise.race([
+            teardown,
+            new Promise((resolve) => setTimeout(() => {
+                console.warn('[CanBusService] Releasing the dead USB handle timed out; carrying on.');
+                resolve();
+            }, timeoutMs)),
+        ]);
      }
 
     // --- Public Methods using Request Manager (remain the same) ---
