@@ -780,7 +780,8 @@ export function enableAppControls(enable) {
     if (debugElements.canDataInput) debugElements.canDataInput.disabled = false;
 }
 
-export function updateCanInterfaceDisplay(statusType, deviceName = null) {
+// `detail` carries the reason a link was lost (CB-010); the other states ignore it.
+export function updateCanInterfaceDisplay(statusType, deviceName = null, detail = null) {
     if (!statusIndicator || !statusText || !connectCanButton || !canDeviceNameElement) {
         console.error("One or more essential UI status elements are missing!");
         addLog("ERROR", "UI Error: Status elements missing.");
@@ -789,6 +790,7 @@ export function updateCanInterfaceDisplay(statusType, deviceName = null) {
 
     state.isCanDeviceFound = false;
     state.isCanConnected = false;
+    state.canLinkRecovering = false; // set again by the RECOVERING branch below
 
     statusIndicator.classList.remove('connected', 'found');
     statusIndicator.style.backgroundColor = '';
@@ -851,6 +853,31 @@ export function updateCanInterfaceDisplay(statusType, deviceName = null) {
             statusIndicator.style.backgroundColor = '#ffc107';
             connectCanButton.textContent = 'Disconnecting...';
             connectCanButton.disabled = true;
+            enableAppControls(false);
+            break;
+        // CB-010: the adapter is still plugged in but the link to it died — the state
+        // after the host sleeps. Previously this showed a green "Connected" pill over a
+        // connection that carried nothing.
+        case 'RECOVERING':
+            state.currentCanDeviceName = deviceName;
+            state.canLinkRecovering = true;
+            statusText.textContent = 'Link lost — reconnecting...';
+            statusIndicator.style.backgroundColor = '#ffc107';
+            connectCanButton.textContent = 'Reconnecting...';
+            connectCanButton.disabled = true;
+            canDeviceNameElement.textContent = detail ? `Reason: ${detail}` : 'Reopening the adapter...';
+            enableAppControls(false);
+            break;
+        case 'LINK_LOST':
+            state.currentCanDeviceName = deviceName;
+            state.canLinkRecovering = false;
+            statusText.textContent = 'Link lost';
+            statusIndicator.style.backgroundColor = '#dc3545';
+            connectCanButton.textContent = 'Reconnect';
+            connectCanButton.disabled = false; // the way out has to stay available
+            canDeviceNameElement.textContent = detail
+                ? `Adapter stopped responding: ${detail}`
+                : 'The adapter stopped responding. Press Reconnect.';
             enableAppControls(false);
             break;
         case 'ERROR':

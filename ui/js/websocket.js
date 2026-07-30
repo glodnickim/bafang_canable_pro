@@ -69,19 +69,31 @@ socket.onmessage = (event) => {
         const parts = message.substring('CAN_DEVICE_STATUS:'.length).split(':');
         const statusType = parts[0];
         const deviceName = parts.length > 1 ? parts[1] : state.currentCanDeviceName;
+        // RECOVERING/LINK_LOST append a reason (CB-010). The server strips ':' from it,
+        // so re-joining the tail is safe and survives a reason that once had one.
+        const detail = parts.length > 2 ? parts.slice(2).join(':') : null;
 
         state.isCanConnected = (statusType === 'CONNECTED');
-        state.isCanDeviceFound = (statusType === 'FOUND' || statusType === 'CONNECTED' || statusType === 'DISCONNECTED_DEVICE_STILL_PRESENT' || statusType === 'CONNECTING' || statusType === 'DISCONNECTING');
+        state.isCanDeviceFound = (statusType === 'FOUND' || statusType === 'CONNECTED' || statusType === 'DISCONNECTED_DEVICE_STILL_PRESENT' || statusType === 'CONNECTING' || statusType === 'DISCONNECTING' || statusType === 'RECOVERING' || statusType === 'LINK_LOST');
         if (deviceName && (state.isCanDeviceFound || state.isCanConnected)) {
             state.currentCanDeviceName = deviceName;
         } else if (statusType === 'NOT_FOUND') {
             state.currentCanDeviceName = null;
         }
-        updateCanInterfaceDisplay(statusType, state.currentCanDeviceName);
+        updateCanInterfaceDisplay(statusType, state.currentCanDeviceName, detail);
         if (statusType === 'CONNECTED') {
             startControllerDetection();
-        } else if (['NOT_FOUND', 'DISCONNECTED_DEVICE_STILL_PRESENT', 'DISCONNECTING'].includes(statusType)) {
+        } else if (['NOT_FOUND', 'DISCONNECTED_DEVICE_STILL_PRESENT', 'DISCONNECTING', 'RECOVERING', 'LINK_LOST'].includes(statusType)) {
+            // A lost link has to reset detection too, or the eVistDrive tabs keep
+            // presenting themselves as confirmed against a controller we cannot reach.
             resetControllerDetection('CAN controller is not connected.');
+        }
+        // Say it in the firmware log too, so a flash that dies explains itself there and
+        // not only in the status pill. Only when that log has content — otherwise every
+        // idle link hiccup would leave noise in a log nobody has started using.
+        if ((statusType === 'LINK_LOST' || statusType === 'RECOVERING')
+            && fwUpdateElements.logArea?.children?.length) {
+            addFwUpdateLog(`[ERROR] Link to the adapter lost${detail ? `: ${detail}` : '.'}`);
         }
     }
     else if (message.startsWith('CAN_STATUS:')) {
