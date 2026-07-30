@@ -32,12 +32,42 @@ socket.onopen = () => {
     socket.send('GET_CAN_INTERFACE_STATUS');
 };
 
+// The page's link to the server is a single socket created once in shared.js, and nothing
+// ever rebuilt it: after the host slept, or the server restarted, the tab sat there dead
+// until someone reloaded it by hand. That made the server-side recovery invisible — the
+// adapter could be back and the page would never find out.
+//
+// Rather than rebuild the socket and re-register every handler, wait until the server
+// answers an ordinary HTTP request again and then reload. The page was unusable anyway,
+// and a reload guarantees a consistent state instead of a half-reconnected one.
+let reconnectPoll = null;
+function waitForServerThenReload() {
+    if (reconnectPoll) return;
+    let attempt = 0;
+    reconnectPoll = setInterval(async () => {
+        attempt += 1;
+        try {
+            // cache:'no-store' so a cached response cannot pass for a live server.
+            const response = await fetch('./', { cache: 'no-store' });
+            if (!response.ok) return;
+            clearInterval(reconnectPoll);
+            reconnectPoll = null;
+            addLog('STATUS', 'Server is back — reloading the page.');
+            window.location.reload();
+        } catch {
+            // Still down. Keep waiting quietly; the status bar already says so.
+            if (attempt === 1) canDeviceNameElement.textContent = 'Connection to server lost — waiting for it to come back...';
+        }
+    }, 2000);
+}
+
 socket.onclose = () => {
     resetControllerDetection('WebSocket connection to CANable server was closed.');
     updateCanInterfaceDisplay('DEVICE_NOT_FOUND');
     statusText.textContent = 'Disconnected (WebSocket Closed)';
     canDeviceNameElement.textContent = 'Connection to server lost.';
     addLog('STATUS', 'WebSocket connection closed.');
+    waitForServerThenReload();
 };
 
 socket.onerror = (error) => {

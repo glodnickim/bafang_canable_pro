@@ -6,7 +6,7 @@ import { state, socket, addLog, isEbicsConnected } from '../shared.js';
 import { evalPowerCurvePermille } from './power-curve-lut.js';
 import {
     LEVEL_NAMES, LEVEL_COLORS, MODE_LABELS, PREVIEW_CADENCE_RPM, EBICS_MV_PER_KG,
-    el, isNumber, clamp, hexToRgba, socketReady, selectedLevel,
+    el, isNumber, clamp, hexToRgba, socketReady, selectedLevel, tabIsVisible,
     bankSchemaVersion, modeUnsupportedReason, populateSelects, fieldInput, plotLayout,
 } from './common.js';
 import { updateTorqueSummary } from './torque.js';
@@ -350,6 +350,9 @@ export function renderProfileChart() {
     const selected = selectedLevel();
     const levels = selected.bank?.levels;
     if (!powerChart || typeof Plotly === 'undefined') return;
+    // Two charts, five traces each. Skipped while the card is hidden and redrawn on the
+    // way in (see the app-tab-changed handler in index.js), so nothing is ever stale.
+    if (!tabIsVisible('tab-ebics-profiles')) return;
     const hasData = Array.isArray(levels) && levels.length > 0;
     const previewLevels = hasData
         ? levels.slice(0, LEVEL_NAMES.length)

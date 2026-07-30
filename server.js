@@ -1330,6 +1330,31 @@ const wss = new WebSocket.Server({ server });
 			require('child_process').exec(start + ' ' + 'http://localhost:8080');
 	});
 
+	// Without this, launching a second copy — double-clicking the .exe again, the usual
+	// way to "restart" it — crashed with an unhandled EADDRINUSE and a stack trace. The
+	// server that is already running is the one the user wants, so point them at it.
+	//
+	// Registered on BOTH emitters: ws re-emits the HTTP server's error on the
+	// WebSocketServer, so handling it only on `server` still ended in an unhandled
+	// 'error' event and the same crash.
+	server.on('error', handleFatalServerError);
+	wss.on('error', handleFatalServerError);
+
+	let fatalHandled = false;
+	function handleFatalServerError(err) {
+		if (fatalHandled) return; // both emitters fire for the same failure
+		fatalHandled = true;
+		if (err.code === 'EADDRINUSE') {
+			console.error('Port 8080 is already in use — this app is most likely already running.');
+			console.error('Opening http://localhost:8080; close the other copy first if you meant to restart.');
+			const start = (process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open');
+			require('child_process').exec(start + ' ' + 'http://localhost:8080');
+		} else {
+			console.error('Server error:', err.message);
+		}
+		process.exit(1);
+	}
+
 
 	process.on('unhandledRejection', (reason, promise) => {
 	  console.error('Unhandled Rejection at:', promise, 'reason:', reason);

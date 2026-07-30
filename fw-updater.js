@@ -115,7 +115,12 @@ class FwUpdater {
         this.logMessage(`File header data: ${fileHeaderData}`, 'INFO');
     }
     setupCunbus(){
-        this.canbus.on('raw_frame_received', (rawFrame) => {
+        // Kept in a field so cleanup() can remove it. As an inline arrow it could never be
+        // taken off again, so every flash attempt left another listener on the canbus
+        // singleton for the lifetime of the process — after three attempts every CAN frame
+        // from the bike ran three dead closures. logger.js, sniffer.js and
+        // debug-logger-cli.js all pair on() with removeListener(); this was the exception.
+        this.onRawFrame = (rawFrame) => {
             if(this.end)
                 return;
             const { idHex, dataHex, dlc, timestamp } = formatRawCanFrameData(rawFrame);
@@ -145,7 +150,16 @@ class FwUpdater {
             if(idHex.includes(`${this.deviceId}2A0002`)){
                 this.firstChunkACK = true;
             }
-        });
+        };
+        this.canbus.on('raw_frame_received', this.onRawFrame);
+    }
+
+    // Called when the procedure ends, however it ended. Without this the updater stays
+    // attached to the frame stream forever.
+    cleanup(){
+        if (!this.onRawFrame) return;
+        this.canbus.removeListener('raw_frame_received', this.onRawFrame);
+        this.onRawFrame = null;
     }
     async sendRawFrameWithRetry(id,data,retries = 3){
         // Every step of the flash funnels through here, so one check covers all of them.
@@ -406,6 +420,7 @@ class FwUpdater {
             try { await this.progressLoop; } catch { /* already reported by its own catch */ }
             const endTime = performance.now();
             const timeInSeconds = (endTime - startTime) / 1000;
+            this.cleanup(); // stop listening to the bus, whatever the outcome
             this.logMessage(`Runtime: ${timeInSeconds}s`,'INFO');
             if(this.ws)
                 // The outcome travels with the message. It used to be a bare FW_UPDATE_END

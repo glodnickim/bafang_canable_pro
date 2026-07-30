@@ -1657,7 +1657,11 @@
 
 </div><!-- End main container -->
 
-<script src="plotly-2.24.1.min.js"></script>
+<!-- The "basic" bundle (same 2.24.1) is 1 MB against 3.5 MB for the full one, which also
+     carries 3D, maps and statistical traces this app never draws. Every chart here is a
+     scatter or a bar, both included, as are the layout features used: annotations,
+     shapes, a second y axis, fills and hovertemplates. -->
+<script src="plotly-basic-2.24.1.min.js"></script>
 <script type="module" src="js/init.js"></script>
 </body>
 </html>

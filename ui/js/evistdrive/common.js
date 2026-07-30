@@ -178,6 +178,13 @@ export function fieldInput(container, target, descriptor, onChanged) {
     container.appendChild(wrapper);
 }
 
+// Drawing a chart nobody can see costs exactly as much as drawing one they can. The Live
+// and Limits cards already checked this; Profiles and Dynamics did not, so switching to
+// any eVistDrive tab redrew five hidden charts.
+export function tabIsVisible(tabId) {
+    return !!el(tabId)?.classList.contains('active');
+}
+
 // Shared Plotly styling. Every eVistDrive chart starts here so they read as one
 // set instead of five slightly different ones.
 export function plotLayout(titleX, titleY) {

@@ -2,7 +2,7 @@
 /* global Plotly */
 import { state, socket, addLog } from '../shared.js';
 import {
-    el, clamp, setText, socketReady, selectedLevel, activeBankIndex, currentLevelIndex,
+    el, clamp, setText, socketReady, selectedLevel, activeBankIndex, currentLevelIndex, tabIsVisible,
     fieldInput, plotLayout,
 } from './common.js';
 
@@ -70,6 +70,9 @@ export function renderDynamics() {
 
 function renderDynamicsCharts() {
     if (typeof Plotly === 'undefined') return;
+    // Three charts. Skipped while the card is hidden and redrawn on the way in — see the
+    // app-tab-changed handler in index.js, which runs a full refresh per eVistDrive tab.
+    if (!tabIsVisible('tab-ebics-dynamics')) return;
     ensureTuningDefaults();
     const tuning = state.lastTuning;
     const rampTrace = (duration, falling, name, color, chartEnd) => ({

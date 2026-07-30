@@ -964,6 +964,10 @@ export function updateStatus(connected, message = '') {
     enableControls(connected);
 }
 
+// Roughly a session's worth of readable history. Well past what anyone scrolls back
+// through, and far below where the kept DOM starts costing anything.
+const MAX_LOG_ENTRIES = 500;
+
 export function addLog(prefix, data, details = null) {
     const entry = document.createElement('div'); entry.classList.add('log-entry');
     const timeSpan = document.createElement('span'); timeSpan.classList.add('log-time'); timeSpan.textContent = `[${new Date().toLocaleTimeString()}]`;
@@ -988,6 +992,10 @@ export function addLog(prefix, data, details = null) {
     }
 
     log.appendChild(entry);
+    // Nothing ever removed entries, so a long session grew the log without limit — every
+    // kept entry costs memory and makes the scroll below more expensive. Older lines are
+    // of no use anyway; the file logs keep the full history.
+    while (log.childElementCount > MAX_LOG_ENTRIES) log.removeChild(log.firstChild);
     log.scrollTop = log.scrollHeight;
 }
 
