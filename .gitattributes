@@ -1,0 +1,12 @@
+# The repository stores LF. Without this, a Windows checkout commits CRLF back and
+# every file shows up as fully rewritten in the diff.
+* text=auto eol=lf
+
+*.bat  text eol=crlf
+*.ps1  text eol=crlf
+
+*.png  binary
+*.jpg  binary
+*.JPG  binary
+*.exe  binary
+*.bin  binary

@@ -1,4 +1,9 @@
 /node_modules
+
+# Build output and shipped binaries — never in git.
 /dist
+/releases
+*.exe
+
 /fw
 /logs

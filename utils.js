@@ -1,6 +1,9 @@
 const fsp = require("fs").promises;
 const path = require("path");
-const logsDir = path.join(__dirname, "logs");
+// Inside a packaged .exe __dirname points at the read-only pkg snapshot, so ride
+// logs must go next to the executable instead. Unpackaged, nothing changes.
+const appDir = process.pkg ? path.dirname(process.execPath) : __dirname;
+const logsDir = path.join(appDir, "logs");
 const nanoTimer = require("nanotimer");
 
 function mapId(canIdNum) {

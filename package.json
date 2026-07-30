@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "CAN bus interface for Bafang motor controllers",
   "main": "server.js",
-  "bin": "server.js",
+  "bin": "app.js",
   "dependencies": {
     "candlelightjs": "github:ieb/candleLightJS",
     "usb": "^2.16.0",
@@ -12,25 +12,32 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.32.0",
+    "@yao-pkg/pkg": "^6.3.0",
     "eslint": "^9.32.0",
     "globals": "^16.3.0"
   },
-   "pkg": {
+  "pkg": {
     "scripts": "**/*.js",
-    "assets": [ 
+    "assets": [
       "ui/**/*",
       "node_modules/usb/*",
       "node_modules/usb/**/*"
     ],
-    "targets": [ "node18-win-x64", "node18-win-arm64", "node18-linux-x64", "node18-linux-arm64", "node18-macos-x64" ],
+    "targets": [ "node22-win-x64", "node22-win-arm64", "node22-linux-x64", "node22-linux-arm64", "node22-macos-x64" ],
     "outputPath": "dist"
   },
-    "scripts": {
-      "build": "pkg . --no-bytecode --public-packages \"*\" --public --compress Brotli", 
-      "dev": "node server.js",
-      "sniff": "node can-listener.js"
+  "scripts": {
+    "build": "pkg . --no-bytecode --public-packages \"*\" --public --compress Brotli",
+    "build:win": "pkg . --targets node22-win-x64 --no-bytecode --public-packages \"*\" --public --compress Brotli",
+    "dev": "node server.js",
+    "lint": "eslint .",
+    "sniff": "node can-listener.js",
+    "test": "node tests/fw056_bank_blob_roundtrip.js"
   },
-  "comments":{
-    "build": "Builds the application using yao-pkg"
+  "comments": {
+    "build": "Builds every target in pkg.targets using @yao-pkg/pkg (Vercel's pkg is archived).",
+    "build:win": "Windows x64 only - fastest path when that is all you need.",
+    "entry": "bin points at app.js, not server.js: app.js unpacks the native USB binary before requiring the server. See BUILD_EXE.md.",
+    "targets": "node22, not node18: pkg-fetch ships no prebuilt node18 binary any more, so an 18 target falls back to compiling Node from source and needs Visual Studio."
   }
 }
