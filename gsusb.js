@@ -182,6 +182,8 @@ From https://github.com/torvalds/linux/blob/master/drivers/net/can/usb/gs_usb.c#
         this.onUSBPollError = this.onUSBPollError.bind(this);
         this.onUSBPollEnd = this.onUSBPollEnd.bind(this);
 
+        this._pollFailureReported = false; // latch: one report per polling session
+        this._probeInFlight = false;
     }
 
         // event emitter
@@ -1133,6 +1135,7 @@ struct gs_device_filter {
                 throw new Error("Invalid endpoint");
             }
             const that = this;
+            this._pollFailureReported = false; // new polling session, arm the latch again
             this.endpoint.startPoll(3, 1024);
             that.pollCanFrames = true;
 
@@ -1216,17 +1219,78 @@ struct gs_device_filter {
     }
     /**
      * Typically this causes the polling to stop and not recover.
+     *
+     * This is the one that fires when the host suspends and resumes: the RX pipe dies
+     * and never comes back. It used to only log, so nothing above ever learned the link
+     * was gone and the UI kept claiming "Connected". It now reports upwards. The latch
+     * keeps a burst of pipe errors down to a single report.
      */
     onUSBPollError(e) {
         console.log("Polling error ", e);
-
+        this.pollCanFrames = false;
+        if (this._pollFailureReported) return;
+        this._pollFailureReported = true;
+        this._emitEvent("error", e);
     }
     /**
      * Done.
      */
     onUSBPollEnd() {
         console.log('done polling');
+        const expected = !this.started || this.stopping || !this.pollCanFrames;
         this.pollCanFrames = false;
+        // stopPolling() clears pollCanFrames before calling stopPoll, and stop() sets
+        // stopping — so anything else ending the stream was not asked for by us.
+        if (expected || this._pollFailureReported) return;
+        this._pollFailureReported = true;
+        this._emitEvent("error", new Error("USB RX polling ended unexpectedly"));
+    }
+
+    /**
+     * Ask the ADAPTER whether it is still there, without putting anything on the CAN bus.
+     *
+     * That distinction is the whole point: a parked bike sends nothing, so a CAN-level
+     * read cannot tell "adapter is dead" from "adapter is fine, bike is off". A control
+     * transfer talks to the adapter alone and answers exactly the question asked.
+     *
+     * Uses bt_const — the same request readDeviceCapabilities() makes on every successful
+     * start(), so it is known to be implemented on this firmware. Deliberately does NOT go
+     * through _controlRead(), which swallows the exception and returns undefined; the
+     * error class (NO_DEVICE vs IO vs TIMEOUT) decides how hard the caller reacts.
+     *
+     * The timeout race is required, not defensive: after a host resume a control transfer
+     * on a stale handle can block forever, and this runs on the periodic tick.
+     */
+    async probeAlive(timeoutMs = 1500) {
+        if (this.gs_usb === undefined) return { ok: false, error: 'no USB device handle' };
+        if (this._probeInFlight) return { ok: true, skipped: true };
+        this._probeInFlight = true;
+        const req = GSUSBConstants.GS_USB_BREQ.bt_const;
+        try {
+            const transfer = (async () => {
+                try {
+                    const result = await this.gs_usb.controlTransferIn({
+                        requestType: 'vendor',
+                        recipient: 'interface',
+                        request: req.request,
+                        value: 0,
+                        index: 0
+                    }, req.len);
+                    return result.status === 'ok'
+                        ? { ok: true }
+                        : { ok: false, error: `adapter answered ${result.status}` };
+                } catch (e) {
+                    return { ok: false, error: `${e.message || e}` };
+                }
+            })();
+            return await Promise.race([
+                transfer,
+                new Promise((resolve) => setTimeout(
+                    () => resolve({ ok: false, error: 'adapter did not answer in time' }), timeoutMs)),
+            ]);
+        } finally {
+            this._probeInFlight = false;
+        }
     }
 
 
