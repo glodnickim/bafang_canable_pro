@@ -480,6 +480,19 @@ h3.section-subtitle:first-of-type { margin-top: 0; }
 .btn-warning   { background-color: #d97706; color: #fff; }
 .btn-warning:hover:not(:disabled)   { background-color: #b45309; }
 
+/* The eVistDrive cards use these on 19 buttons, but nothing ever defined them: they are
+ * not utility classes, so the old in-browser Tailwind could not generate them either and
+ * they rendered as unstyled grey. The naming makes the intent plain, and it is worth
+ * seeing at a glance — orange writes to the controller's RAM and is undone by a power
+ * cycle, red writes permanently to flash and is not. Same palette as the buttons above:
+ * orange sits between .btn-warning and .btn-danger, red matches .btn-danger. */
+.btn-orange    { background-color: #ea580c; color: #fff; }
+.btn-orange:hover:not(:disabled)    { background-color: #c2410c; }
+.btn-red       { background-color: #dc2626; color: #fff; }
+.btn-red:hover:not(:disabled)       { background-color: #b91c1c; }
+.btn-blue      { background-color: #2563eb; color: #fff; }
+.btn-blue:hover:not(:disabled)      { background-color: #1d4ed8; }
+
 /* ====== FORM ELEMENTS ====== */
 .form-input,
 .form-select {
