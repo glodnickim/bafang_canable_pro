@@ -137,7 +137,19 @@ socket.onmessage = (event) => {
         }
     }
 
-    if (message.startsWith('CAN_STATUS:')) { const statusMsg = message.substring('CAN_STATUS:'.length).trim(); const isConnected = statusMsg.toLowerCase().includes('connected') || statusMsg.toLowerCase().includes('started'); updateStatus(isConnected, `(${statusMsg})`); addLog('STATUS', statusMsg); }
+    if (message.startsWith('CAN_STATUS:')) {
+        const statusMsg = message.substring('CAN_STATUS:'.length).trim();
+        const lower = statusMsg.toLowerCase();
+        // "disconnected" contains "connected", so the old test reported every disconnect as
+        // a connection. The status bar then said "Connected" over a dead link while the
+        // write buttons — correctly disabled — looked broken.
+        const isConnected = !lower.includes('disconnected')
+            && !lower.includes('error')
+            && !lower.includes('failed')
+            && (lower.includes('connected') || lower.includes('started'));
+        updateStatus(isConnected, `(${statusMsg})`);
+        addLog('STATUS', statusMsg);
+    }
     else if (message.startsWith('CAN_ERROR:')) { const errorMsg = message.substring('CAN_ERROR:'.length).trim(); addLog('ERROR', errorMsg); }
     else if (message.startsWith('BAFANG_DATA:')) {
         const jsonString = message.substring('BAFANG_DATA:'.length);

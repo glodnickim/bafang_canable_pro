@@ -962,6 +962,10 @@ export function updateStatus(connected, message = '') {
     statusIndicator.classList.toggle('connected', connected);
     statusText.textContent = connected ? `Connected ${message}` : `Disconnected ${message}`;
     enableControls(connected);
+    // This function paints the same status bar as updateCanInterfaceDisplay, from a
+    // different message. Re-run the write gating so what the buttons allow can never
+    // contradict what the bar says — a mismatch between the two reads as a broken button.
+    updateWriteControlsGating();
 }
 
 // Roughly a session's worth of readable history. Well past what anyone scrolls back
