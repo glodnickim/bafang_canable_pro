@@ -1,13 +1,14 @@
 // evistdrive/profiles.js — eVistDrive Profiles card: the level editor and its preview charts
 /* global Plotly */
 import { state, socket, addLog, isEbicsConnected } from '../shared.js';
+import { markUnsavedInRam } from './global-actions.js';
 // FW-056: the exact table and evaluation the controller runs, emitted by the same
 // firmware generator, so the preview draws the real curve and not a lookalike.
 import { evalPowerCurvePermille } from './power-curve-lut.js';
 import {
     LEVEL_NAMES, LEVEL_COLORS, MODE_LABELS, PREVIEW_CADENCE_RPM, EBICS_MV_PER_KG,
     el, isNumber, clamp, hexToRgba, socketReady, selectedLevel, tabIsVisible,
-    writeBankAndWait, saveToFlashAndWait,
+    writeBankAndWait,
     bankSchemaVersion, modeUnsupportedReason, populateSelects, fieldInput, plotLayout,
 } from './common.js';
 import { updateTorqueSummary } from './torque.js';
@@ -500,7 +501,11 @@ export function bindProfileControls() {
         socket.send('READ_BANK:0');
         setTimeout(() => { if (socket.readyState === WebSocket.OPEN) socket.send('READ_BANK:1'); }, 400);
     });
-    el('ebicsProfilesApplyButton')?.addEventListener('click', () => {
+
+    // Writes the selected bank to controller RAM. Making it permanent is the top bar's
+    // "Save to Flash" — one controller command that covers both banks and the tuning
+    // together, which is why it is not a per-card button.
+    el('ebicsProfilesApplyButton')?.addEventListener('click', async () => {
         if (!socketReady()) return;
         const selected = selectedLevel();
         if (!selected.bank) { addLog('ERR', 'No eVistDrive bank data to apply.'); return; }
@@ -508,8 +513,8 @@ export function bindProfileControls() {
             addLog('ERR', `Read eVistDrive bank ${selected.bankIndex + 1} before writing changes.`);
             return;
         }
-        // FW-056: the controller validates every level and rejects the whole blob
-        // on an unknown mode, so catch it here with a readable reason.
+        // FW-056: the controller validates every level and rejects the whole blob on an
+        // unknown mode, so catch it here with a readable reason.
         const blocked = (selected.bank.levels || []).findIndex(
             (lv) => modeUnsupportedReason(lv.mode_type) === 'old-firmware');
         if (blocked >= 0) {
@@ -517,42 +522,13 @@ export function bindProfileControls() {
             addLog('ERR', `${LEVEL_NAMES[blocked]} uses "${label}", which this controller's firmware cannot store. Writing would be rejected and your current settings kept. Flash newer firmware or pick another mode.`);
             return;
         }
-        socket.send(`WRITE_BANK:${JSON.stringify(selected.bank)}`);
-        addLog('SAVE_REQ', `eVistDrive bank ${selected.bankIndex + 1} -> controller RAM`);
-    });
-    // Writes both banks to RAM first. SAVE_BANKS on its own persists whatever the
-    // controller already holds, so level edits made here were never part of the save and
-    // came back at their old values on the next read.
-    el('ebicsProfilesSaveButton')?.addEventListener('click', async () => {
-        if (!socketReady()) return;
-        // Both banks, because SAVE_BANKS persists both — sending only the edited one would
-        // flash it next to a stale neighbour.
-        if (!(state.ebicsReceivedBanks?.[0] && state.ebicsReceivedBanks?.[1])) {
-            addLog('ERR', 'Read both banks before saving to flash — an unread bank would be written to flash with placeholder values.');
+        const written = await writeBankAndWait(selected.bank);
+        if (!written.ok) {
+            addLog('ERR', `Bank ${selected.bankIndex + 1} was not written (${written.reason}).`);
             return;
         }
-        if (!confirm('Write both banks to controller RAM and then persist them, plus tuning, to flash?\n\nThe flash write happens at full standstill.')) return;
-
-        const button = el('ebicsProfilesSaveButton');
-        if (button) button.disabled = true;
-        try {
-            for (const index of [0, 1]) {
-                const written = await writeBankAndWait(state.lastBanks[index]);
-                if (!written.ok) {
-                    addLog('ERR', `Bank ${index + 1} was not written (${written.reason}) — nothing has been saved to flash.`);
-                    return;
-                }
-                addLog('ACK', `Bank ${index + 1} written to controller RAM.`);
-            }
-            const saved = await saveToFlashAndWait();
-            if (!saved.ok) {
-                addLog('ERR', `Both banks are in RAM, but the flash write was refused (${saved.reason}). They will be lost at power-off.`);
-                return;
-            }
-            addLog('SAVE_REQ', 'Both banks written to RAM and accepted for flash — the controller writes them at full standstill.');
-        } finally {
-            if (button) button.disabled = false;
-        }
+        markUnsavedInRam();
+        addLog('SAVE_REQ', `Bank ${selected.bankIndex + 1} written to controller RAM — press "Save to Flash" in the top bar to keep it.`);
     });
 
     // CB-012: undo a session of clicking, for the whole selected bank. Only touches what is

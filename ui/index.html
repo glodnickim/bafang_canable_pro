@@ -35,7 +35,20 @@
                 <input type="checkbox" id="hideFactoryTabsCheckbox" class="w-4 h-4 accent-olive" checked>
                 Show only eVistDrive tabs
             </label>
-            <button id="connectCanButton" disabled class="btn btn-primary">Connect</button>
+            <!-- CB-017: global actions, next to Connect and visible from every tab.
+                 Saving to flash is one controller command (0x6022) that persists BOTH banks
+                 and the tuning together — there is no partial flash write — so a per-card
+                 "Save (Flash)" button looked like it saved that card and did not. One
+                 button, one place, matching what the controller actually does. -->
+            <div class="flex items-center gap-2 flex-wrap">
+                <span id="evdUnsavedBadge" class="ebics-readonly-pill" style="display:none"
+                    title="Settings have been written to the controller's memory but not yet made permanent. They are lost when the bike is switched off until you press Save to Flash.">Unsaved in RAM</span>
+                <button id="evdReadAllButton" class="btn btn-blue btn-sm" data-requires-link
+                    title="Read everything from the controller: both profile banks, the ride-feel tuning and the legacy parameter blocks.">Read all</button>
+                <button id="evdSaveFlashButton" class="btn btn-red btn-sm" data-requires-link
+                    title="Make the current settings permanent. The controller performs the flash write at full standstill, and it always covers both banks and the tuning together.">Save to Flash</button>
+                <button id="connectCanButton" disabled class="btn btn-primary">Connect</button>
+            </div>
         </div>
     </div>
 
@@ -899,10 +912,7 @@
                     </div>
                     <div class="flex gap-2 flex-wrap">
                         <button id="ebicsProfilesReadButton" class="btn btn-blue">Read banks</button>
-                        <button id="ebicsProfilesApplyButton" data-requires-link class="btn btn-orange">Write selected bank (RAM)</button>
-                        <button id="ebicsProfilesSaveButton" data-requires-link class="btn btn-red">Save all (Flash)</button>
-                        <!-- CB-012. No data-requires-link: undoing your own clicking must work
-                             offline too, and it writes nothing to the controller. -->
+                        <button id="ebicsProfilesApplyButton" data-requires-link class="btn btn-orange" title="Sent to the controller's working memory. It is lost when the bike is switched off until you press Save to Flash in the top bar.">Write selected bank (RAM)</button>
                         <button id="ebicsProfilesRestoreButton" class="btn btn-secondary">Restore</button>
                     </div>
                 </div>
@@ -1041,8 +1051,7 @@
                     <div><div class="ebics-kicker">eVistDrive Ride Core</div><h2 class="section-title text-lg">Dynamics</h2></div>
                     <div class="flex gap-2 flex-wrap">
                         <button id="ebicsDynamicsReadButton" class="btn btn-blue">Read tuning</button>
-                        <button id="ebicsDynamicsApplyButton" data-requires-link class="btn btn-orange">Write (RAM)</button>
-                        <button id="ebicsDynamicsSaveButton" data-requires-link class="btn btn-red">Save (Flash)</button>
+                        <button id="ebicsDynamicsApplyButton" data-requires-link class="btn btn-orange" title="Sent to the controller's working memory. It is lost when the bike is switched off until you press Save to Flash in the top bar.">Write (RAM)</button>
                         <!-- CB-012. No data-requires-link: undoing your own clicking must work
                              offline too, and it writes nothing to the controller. -->
                         <button id="ebicsDynamicsRestoreButton" class="btn btn-secondary">Restore</button>
@@ -1086,7 +1095,7 @@
                     <div><div class="ebics-kicker">eVistDrive Ride Core</div><h2 class="section-title text-lg">Limits</h2></div>
                     <div class="flex gap-2 flex-wrap">
                         <button id="ebicsLimitsSyncButton" class="btn btn-blue">Read</button>
-                        <button id="ebicsLimitsApplyButton" data-requires-link class="btn btn-orange">Write (RAM)</button>
+                        <button id="ebicsLimitsApplyButton" data-requires-link class="btn btn-orange" title="Written straight to permanent storage: the controller commits these legacy parameter blocks as soon as it receives them, so there is no separate flash step.">Write (permanent)</button>
                     </div>
                 </div>
                 <div class="ebics-toolbar">
@@ -1135,7 +1144,7 @@
                     <div><div class="ebics-kicker">eVistDrive Ride Core</div><h2 class="section-title text-lg">Walk assist</h2></div>
                     <div class="flex gap-2 flex-wrap">
                         <button id="ebicsWalkSyncButton" class="btn btn-blue">Read</button>
-                        <button id="ebicsWalkApplyButton" data-requires-link class="btn btn-orange">Write (RAM)</button>
+                        <button id="ebicsWalkApplyButton" data-requires-link class="btn btn-orange" title="Sent to the controller's working memory. It is lost when the bike is switched off until you press Save to Flash in the top bar.">Write (RAM)</button>
                     </div>
                 </div>
                 <div class="ebics-metric-grid">
@@ -1156,7 +1165,6 @@
                 </div>
                 <div class="ebics-toolbar mt-4">
                     <span id="ebicsCompatibilitySourceWalk" class="ebics-source-note">Preview values — read before writing</span>
-                    <button id="ebicsWalkCutoffSaveButton" data-requires-link class="btn btn-red">Save both banks (Flash)</button>
                 </div>
                 <div class="info-message mt-4"><span>Walk Assist holds <b>motor speed</b>, so the target is set as <b>chainring RPM</b> — the gear you select decides how fast the bike walks. "Walk motor current" is the strength ceiling, not a speed. All Walk settings are banked. Timed run is off by default and stops on another button, brake, error, wheel-speed cut-off or timeout.</span></div>
             </div>
@@ -1169,7 +1177,7 @@
                     <div><div class="ebics-kicker">eVistDrive Ride Core</div><h2 class="section-title text-lg">System and protocol</h2></div>
                     <div class="flex gap-2 flex-wrap">
                         <button id="ebicsSystemSyncButton" class="btn btn-blue">Read</button>
-                        <button id="ebicsSystemApplyButton" data-requires-link class="btn btn-orange">Write (RAM)</button>
+                        <button id="ebicsSystemApplyButton" data-requires-link class="btn btn-orange" title="Written straight to permanent storage: the controller commits these legacy parameter blocks as soon as it receives them, so there is no separate flash step.">Write (permanent)</button>
                         <button id="ebicsProbeAgainButton" class="btn btn-secondary">Detect again</button>
                     </div>
                 </div>

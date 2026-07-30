@@ -17,6 +17,7 @@ import { renderProfileEditor, bindProfileControls } from './profiles.js';
 import { renderDynamics, bindDynamicsControls } from './dynamics.js';
 import { bindSystemControls, stopDiagPoll } from './system.js';
 import { updateDeviceInfoUI, bindDeviceInfoControls } from './device-info.js';
+import { bindGlobalActions } from './global-actions.js';
 
 // Re-exported for websocket.js, which pushes freshly parsed frames straight at the
 // card that displays them.
@@ -55,6 +56,7 @@ function bindControls() {
     bindTorqueControls();
     bindSystemControls();
     bindDeviceInfoControls();
+    bindGlobalActions(); // CB-017: Read all / Save to Flash in the top bar
 
     // FW-030/043: the "Ride engine (developer)" card is gone (single TSDZ engine).
     // READ_SYSTEM survives because the FW-018 full-charge threshold shares 0x6028.

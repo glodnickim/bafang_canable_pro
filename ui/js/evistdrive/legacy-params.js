@@ -24,7 +24,8 @@ import {
     errorDescriptions, errorRecommendations, helpBadge, isEbicsConnected,
 } from '../shared.js';
 // Shared write-then-confirm helpers, so every 'Save to flash' button behaves identically.
-import { writeBankAndWait, saveToFlashAndWait } from './common.js';
+import { writeBankAndWait } from './common.js';
+import { markUnsavedInRam } from './global-actions.js';
 
 const LEVEL_NAMES = ['ECO', 'TOUR', 'SPORT', 'SPORT+', 'BOOST'];
 const LEVEL_MAP = uiToInternalAssistMap[5];
@@ -914,69 +915,29 @@ function applyLimits() {
     addLog('SAVE_REQ', 'eVistDrive limits P1 + speed block');
 }
 
-function applyWalk() {
+// Writes the Walk settings to controller RAM. Making them permanent is the top bar's
+// "Save to Flash" — one controller command covering both banks and the tuning together,
+// which is why it is no longer a button on this card.
+async function applyWalk() {
     const readIndexes = [0, 1].filter((index) => state.ebicsReceivedBanks?.[index]);
     if (!readIndexes.length) {
         addLog('ERR', 'Read the profile banks before writing Walk settings.');
         return;
     }
     if (!confirm(`Write Walk Assist settings for ${readIndexes.map((i) => `bank ${i + 1}`).join(' and ')} to controller RAM?`)) return;
-    readIndexes.forEach((index) => {
-        socket.send(`WRITE_BANK:${JSON.stringify(state.lastBanks[index])}`);
-    });
-    addLog('SAVE_REQ', `Walk settings -> ${readIndexes.map((i) => `bank ${i + 1}`).join(', ')} (RAM; use Save Flash to keep them)`);
-}
-
-// "Save both banks (Flash)" used to send SAVE_BANKS on its own. SAVE_BANKS only tells the
-// controller to persist what it already holds in RAM, so edits made in this card — which
-// live in the browser until a WRITE_BANK — were never part of the save: flash got the old
-// values, and the next Read brought them straight back. Editing 50 to 40 RPM, saving, and
-// reading 50 again was exactly that.
-//
-// So: write both banks to RAM, confirm each, and only then persist.
-async function saveWalkCutoff() {
-    if (!requireRead(['banks'], 'save Walk settings')) return;
-    // Both banks specifically — SAVE_BANKS persists both, so sending only one to RAM would
-    // flash the edited bank next to a stale one.
-    if (!(state.ebicsReceivedBanks?.[0] && state.ebicsReceivedBanks?.[1])) {
-        addLog('ERR', 'Read both banks before saving to flash — one unread bank would be written to flash with stale values.');
-        setWalkStatus('Read both banks first.', true);
-        return;
-    }
-    if (!confirm('Write both banks to controller RAM and then persist them, plus tuning, to flash?\n\nThe flash write happens at full standstill.')) return;
-
-    const button = el('ebicsWalkCutoffSaveButton');
-    if (button) button.disabled = true;
-    try {
-        for (const index of [0, 1]) {
-            setWalkStatus(`Writing bank ${index + 1} to RAM...`);
-            // state.lastBanks[index] is the bank as read, carrying its own schema version
-            // and its assist levels untouched — this card only edits the Walk fields on it.
-            const written = await writeBankAndWait(state.lastBanks[index]);
-            if (!written.ok) {
-                const message = `Bank ${index + 1} was not written (${written.reason}) — nothing has been saved to flash.`;
-                addLog('ERR', message);
-                setWalkStatus(message, true);
-                return;
-            }
-            addLog('ACK', `Bank ${index + 1} written to controller RAM.`);
-        }
-
-        setWalkStatus('Both banks in RAM. Requesting the flash write...');
-        const saved = await saveToFlashAndWait();
-        if (!saved.ok) {
-            const reason = saved.reason;
-            const message = `Both banks are in RAM, but the flash write was refused (${reason}). They will be lost at power-off.`;
+    for (const index of readIndexes) {
+        const written = await writeBankAndWait(state.lastBanks[index]);
+        if (!written.ok) {
+            const message = `Bank ${index + 1} was not written (${written.reason}).`;
             addLog('ERR', message);
             setWalkStatus(message, true);
             return;
         }
-        const done = 'Both banks written to RAM and accepted for flash — the controller writes them at full standstill.';
-        addLog('SAVE_REQ', done);
-        setWalkStatus(done);
-    } finally {
-        if (button) button.disabled = false;
     }
+    markUnsavedInRam();
+    const done = `Walk settings written to controller RAM (${readIndexes.map((i) => `bank ${i + 1}`).join(', ')}). Press "Save to Flash" in the top bar to keep them.`;
+    addLog('SAVE_REQ', done);
+    setWalkStatus(done);
 }
 
 function applySystem() {
@@ -1062,7 +1023,6 @@ function bindButtons() {
         .forEach((id) => el(id)?.addEventListener('click', syncAllCompatibilityData));
     // Walk is bank-backed, so keep its reads sequential. Overlapping reads can leave the form blank.
     el('ebicsWalkSyncButton')?.addEventListener('click', syncWalkData);
-    el('ebicsWalkCutoffSaveButton')?.addEventListener('click', saveWalkCutoff);
     el('ebicsLimitsApplyButton')?.addEventListener('click', applyLimits);
     el('ebicsWalkApplyButton')?.addEventListener('click', applyWalk);
     el('ebicsSystemApplyButton')?.addEventListener('click', applySystem);
