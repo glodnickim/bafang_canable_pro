@@ -496,7 +496,23 @@ rc = usb_control_msg_recv(udev, 0,
      * read the device capabilities and bit timing constants.
      */
     async readDeviceCapabilities() {
-        const data = await this._controlRead(GSUSBConstants.GS_USB_BREQ.bt_const);
+        // Retried, because one stall here fails the entire connection attempt. A device
+        // still settling after an interrupted session often answers the second or third
+        // try. Three attempts cost 300 ms in the bad case and nothing in the normal one.
+        //
+        // It does NOT rescue a properly wedged adapter: this is a stall on the control
+        // pipe, and no amount of retrying clears one that the device is holding — that
+        // needs the adapter unplugged and plugged back in. The message below says so,
+        // because the previous "Failed to get capabilities" left the user guessing.
+        let data;
+        for (let attempt = 1; attempt <= 3; attempt++) {
+            data = await this._controlRead(GSUSBConstants.GS_USB_BREQ.bt_const);
+            if (data !== undefined) break;
+            if (attempt < 3) {
+                console.log(`Capabilities read failed (attempt ${attempt}/3), retrying...`);
+                await new Promise((resolve) => setTimeout(resolve, 150));
+            }
+        }
         if ( data !== undefined ) {
             const capabilities = {
                 features: data.getUint32(0,true),
@@ -514,7 +530,9 @@ rc = usb_control_msg_recv(udev, 0,
             //this.dumpSupportedFLags(capabilities.features);
             return capabilities;
         } else {
-            console.log("Failed to get capabilities ");
+            console.log('Failed to get capabilities: the adapter did not answer after 3 attempts.');
+            console.log('If this repeats, UNPLUG THE CANABLE, wait a few seconds and plug it back in —');
+            console.log('a device holding a stall on its control pipe only clears on a real power cycle.');
             return undefined;
         }
     }

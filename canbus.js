@@ -107,7 +107,14 @@ class CanBusService extends EventEmitter {
 
             if (!startResult || !startResult.ok) {
                 this.connectedDeviceName = null; // Clear name on failure
-                throw new Error(startResult.msg || 'Failed to start CAN device (candlelightjs)');
+                let reason = startResult?.msg || 'Failed to start CAN device (candlelightjs)';
+                // Say what to do about it. This particular failure means the adapter is
+                // enumerated but not answering, which no amount of reconnecting fixes —
+                // and the plain message sent the user looking in the wrong place.
+                if (reason.includes('capabilities')) {
+                    reason += ' — the adapter is visible but not responding. Unplug it, wait a few seconds and plug it back in.';
+                }
+                throw new Error(reason);
             }
 
             // If GSUsb.start() succeeds, it found a device.
