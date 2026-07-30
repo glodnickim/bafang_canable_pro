@@ -5,7 +5,7 @@
 // eVistDrive card. Each card owns its own rendering and its own control bindings;
 // this file decides WHEN a card refreshes, based on which CAN frame just arrived.
 import { isEbicsUIAvailable } from './detection.js';
-import { updateEbicsCompatibilityUI } from './compat.js';
+import { updateLegacyParamsUI } from './legacy-params.js';
 import { socketReady } from './common.js';
 import { socket } from '../shared.js';
 
@@ -26,7 +26,7 @@ export { updateSocFullUI } from './limits.js';
 
 export function updateEbicsUI(eventType = '') {
     if (!isEbicsUIAvailable()) return;
-    updateEbicsCompatibilityUI(eventType);
+    updateLegacyParamsUI(eventType);
     const fullUpdate = !eventType;
     if (fullUpdate || ['controller_realtime_0', 'controller_realtime_1', 'controller_state', 'sensor_realtime', 'display_realtime', 'controller_bank'].includes(eventType)) {
         updateLiveSummary(eventType);

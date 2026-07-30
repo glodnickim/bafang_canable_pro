@@ -1,4 +1,21 @@
-// evistdrive/compat.js — functional eVistDrive views for legacy Controller/Assist blocks
+// evistdrive/legacy-params.js — the editable fields the eVistDrive cards show for
+// parameters that still live in the legacy Controller/Assist CAN blocks (0x6010,
+// 0x6011, 0x6012, 0x62D9) rather than in an eVistDrive blob.
+//
+// Deliberately NOT split per card, unlike the rest of this folder: one draft object,
+// one read/write path and one validation pass are shared by every section below, and
+// separating them would mean exporting that plumbing across module boundaries for no
+// gain. Sections, in order, and the card each one feeds:
+//
+//   previewP0/P1/P2, ensureDraft, createField   plumbing: draft state and field builder
+//   renderLimpSocChart .. renderLimitsFields    Limits card
+//   renderWalkFields, syncWalkData              Walk card
+//   renderSystemFields                          System card
+//   renderLegacy*Table, renderErrors            Walk card's legacy cross-reference
+//   applyLimits / applyWalk / applySystem       the writes back to the controller
+//
+// The factory Controller/Assist tabs still own these blocks too; this module writes
+// the same frames, so a change here shows up there after a re-read, and vice versa.
 import {
     state, socket, addLog, waitFor, delay,
     sendCustomFrame, encodeToHex,
@@ -973,7 +990,7 @@ function bindButtons() {
     el('ebicsRepairP2ChecksumButton')?.addEventListener('click', () => repairChecksum('P2'));
 }
 
-export function updateEbicsCompatibilityUI(eventType = '') {
+export function updateLegacyParamsUI(eventType = '') {
     ensureDraft();
     if (eventType) captureEvent(eventType);
     const relevant = [
