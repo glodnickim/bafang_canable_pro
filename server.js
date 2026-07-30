@@ -41,6 +41,12 @@ let probeMissCount = 0;
 let lastTickAt = Date.now();
 const PROBE_INTERVAL_MS = 5000;
 const RECOVERY_BACKOFF_MS = [1000, 2000, 4000, 8000, 15000];
+// Auto-connect retry spacing after consecutive failures. Opening the adapter resets it, so
+// hammering a device that is not answering keeps it from settling; it never gives up, it
+// just stops asking twenty times a minute.
+const AUTO_CONNECT_BACKOFF_MS = [3000, 5000, 10000, 20000, 30000];
+let autoConnectFailures = 0;
+let lastAutoConnectAttempt = 0;
 
 // --- HTTP Server setup (Serves the index.html UI) ---
 const server = http.createServer((req, res) => {
@@ -1139,6 +1145,10 @@ const wss = new WebSocket.Server({ server });
 		recoveryReason = null;
 		recoveryAttempt = 0;
 		probeMissCount = 0;
+		// A deliberate Connect, or a physical re-plug, is exactly the event that clears a
+		// wedged adapter — so try again straight away instead of sitting out the backoff.
+		autoConnectFailures = 0;
+		lastAutoConnectAttempt = 0;
 	}
 
 	canbus.on('can_status', async (isConnected, statusMessage) => { // Make async
@@ -1253,12 +1263,28 @@ const wss = new WebSocket.Server({ server });
 		// two paths calling init() at once would fight over the same handle.
 		if (recoveryTimer || recoveryState === 'recovering') return;
 		if (detectedCanDeviceName && !manualDisconnect && !canbus.isConnected() && !autoConnectInProgress) {
+			// Back off after repeated failures. This used to retry every 3 s forever, and
+			// each attempt opens the adapter, resets it and claims the interface — so an
+			// adapter that was not answering got reset twenty times a minute, which stops
+			// it settling rather than helping it. Waiting is the more likely cure.
+			if (autoConnectFailures > 0) {
+				const waitMs = AUTO_CONNECT_BACKOFF_MS[Math.min(autoConnectFailures - 1, AUTO_CONNECT_BACKOFF_MS.length - 1)];
+				if (Date.now() - lastAutoConnectAttempt < waitMs) return;
+			}
 			autoConnectInProgress = true;
+			lastAutoConnectAttempt = Date.now();
 			try {
 				console.log(`Auto-connect: CANable found (${detectedCanDeviceName}) — connecting.`);
 				broadcastToClients(`CAN_DEVICE_STATUS:CONNECTING:${detectedCanDeviceName}`);
-				await canbus.init(detectedCanDeviceName);
+				const started = await canbus.init(detectedCanDeviceName);
+				if (started === true) {
+					autoConnectFailures = 0;
+				} else if (++autoConnectFailures === AUTO_CONNECT_BACKOFF_MS.length) {
+					console.warn('Auto-connect keeps failing. The adapter is listed but not answering —');
+					console.warn('unplug the CANable, wait a few seconds and plug it back in.');
+				}
 			} catch (e) {
+				autoConnectFailures += 1;
 				console.warn('Auto-connect failed:', e.message);
 			} finally {
 				autoConnectInProgress = false;

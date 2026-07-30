@@ -157,6 +157,13 @@ class CanBusService extends EventEmitter {
             console.error('[CanBusService] Failed to initialize CAN device:', err);
             this.isStarted = false;
             this.connectedDeviceName = null; // Clear name on failure
+            // Give the device back. GSUsb.start() has already opened it, reset it and
+            // claimed the interface by the time most failures happen, and nothing here
+            // used to undo that — so every failed attempt leaked an open, claimed handle,
+            // and the next attempt piled another one on top. With auto-connect retrying,
+            // that is a device being reopened and reset over and over, which is a good way
+            // to keep an adapter from ever settling.
+            try { await this._releaseDeadHandle(); } catch { /* best effort, already failing */ }
             this.emit('can_status', false, `Error: Failed to connect to CAN device - ${err.message}`);
             // this.emit('can_error', `Error connecting: ${err.message}`); // can_status covers this
             return false;
