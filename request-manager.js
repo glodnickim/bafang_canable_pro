@@ -5,6 +5,7 @@ const { CanOperation, DeviceNetworkId } = require('./bafang-constants');
 const { generateCanFrameId, bafangIdArrayTo32Bit } = require('./bafang-parser');
 
 const DEFAULT_TIMEOUT = 3000; // 3 seconds for response timeout
+const SEND_TIMEOUT = 1000; // Protect the UI from a USB/CAN write that never resolves.
 const READ_RETRY_LIMIT = 3;
 const DEFAULT_SEND_INTERVAL = 50; // Minimum ms between sending non-ACK frames
 const QUEUE_PROCESS_INTERVAL = 20; // How often to check the send queue (ms)
@@ -129,7 +130,10 @@ class RequestManager {
 
                 try {
                     // Use the low-level canbus sendFrame
-                    const sent = await this.canbus.sendFrame(`${canId32bit.toString(16).padStart(8, '0')}#${dataHex}`);
+                    const sent = await Promise.race([
+                        this.canbus.sendFrame(`${canId32bit.toString(16).padStart(8, '0')}#${dataHex}`),
+                        new Promise((_, reject) => setTimeout(() => reject(new Error('CAN send timed out')), SEND_TIMEOUT)),
+                    ]);
 
                     if (sent) {
                         // Successfully sent, now register for ACK/timeout

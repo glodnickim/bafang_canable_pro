@@ -648,6 +648,7 @@ class CanBusService extends EventEmitter {
         // The 'can_status' event from close() or init() failure will handle other cases.
         if (wasStarted) {
             this.emit('can_error', `CAN Error: ${err.message || err}`);
+            this.emit('can_status', false, `CAN device error: ${err.message || err}`);
         }
      }
 
@@ -788,18 +789,41 @@ class CanBusService extends EventEmitter {
 
     // --- FW-006: profile banks (0x6020 read / 0x6021 RAM write / 0x6022 persist) ---
     static serializeBankBlob(bankObj) {
-        const HEADER = 8, RECORD = 35, LEVELS = 5, BLOB_LEN = 185;
+        // FW-056: only echo v4 back to a controller that reported v4 (i.e. one that
+        // understands Power Curve) — same layout and length as v3 either way.
+        // FW-057: v5 adds header byte 12, so the blob grows to 190 B. Never send a
+        // version the controller did not report itself.
+        const version = bankObj.bank_schema_version >= 5 ? 5
+            : (bankObj.bank_schema_version >= 4 ? 4 : 3);
+        const HEADER = version >= 5 ? 13 : 12;
+        const RECORD = 35, LEVELS = 5;
+        const BLOB_LEN = HEADER + LEVELS * RECORD + 2;
         const d = new Array(BLOB_LEN).fill(0);
-        d[0] = 0x45; d[1] = 0x42; d[2] = 1;
+        d[0] = 0x45; d[1] = 0x42; d[2] = version;
         d[3] = bankObj.bank_index & 1; d[4] = LEVELS; d[5] = RECORD;
-        d[6] = bankObj.active_bank ?? 0; d[7] = 0;
+        d[6] = bankObj.active_bank ?? 0;
+        d[7] = Math.round(Math.max(10, Math.min(255, (bankObj.wa_cutoff_kmh ?? 7) * 10)));
+        d[8] = Math.round(Math.max(1, Math.min(100, bankObj.wa_current_pct ?? 30)));
+        d[9] = Math.round(Math.max(20, Math.min(60, bankObj.wa_target_rpm ?? 50)));
+        d[10] = bankObj.wa_latch_after_release ? 1 : 0;
+        d[11] = Math.round(Math.max(1, Math.min(120, bankObj.wa_latch_timeout_s ?? 30)));
+        if (version >= 5) d[12] = bankObj.cadence_comp_enabled ? 1 : 0; // FW-057
         const u16 = (o, v) => { d[o] = v & 0xFF; d[o + 1] = (v >> 8) & 0xFF; };
         (bankObj.levels || []).slice(0, LEVELS).forEach((lv, i) => {
             const r = HEADER + i * RECORD;
             d[r] = lv.mode_type & 0xFF;
-            u16(r + 1, lv.support_ratio_pct); u16(r + 3, lv.support_min_pct);
+            // FW-056: Power Curve puts its upper-half exponent in the support_ratio bytes.
+            if (lv.mode_type === 6) {
+                d[r + 1] = (lv.curve_exponent_high_x10 ?? 15) & 0xFF;
+                d[r + 2] = 0;
+            } else {
+                u16(r + 1, lv.support_ratio_pct);
+            }
+            u16(r + 3, lv.support_min_pct);
             u16(r + 5, lv.support_max_pct); u16(r + 7, lv.reference_power_w);
-            d[r + 9] = lv.progression_pct & 0xFF; d[r + 10] = lv.emtb_parameter & 0xFF;
+            // FW-056: shape byte — gamma for Power Curve, progression otherwise.
+            d[r + 9] = (lv.mode_type === 6 ? (lv.curve_exponent_x10 ?? 15) : lv.progression_pct) & 0xFF;
+            d[r + 10] = lv.emtb_parameter & 0xFF;
             d[r + 11] = lv.emtb_based_on_power ? 1 : 0;
             u16(r + 12, lv.emtb_reference_voltage_mv); d[r + 14] = lv.torque_assist_factor & 0xFF;
             u16(r + 15, lv.max_motor_power_w); d[r + 17] = lv.max_iq_pct & 0xFF;
@@ -839,18 +863,23 @@ class CanBusService extends EventEmitter {
 
     // --- FW-010: global ride-feel tuning (0x6023 read / 0x6024 RAM write; persisted by saveBanks() 0x6022) ---
     static serializeTuningBlob(t) {
-        const d = new Array(16).fill(0);
-        d[0] = 0x54; d[1] = 0x55; d[2] = 1; d[3] = 0;
+        // FW-053: v5 = 24 B, same layout as v3/v4; default latch hold is now 1400 ms.
+        const d = new Array(24).fill(0);
+        d[0] = 0x54; d[1] = 0x55; d[2] = 5; d[3] = 0;
         const u16 = (o, v) => { d[o] = v & 0xFF; d[o + 1] = (v >> 8) & 0xFF; };
         u16(4, t.iq_rise_slow_ms); u16(6, t.iq_rise_fast_ms);
         u16(8, t.iq_fall_slow_ms); u16(10, t.iq_fall_fast_ms);
         u16(12, t.startup_boost_cadence_step);
+        u16(14, t.assist_run_deadband_mv);
+        u16(16, t.assist_hold_ms);
+        u16(18, t.assist_min_iq_pct);
+        u16(20, t.assist_torque_run_filter_ms);
         let crc = 0xFFFF;
-        for (let i = 0; i < 14; i++) {
+        for (let i = 0; i < 22; i++) {
             crc ^= d[i] << 8;
             for (let b = 0; b < 8; b++) crc = ((crc & 0x8000) ? (crc << 1) ^ 0x1021 : crc << 1) & 0xFFFF;
         }
-        u16(14, crc);
+        u16(22, crc);
         return d;
     }
 
@@ -878,15 +907,23 @@ class CanBusService extends EventEmitter {
         return this.writeShortParameterWithAck(DeviceNetworkId.DRIVE_UNIT, cmd, data);
     }
 
-    // --- FW-014: ride engine switch (0x6027 short write) + system status (0x6028 read) ---
-    async setEngine(engine) {
-        const cmd = { canCommandCode: 0x60, canCommandSubCode: 0x27 };
-        return this.writeShortParameterWithAck(DeviceNetworkId.DRIVE_UNIT, cmd, [engine ? 1 : 0, 0, 0, 0, 0]);
-    }
-
+    // FW-030: single engine (TSDZ). setEngine (0x6027) removed. readSystem (0x6028)
+    // kept for the FW-018 full-charge SOC threshold.
     async readSystem() {
         const cmd = { canCommandCode: 0x60, canCommandSubCode: 0x28 };
         return this.readParameter(DeviceNetworkId.DRIVE_UNIT, cmd);
+    }
+
+    // --- FW-018: set full-charge PACK-voltage threshold (0x602B short write) ---
+    // pack10mv = full-charge pack voltage in units of 10 mV (e.g. 45.87 V -> 4587). Firmware validates 20..90 V.
+    async setSocFull(pack10mv) {
+        const cmd = { canCommandCode: 0x60, canCommandSubCode: 0x2B };
+        const v = Math.max(0, Math.min(0xFFFF, Math.round(pack10mv)));
+        const f = [1, v & 0xFF, (v >> 8) & 0xFF, 0, 0, 0, 0]; // ver=1, pack10mv LE, reserved
+        let crc = 0; // CRC-8/SMBUS poly 0x07 init 0x00 (must match firmware CAN_Display.c 0x602B)
+        for (const b of f) { crc ^= b; for (let i = 0; i < 8; i++) crc = (crc & 0x80) ? ((crc << 1) ^ 0x07) & 0xFF : (crc << 1) & 0xFF; }
+        f.push(crc);
+        return this.writeShortParameterWithAck(DeviceNetworkId.DRIVE_UNIT, cmd, f);
     }
 
     async readDiagnostics() {
@@ -928,7 +965,14 @@ class CanBusService extends EventEmitter {
             const success = await this.canDevice.writeCANFrame(frameToSend); 
             if (!success) { 
                 console.error('CAN -> Failed send'); return false; } return true; 
-            } catch (err) { console.error('Error sending CAN frame:', err); throw err; }
+            } catch (err) {
+                console.error('Error sending CAN frame:', err);
+                if (`${err.message || err}`.includes('LIBUSB_ERROR_NOT_FOUND') ||
+                    `${err.message || err}`.includes('LIBUSB_ERROR_NO_DEVICE')) {
+                    this._handleCanError(err);
+                }
+                throw err;
+            }
     }
 
     isConnected() { return this.isStarted; }

@@ -25,6 +25,8 @@ const CANABLE_VID = 0x1D50; // Common VID for CANable/OpenMoko
 const CANABLE_PID = 0x606F; // Common PID for CANable/Gespeaker (gs_usb firmware)
 let detectedCanDeviceName = null; // Store name of the detected device
 let isCheckingPresence = false; // Mutex flag for presence check
+let manualDisconnect = false; // user clicked Disconnect: suppress auto-connect until the device is physically re-plugged
+let autoConnectInProgress = false; // guard against overlapping auto-connect attempts
 
 // --- HTTP Server setup (Serves the index.html UI) ---
 const server = http.createServer((req, res) => {
@@ -196,6 +198,17 @@ function broadcastCanDeviceStatus() {
 // --- WebSocket Server ---
 const wss = new WebSocket.Server({ server });
 
+	function withCanTimeout(promise, label, timeoutMs = 10000) {
+		return Promise.race([
+			promise,
+			new Promise((resolve) => setTimeout(() => resolve({
+				success: false,
+				error: `${label} did not finish`,
+				timedOut: true,
+			}), timeoutMs)),
+		]);
+	}
+
 	async function handleConnectionCommands(ws, messageString) {
 		if (messageString === 'GET_CAN_INTERFACE_STATUS') {
 			await checkCanDevicePresenceAndUpdateGlobal();
@@ -203,6 +216,7 @@ const wss = new WebSocket.Server({ server });
 			return true;
 		}
 		if (messageString === 'CONNECT_CAN') {
+			manualDisconnect = false; // explicit user intent to be connected
 			if (canbus.isConnected()) {
 				ws.send('INFO: Already connected.');
 				broadcastCanDeviceStatus();
@@ -219,6 +233,7 @@ const wss = new WebSocket.Server({ server });
 			return true;
 		}
 		if (messageString === 'DISCONNECT_CAN') {
+			manualDisconnect = true; // suppress auto-connect until the device is re-plugged or user reconnects
 			if (!canbus.isConnected()) {
 				ws.send('INFO: Already disconnected.');
 				broadcastCanDeviceStatus();
@@ -265,7 +280,7 @@ const wss = new WebSocket.Server({ server });
 			const canId32bit = bafangIdArrayTo32Bit(bafangIdArr);
 			console.log(`>>> Initiating Read ${cmdKey} | Target: ${targetId} | 32bit ID: ${canId32bit.toString(16).toUpperCase().padStart(8, '0')}`);
 			ws.send(`INFO: Initiating Read ${cmdKey} from ${targetId}...`);
-			const result = await canbus.readParameter(targetId, cmdInfo);
+			const result = await withCanTimeout(canbus.readParameter(targetId, cmdInfo), `Read ${cmdKey}`);
 			sendResult(`Read ${cmdKey}`, result);
 		}
 		return true; // Command was handled (or failed validation within this handler)
@@ -276,7 +291,14 @@ const wss = new WebSocket.Server({ server });
 		if (messageString.startsWith('READ_BANK:')) {
 			const idx = parseInt(messageString.substring('READ_BANK:'.length), 10);
 			if (isNaN(idx) || idx < 0 || idx > 1) { ws.send('ERROR: READ_BANK expects 0 or 1'); return true; }
-			try { await canbus.readBank(idx); } catch (e) { ws.send(`ERROR: READ_BANK failed: ${e.message}`); }
+			try {
+				const result = await withCanTimeout(canbus.readBank(idx), `Read Bank ${idx + 1}`);
+				if (result?.success) {
+					ws.send(`ACK: Read Bank ${idx + 1} successful.`);
+				} else {
+					ws.send(`NACK: Read Bank ${idx + 1} failed. Reason: ${result?.error || 'No response'}${result?.timedOut ? ' (Timeout)' : ''}`);
+				}
+			} catch (e) { ws.send(`ERROR: READ_BANK failed: ${e.message}`); }
 			return true;
 		}
 		if (messageString.startsWith('WRITE_BANK:')) {
@@ -295,7 +317,11 @@ const wss = new WebSocket.Server({ server });
 			return true;
 		}
 		if (messageString === 'READ_TUNING') {
-			try { await canbus.readTuning(); } catch (e) { ws.send(`ERROR: READ_TUNING failed: ${e.message}`); }
+			try {
+				const result = await withCanTimeout(canbus.readTuning(), 'Read Tuning');
+				if (result?.success) ws.send('ACK: Read Tuning successful.');
+				else ws.send(`NACK: Read Tuning failed. Reason: ${result?.error || 'No response'}${result?.timedOut ? ' (Timeout)' : ''}`);
+			} catch (e) { ws.send(`ERROR: READ_TUNING failed: ${e.message}`); }
 			return true;
 		}
 		if (messageString.startsWith('WRITE_TUNING:')) {
@@ -307,7 +333,11 @@ const wss = new WebSocket.Server({ server });
 			return true;
 		}
 		if (messageString === 'READ_TORQUE') {
-			try { await canbus.readTorque(); } catch (e) { ws.send(`ERROR: READ_TORQUE failed: ${e.message}`); }
+			try {
+				const result = await withCanTimeout(canbus.readTorque(), 'Read Torque');
+				if (result?.success) ws.send('ACK: Read Torque successful.');
+				else ws.send(`NACK: Read Torque failed. Reason: ${result?.error || 'No response'}${result?.timedOut ? ' (Timeout)' : ''}`);
+			} catch (e) { ws.send(`ERROR: READ_TORQUE failed: ${e.message}`); }
 			return true;
 		}
 		if (messageString.startsWith('TORQUE_CAL:')) {
@@ -321,19 +351,28 @@ const wss = new WebSocket.Server({ server });
 			return true;
 		}
 		if (messageString === 'READ_SYSTEM') {
-			try { await canbus.readSystem(); } catch (e) { ws.send(`ERROR: READ_SYSTEM failed: ${e.message}`); }
+			try {
+				const result = await withCanTimeout(canbus.readSystem(), 'Read System');
+				if (result?.success) ws.send('ACK: Read System successful.');
+				else ws.send(`NACK: Read System failed. Reason: ${result?.error || 'No response'}${result?.timedOut ? ' (Timeout)' : ''}`);
+			} catch (e) { ws.send(`ERROR: READ_SYSTEM failed: ${e.message}`); }
 			return true;
 		}
 		if (messageString === 'READ_DIAG') {
-			try { await canbus.readDiagnostics(); } catch (e) { ws.send(`ERROR: READ_DIAG failed: ${e.message}`); }
+			try {
+				const result = await withCanTimeout(canbus.readDiagnostics(), 'Read Diagnostics');
+				if (result?.success) ws.send('ACK: Read Diagnostics successful.');
+				else ws.send(`NACK: Read Diagnostics failed. Reason: ${result?.error || 'No response'}${result?.timedOut ? ' (Timeout)' : ''}`);
+			} catch (e) { ws.send(`ERROR: READ_DIAG failed: ${e.message}`); }
 			return true;
 		}
-		if (messageString.startsWith('SET_ENGINE:')) {
+		// FW-030: SET_ENGINE removed (single TSDZ engine).
+		if (messageString.startsWith('SET_SOC_FULL:')) { // FW-018: full-charge pack voltage; arg = pack10mv (10 mV units)
 			try {
-				const engine = parseInt(messageString.substring('SET_ENGINE:'.length), 10);
-				const result = await canbus.setEngine(engine);
-				ws.send(JSON.stringify({ type: 'engine_set_result', data: result }));
-			} catch (e) { ws.send(`ERROR: SET_ENGINE failed: ${e.message}`); }
+				const pack10mv = parseInt(messageString.substring('SET_SOC_FULL:'.length), 10);
+				const result = await canbus.setSocFull(pack10mv);
+				ws.send(JSON.stringify({ type: 'soc_full_set_result', data: result }));
+			} catch (e) { ws.send(`ERROR: SET_SOC_FULL failed: ${e.message}`); }
 			return true;
 		}
 		return false;
@@ -976,15 +1015,103 @@ const wss = new WebSocket.Server({ server });
 		});
 	}
 
-	async function periodicCheck() { // Renamed and made async
-		if (!canbus.isConnected()) {
-			const previousGlobalDeviceName = detectedCanDeviceName;
-			await checkCanDevicePresenceAndUpdateGlobal(); // await this
+	// Lightweight presence probe: enumerates the USB list only (no open()), so it
+	// is safe to call even while canbus holds the device open (no BUSY errors).
+	function isCanableInDeviceList() {
+		try {
+			return usb.getDeviceList().some(d =>
+				d.deviceDescriptor.idVendor === CANABLE_VID &&
+				d.deviceDescriptor.idProduct === CANABLE_PID);
+		} catch (e) {
+			console.warn('isCanableInDeviceList failed:', e.message);
+			return false;
+		}
+	}
 
-			if (detectedCanDeviceName !== previousGlobalDeviceName) {
-				console.log(`Periodic Check: Device presence changed: ${previousGlobalDeviceName || 'None'} -> ${detectedCanDeviceName || 'None'}`);
+	let connectedMissCount = 0; // consecutive periodic checks where the connected device was absent
+
+	async function periodicCheck() { // Renamed and made async
+		// While connected: watch for a physical unplug. The CAN handle stays
+		// "started" on its own, so without this the UI keeps showing CONNECTED
+		// with a dead handle (flash/read fail until a manual disconnect+reconnect).
+		if (canbus.isConnected()) {
+			if (isCanableInDeviceList()) {
+				connectedMissCount = 0;
+			} else if (++connectedMissCount >= 2) { // ~6s absent, guards against a transient enumeration glitch
+				connectedMissCount = 0;
+				console.warn('Periodic Check: connected CANable disappeared from USB — resetting connection.');
+				manualDisconnect = false; // a physical unplug is not a manual disconnect; allow auto-connect on re-plug
+				try { await canbus.close(); } catch (e) { console.warn('close() after unplug failed:', e.message); }
+				detectedCanDeviceName = null;
 				broadcastCanDeviceStatus();
 			}
+			return;
+		}
+
+		connectedMissCount = 0;
+		const previousGlobalDeviceName = detectedCanDeviceName;
+		await checkCanDevicePresenceAndUpdateGlobal(); // await this
+
+		if (detectedCanDeviceName !== previousGlobalDeviceName) {
+			console.log(`Periodic Check: Device presence changed: ${previousGlobalDeviceName || 'None'} -> ${detectedCanDeviceName || 'None'}`);
+			// A removed device clears any manual-disconnect intent, so a fresh re-plug auto-connects again.
+			if (!detectedCanDeviceName) manualDisconnect = false;
+			broadcastCanDeviceStatus();
+		}
+
+		// Auto-connect: when a device is present and the user has not deliberately
+		// disconnected, bring the connection up on its own.
+		if (detectedCanDeviceName && !manualDisconnect && !canbus.isConnected() && !autoConnectInProgress) {
+			autoConnectInProgress = true;
+			try {
+				console.log(`Auto-connect: CANable found (${detectedCanDeviceName}) — connecting.`);
+				broadcastToClients(`CAN_DEVICE_STATUS:CONNECTING:${detectedCanDeviceName}`);
+				await canbus.init(detectedCanDeviceName);
+			} catch (e) {
+				console.warn('Auto-connect failed:', e.message);
+			} finally {
+				autoConnectInProgress = false;
+			}
+		}
+	}
+
+	// Immediate reaction to physical plug/unplug via USB hotplug events. This is
+	// the primary signal (handles a fast unplug+replug that the periodic list
+	// check could miss); the periodic check remains as a fallback.
+	function setupUsbHotplug() {
+		const events = usb.usb; // node-usb v2 exposes the hotplug EventEmitter here
+		if (!events || typeof events.on !== 'function') {
+			console.warn('USB hotplug API not available; relying on periodic polling.');
+			return;
+		}
+		const matches = (device) => {
+			try {
+				return device && device.deviceDescriptor &&
+					device.deviceDescriptor.idVendor === CANABLE_VID &&
+					device.deviceDescriptor.idProduct === CANABLE_PID;
+			} catch (e) { return false; }
+		};
+		try {
+			events.on('detach', async (device) => {
+				if (!matches(device)) return;
+				console.warn('USB hotplug: CANable detached.');
+				manualDisconnect = false; // a physical unplug is not a manual disconnect
+				connectedMissCount = 0;
+				if (canbus.isConnected()) {
+					try { await canbus.close(); } catch (e) { console.warn('close() on detach failed:', e.message); }
+				}
+				detectedCanDeviceName = null;
+				broadcastCanDeviceStatus();
+			});
+			events.on('attach', (device) => {
+				if (!matches(device)) return;
+				console.log('USB hotplug: CANable attached.');
+				// Let the OS finish enumerating, then probe + (auto)connect.
+				setTimeout(() => { periodicCheck().catch((e) => console.warn('post-attach check failed:', e.message)); }, 400);
+			});
+			console.log('USB hotplug monitoring enabled.');
+		} catch (e) {
+			console.warn('Failed to enable USB hotplug monitoring:', e.message);
 		}
 	}
 
@@ -1017,6 +1144,7 @@ const wss = new WebSocket.Server({ server });
 	server.listen(8080, async () => { // Make async
 		console.log('HTTP+WS server running on http://localhost:8080');
 		await checkCanDevicePresenceAndUpdateGlobal(); // await initial check
+		setupUsbHotplug();
 		startPeriodicCanDeviceCheck();
 		console.log(`Initial CAN device state: ${detectedCanDeviceName ? 'Found (' + detectedCanDeviceName + ')' : 'Not Found'}`);
 		const start = (process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open');

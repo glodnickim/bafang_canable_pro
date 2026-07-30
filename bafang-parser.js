@@ -232,7 +232,8 @@ class BafangCanControllerParser {
             assist_levels: [],
             displayless_mode: packet.data[58] === 1,
             lamps_always_on: packet.data[59] === 1,
-			walk_assist_speed: ((packet.data[61] << 8) + packet.data[60]) / 100, // Read bytes 60, 61 (LE), scale back
+			// FW-043: Walk Assist target CHAINRING RPM, stored raw (was km/h x100 — see serializer).
+			walk_assist_speed: (packet.data[61] << 8) + packet.data[60],
 			par1_value_offset_62: packet.data[62],
             checksum_missmatch: packet.data[63] !== calculateChecksum(packet.data.slice(0, 63)),
         };
@@ -351,13 +352,22 @@ class BafangCanControllerParser {
 
     // FW-006: profile bank blob (0x6020) — 8B header + 5x35B level records + CRC16-CCITT
     static bankBlob(packet) {
-        const BLOB_LEN = 185, HEADER = 8, RECORD = 35, LEVELS = 5;
+        const RECORD = 35, LEVELS = 5;
         const d = packet?.data;
-        if (!Array.isArray(d) || d.length < BLOB_LEN) {
+        if (!Array.isArray(d) || d.length < 185) {
             return { parseError: true, error: `Invalid bank blob length ${d?.length}` };
         }
-        if (d[0] !== 0x45 || d[1] !== 0x42 || d[2] !== 1) {
+        if (d[0] !== 0x45 || d[1] !== 0x42 || d[2] < 1 || d[2] > 5) {
             return { parseError: true, error: 'Bad bank blob magic/version' };
+        }
+        // FW-056: v4 has the same layout and length as v3; the version byte only
+        // tells us the controller understands Power Curve (mode 6).
+        // FW-057: v5 adds header byte 12 = cadence compensation on/off for this bank.
+        const version = d[2];
+        const HEADER = version >= 5 ? 13 : (version >= 3 ? 12 : (version === 2 ? 10 : 8));
+        const BLOB_LEN = HEADER + LEVELS * RECORD + 2;
+        if (d.length < BLOB_LEN) {
+            return { parseError: true, error: `Invalid v${version} bank blob length ${d.length}` };
         }
         let crc = 0xFFFF;
         const crcAt = HEADER + LEVELS * RECORD;
@@ -373,9 +383,16 @@ class BafangCanControllerParser {
         for (let l = 0; l < LEVELS; l++) {
             const r = HEADER + l * RECORD;
             levels.push({
-                mode_type: d[r], support_ratio_pct: u16(r + 1),
+                mode_type: d[r],
+                // FW-056: in Power Curve the support_ratio bytes carry the upper-half exponent.
+                support_ratio_pct: d[r] === 6 ? 0 : u16(r + 1),
+                curve_exponent_high_x10: d[r] === 6 && d[r + 1] >= 3 && d[r + 1] <= 25 ? d[r + 1] : 15,
                 support_min_pct: u16(r + 3), support_max_pct: u16(r + 5),
-                reference_power_w: u16(r + 7), progression_pct: d[r + 9],
+                reference_power_w: u16(r + 7),
+                // FW-056: record byte 9 is the shape byte — gamma in Power Curve
+                // (mode 6), progression in Power Progressive (mode 2).
+                progression_pct: d[r] === 6 ? 0 : d[r + 9],
+                curve_exponent_x10: d[r] === 6 && d[r + 9] >= 3 && d[r + 9] <= 25 ? d[r + 9] : 15,
                 emtb_parameter: d[r + 10], emtb_based_on_power: d[r + 11] !== 0,
                 emtb_reference_voltage_mv: u16(r + 12), torque_assist_factor: d[r + 14],
                 max_motor_power_w: u16(r + 15), max_iq_pct: d[r + 17],
@@ -388,73 +405,145 @@ class BafangCanControllerParser {
                 power_fall_filter_ms: u16(r + 33),
             });
         }
-        return { bank_index: d[3], active_bank: d[6], levels };
+        // FW-043: header byte 7 = this bank's Walk Assist cut-off wheel speed in 0.1 km/h units.
+        // 0 = written by firmware/tooling from before the field existed -> show the default.
+        const waCutoffRaw = d[7];
+        return {
+            bank_index: d[3],
+            active_bank: d[6],
+            bank_schema_version: version,
+            wa_cutoff_kmh: waCutoffRaw >= 10 ? waCutoffRaw / 10 : 7,
+            wa_current_pct: version >= 2 && d[8] >= 1 && d[8] <= 100 ? d[8] : 30,
+            wa_target_rpm: version >= 2 && d[9] >= 20 && d[9] <= 60 ? d[9] : 50,
+            wa_latch_after_release: version >= 3 && d[10] !== 0,
+            wa_latch_timeout_s: version >= 3 && d[11] >= 1 && d[11] <= 120 ? d[11] : 30,
+            cadence_comp_enabled: version >= 5 && d[12] !== 0, // FW-057, off on older firmware
+            levels,
+        };
     }
 
     // FW-010: global ride-feel tuning blob (0x6023) — 4B header + 5 u16 fields + CRC16-CCITT
     static tuningBlob(packet) {
-        const BLOB_LEN = 16;
+        // v1 16 B (ramps only), v2 22 B (+latch), v3/v4/v5 24 B (+torque-run filter). All read.
         const d = packet?.data;
-        if (!Array.isArray(d) || d.length < BLOB_LEN) {
+        if (!Array.isArray(d) || d.length < 16) {
             return { parseError: true, error: `Invalid tuning blob length ${d?.length}` };
         }
-        if (d[0] !== 0x54 || d[1] !== 0x55 || d[2] !== 1) {
+        if (d[0] !== 0x54 || d[1] !== 0x55 || (d[2] !== 1 && d[2] !== 2 && d[2] !== 3 && d[2] !== 4 && d[2] !== 5)) {
             return { parseError: true, error: 'Bad tuning blob magic/version' };
         }
+        const version = d[2];
+        const bodyLen = version >= 3 ? 22 : (version === 2 ? 20 : 14); // bytes before the 2-byte CRC
+        const minLen = version >= 3 ? 24 : (version === 2 ? 22 : 16);
+        if (d.length < minLen) {
+            return { parseError: true, error: `Invalid v${version} tuning blob length ${d.length}` };
+        }
         let crc = 0xFFFF;
-        for (let i = 0; i < 14; i++) {
+        for (let i = 0; i < bodyLen; i++) {
             crc ^= d[i] << 8;
             for (let b = 0; b < 8; b++) crc = ((crc & 0x8000) ? (crc << 1) ^ 0x1021 : crc << 1) & 0xFFFF;
         }
-        if (((d[15] << 8) | d[14]) !== crc) {
+        if (((d[bodyLen + 1] << 8) | d[bodyLen]) !== crc) {
             return { parseError: true, error: 'Tuning blob CRC mismatch' };
         }
         const u16 = (o) => d[o] | (d[o + 1] << 8);
-        return {
+        const out = {
             iq_rise_slow_ms: u16(4), iq_rise_fast_ms: u16(6),
             iq_fall_slow_ms: u16(8), iq_fall_fast_ms: u16(10),
             startup_boost_cadence_step: u16(12),
         };
+        if (version >= 2) {
+            out.assist_run_deadband_mv = u16(14);
+            out.assist_hold_ms = u16(16);
+            out.assist_min_iq_pct = u16(18);
+        } else {
+            out.assist_run_deadband_mv = 5;
+            out.assist_hold_ms = 1400;
+            out.assist_min_iq_pct = 2;
+        }
+        // FW-033: torque-run filter; older controllers backfill the firmware default.
+        out.assist_torque_run_filter_ms = version >= 3 ? u16(20) : 300;
+        return out;
     }
 
-    // FW-015: TSDZ ride-core diagnostics (0x6029) — 24 B, CRC16-CCITT
+    // FW-015/017: TSDZ ride-core diagnostics (0x6029) — v1 24 B (peak only) or v2 32 B
+    // (peak + flags byte + current pas_idle_ms/pressure/iq_request/iq_setpoint), CRC16-CCITT.
     static rideDiagnostics(packet) {
         const d = packet?.data;
         if (!Array.isArray(d) || d.length < 24) {
             return { parseError: true, error: `Invalid diagnostics length ${d?.length}` };
         }
-        if (d[0] !== 0x44 || d[1] !== 0x47 || d[2] !== 1) {
+        if (d[0] !== 0x44 || d[1] !== 0x47 || (d[2] !== 1 && d[2] !== 2 && d[2] !== 3 && d[2] !== 4)) {
             return { parseError: true, error: 'Bad diagnostics magic/version' };
         }
+        const version = d[2];
+        // v1 24 B (peak), v2 32 B (+current), v3 37 B (+torque_run, measured i_q, batt-limit),
+        // v4 47 B (FW-057: +cadence compensation, u_abs, pack voltage). CRC = last 2 B.
+        const BODY = { 1: 22, 2: 30, 3: 35, 4: 45 };
+        const bodyLen = BODY[version];
+        const minLen = bodyLen + 2;
+        if (d.length < minLen) {
+            return { parseError: true, error: `Invalid v${version} diagnostics length ${d.length}` };
+        }
         let crc = 0xFFFF;
-        for (let i = 0; i < 22; i++) { crc ^= d[i] << 8; for (let b = 0; b < 8; b++) crc = ((crc & 0x8000) ? (crc << 1) ^ 0x1021 : crc << 1) & 0xFFFF; }
-        if (((d[23] << 8) | d[22]) !== crc) {
+        for (let i = 0; i < bodyLen; i++) { crc ^= d[i] << 8; for (let b = 0; b < 8; b++) crc = ((crc & 0x8000) ? (crc << 1) ^ 0x1021 : crc << 1) & 0xFFFF; }
+        if (((d[bodyLen + 1] << 8) | d[bodyLen]) !== crc) {
             return { parseError: true, error: 'Diagnostics CRC mismatch' };
         }
         const u16 = (o) => d[o] | (d[o + 1] << 8);
         const i16 = (o) => { const v = u16(o); return v >= 32768 ? v - 65536 : v; };
-        return {
+        const out = {
+            version,
             ride_engine: d[3],
-            cadence_for_assist: d[4],
-            without_rotation_active: d[5] !== 0,
-            torque_for_assist_mv: u16(6),
-            human_power_w: u16(8),
-            support_ratio_pct: u16(10),
-            motor_power_w: u16(12),
+            cadence_for_assist: d[4],           // peak
+            without_rotation_active: (d[5] & 0x01) !== 0,
+            torque_for_assist_mv: u16(6),       // peak
+            human_power_w: u16(8),              // peak
+            support_ratio_pct: u16(10),         // peak
+            motor_power_w: u16(12),             // peak
             requested_battery_current_ma: u16(14),
-            iq_request: i16(16),
-            iq_setpoint: i16(18),   // actual value reaching the FOC after limits/dynamics
+            iq_request: i16(16),                // peak
+            iq_setpoint: i16(18),               // peak
             speed_x100: u16(20),
+            // v2+ current fields — null on v1 so the UI shows "unavailable", not 0
+            pedaling_active: version >= 2 ? (d[5] & 0x02) !== 0 : null,
+            // FW-061: these two were mislabelled. The firmware packs bit 2 = brake
+            // active and bit 3 = torque sensor fault (CAN_Display.c 0x6029 flags),
+            // never "pedal release" or "release latched".
+            brake_active: version >= 2 ? (d[5] & 0x04) !== 0 : null,
+            torque_fault: version >= 2 ? (d[5] & 0x08) !== 0 : null,
+            backward_detected: version >= 2 ? (d[5] & 0x10) !== 0 : null,
+            calibration_active: version >= 2 ? (d[5] & 0x20) !== 0 : null,
+            comms_lost: version >= 2 ? (d[5] & 0x40) !== 0 : null,
+            pwm_on: version >= 2 ? (d[5] & 0x80) !== 0 : null,
+            pas_idle_ms: version >= 2 ? u16(22) : null,
+            fast_pressure: version >= 2 ? u16(24) : null,     // raw (fast 35 ms)
+            iq_request_now: version >= 2 ? i16(26) : null,    // effective
+            iq_setpoint_now: version >= 2 ? i16(28) : null,
+            // FW-033: RUN pressure (slow estimator), measured i_q, batt-limit — null on v1/v2
+            run_pressure: version >= 3 ? u16(30) : null,
+            measured_iq: version >= 3 ? i16(32) : null,
+            battery_limiting: version >= 3 ? (d[34] & 0x01) !== 0 : null,
+            // FW-057: cadence compensation — null on older firmware so the UI says
+            // "unavailable" instead of implying the compensation ran and did nothing.
+            cadence_comp_permille: version >= 4 ? u16(35) : null,   // peak, 1000 = none applied
+            precomp_motor_power_w: version >= 4 ? u16(37) : null,   // peak, before compensation
+            u_abs: version >= 4 ? u16(39) : null,                   // peak, saturates at the FOC ceiling
+            pack_voltage_mv: version >= 4 ? u16(41) : null,
+            cadence_now: version >= 4 ? d[43] : null,
+            cadence_comp_enabled: version >= 4 ? (d[44] & 0x01) !== 0 : null,
         };
+        return out;
     }
 
-    // FW-014: system status (0x6028) — 8 B single frame: 'S','Y',ver, engine, pending, 0,0, crcLo
+    // FW-014/018: system status (0x6028) — 8 B single frame: 'S','Y',ver, engine, pending, [full_lo, full_hi], crcLo
+    // ver1: bytes 5..6 unused. ver2 (FW-018): bytes 5..6 = soc_full_pack_10mv (LE), 0 = not configured.
     static systemStatus(packet) {
         const d = packet?.data;
         if (!Array.isArray(d) || d.length < 8) {
             return { parseError: true, error: `Invalid system status length ${d?.length}` };
         }
-        if (d[0] !== 0x53 || d[1] !== 0x59 || d[2] !== 1) {
+        if (d[0] !== 0x53 || d[1] !== 0x59 || (d[2] !== 1 && d[2] !== 2)) {
             return { parseError: true, error: 'Bad system status magic/version' };
         }
         let c = 0xFFFF;
@@ -462,32 +551,53 @@ class BafangCanControllerParser {
         if ((c & 0xFF) !== d[7]) {
             return { parseError: true, error: 'System status CRC mismatch' };
         }
-        return {
+        const out = {
             ride_engine: d[3],                                  // 0 Legacy, 1 TSDZ
             ride_engine_pending: d[4] === 0xFF ? null : d[4],   // null = none
         };
+        if (d[2] >= 2) {                                        // FW-018: full-charge pack-voltage threshold
+            const pack10mv = d[5] + (d[6] << 8);
+            out.soc_full_pack_mv = pack10mv * 10;               // mV (0 = not configured)
+            out.soc_full_pack_v = pack10mv ? pack10mv / 100 : null; // volts, null when unset
+        } else {
+            out.soc_full_pack_mv = null;                        // v1 firmware: field unavailable (not zero)
+            out.soc_full_pack_v = null;
+        }
+        return out;
     }
 
     // FW-013: torque load telemetry + calibration status (0x6025) — 24 B, CRC16-CCITT
+    // FW-013 v1 = 24 B. FW-061 v2 = 56 B: same first 22 bytes, then the coast
+    // re-zero diagnostics, then CRC. Counters are cumulative since power-on.
+    static COAST_RESULTS = ['NONE', 'APPLIED', 'NO_CHANGE', 'TOO_SHORT', 'UNSTABLE',
+        'LOCKOUT', 'OUT_OF_REACQUIRE_RANGE', 'IMPLAUSIBLE_RAW'];
+
     static torqueTelemetry(packet) {
-        const BLOB_LEN = 24;
         const d = packet?.data;
-        if (!Array.isArray(d) || d.length < BLOB_LEN) {
+        if (!Array.isArray(d) || d.length < 24) {
             return { parseError: true, error: `Invalid torque telemetry length ${d?.length}` };
         }
-        if (d[0] !== 0x54 || d[1] !== 0x43 || d[2] !== 1) {
+        if (d[0] !== 0x54 || d[1] !== 0x43 || (d[2] !== 1 && d[2] !== 2)) {
             return { parseError: true, error: 'Bad torque telemetry magic/version' };
         }
+        const version = d[2];
+        const BLOB_LEN = version >= 2 ? 56 : 24;
+        if (d.length < BLOB_LEN) {
+            return { parseError: true, error: `Invalid v${version} torque telemetry length ${d.length}` };
+        }
+        const bodyLen = BLOB_LEN - 2;
         let crc = 0xFFFF;
-        for (let i = 0; i < 22; i++) {
+        for (let i = 0; i < bodyLen; i++) {
             crc ^= d[i] << 8;
             for (let b = 0; b < 8; b++) crc = ((crc & 0x8000) ? (crc << 1) ^ 0x1021 : crc << 1) & 0xFFFF;
         }
-        if (((d[23] << 8) | d[22]) !== crc) {
+        if (((d[bodyLen + 1] << 8) | d[bodyLen]) !== crc) {
             return { parseError: true, error: 'Torque telemetry CRC mismatch' };
         }
         const u16 = (o) => d[o] | (d[o + 1] << 8);
-        return {
+        const i16 = (o) => { const v = u16(o); return v >= 32768 ? v - 65536 : v; };
+        const out = {
+            version,
             capabilities: d[3],
             load_centikg: u16(4),
             zero_effective_native: u16(6),
@@ -501,6 +611,28 @@ class BafangCanControllerParser {
             preview_span_native: u16(18),
             full_scale_native: u16(20),
         };
+        if (version < 2) return out;
+        return Object.assign(out, {
+            raw_native: u16(22),
+            coast_candidate_native: u16(24),
+            coast_spread_mv: u16(26),
+            coast_last_step_mv: i16(28),          // signed
+            coast_lockout_s: d[30],
+            coast_active: (d[31] & 0x01) !== 0,
+            coast_was_moving: (d[31] & 0x02) !== 0,
+            coast_candidate_stable: (d[31] & 0x04) !== 0,
+            coast_last_result: BafangCanControllerParser.COAST_RESULTS[d[32]] ?? `UNKNOWN_${d[32]}`,
+            coast_windows_started: u16(34),
+            coast_windows_completed: u16(36),
+            coast_applied: u16(38),
+            coast_rejected_too_short: u16(40),
+            coast_rejected_unstable: u16(42),
+            coast_rejected_lockout: u16(44),
+            coast_rejected_out_of_range: u16(46),
+            coast_rejected_implausible: u16(48),
+            coast_no_change: u16(50),
+            offset_correction_mv: i16(52),
+        });
     }
 }
 
@@ -649,7 +781,7 @@ class BafangCanSensorParser {
 		if (!Array.isArray(idArray) || idArray.length !== 4) {
 			throw new Error("Invalid Bafang ID array format for conversion.");
 		}
-		return (idArray[0] << 24) | (idArray[1] << 16) | (idArray[2] << 8) | idArray[3];
+		return (((idArray[0] << 24) | (idArray[1] << 16) | (idArray[2] << 8) | idArray[3]) >>> 0);
 	}
 
 	/**

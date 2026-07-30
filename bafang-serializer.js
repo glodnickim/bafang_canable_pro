@@ -354,15 +354,16 @@ function prepareParameter1WriteData(canbusInstance, value) {
         new_pkg[58] = value.displayless_mode ? 1 : 0;
         new_pkg[59] = value.lamps_always_on ? 1 : 0;  
 		
-        const walkSpeedRaw = value.walk_assist_speed; // User-facing km/h; wire format is km/h x100.
-        let scaledWalkSpeed;
-        if (walkSpeedRaw !== undefined && walkSpeedRaw !== null) {
-            scaledWalkSpeed = Math.round(Math.max(0, Math.min(6, walkSpeedRaw)) * 100);
-        } else {
-            scaledWalkSpeed = 300; // Default to 3km/h * 100
-        }
-        new_pkg[60] = scaledWalkSpeed & 0xFF;
-        new_pkg[61] = (scaledWalkSpeed >> 8) & 0xFF;
+        // FW-043: this field is the Walk Assist target CHAINRING RPM, stored raw (no x100).
+        // It used to be km/h x100 with a hard Math.min(6) clamp — that clamp silently turned any
+        // RPM above 6 back into 6, so the setting could never take effect. RPM is a whole number,
+        // so the x100 scaling is gone too; raw values also stay under the firmware's 700 guard.
+        const walkRpmRaw = value.walk_assist_speed;
+        const walkRpm = (walkRpmRaw !== undefined && walkRpmRaw !== null)
+            ? Math.round(Math.max(0, Math.min(120, walkRpmRaw)))
+            : 45; // default target chainring RPM
+        new_pkg[60] = walkRpm & 0xFF;
+        new_pkg[61] = (walkRpm >> 8) & 0xFF;
         new_pkg[62] = value.par1_value_offset_62 ?? 0xFF;
 
         // Calculate and set checksum for the first 63 bytes
