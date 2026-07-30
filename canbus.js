@@ -406,7 +406,11 @@ class CanBusService extends EventEmitter {
             }
         } catch (parseErr) {
             console.error("[CanBusService] Error handling received CAN frame:", parseErr, "Raw Frame ID:", rawFrame?.can_id?.toString(16));
-            this.emit('can_error', 'Error processing received frame.');
+            // Deliberately NOT 'can_error': that channel means "the link is gone" and now
+            // starts an auto-recovery. One frame we could not parse says nothing about the
+            // USB link — the adapter is plainly alive, it just handed us something
+            // unexpected. Emitting can_error here tore down a perfectly good connection.
+            this.emit('frame_error', 'Error processing received frame.');
         }
     }
 
@@ -699,10 +703,17 @@ class CanBusService extends EventEmitter {
     // block inside libusb — and this runs on the path that is supposed to make the
     // app responsive again, so it must never be the thing that hangs.
     async _releaseDeadHandle(timeoutMs = 5000) {
+        // Serialised, because two teardowns of the same USB handle at once leave the
+        // adapter half-configured: _handleCanError releases the handle while the server's
+        // recovery calls close(), both reach GSUsb.stop(), and the result was
+        // "Failed to disable CAN Hardware" followed by a stall on the next control
+        // transfer — so reopening then failed and recovery span in circles.
+        if (this._teardownInFlight) return this._teardownInFlight;
         const teardown = (async () => {
             try { await this.canDevice.stopPolling(); } catch (e) { console.warn('[CanBusService] stopPolling after error failed:', e.message); }
             try { await this.canDevice.stop(); } catch (e) { console.warn('[CanBusService] stop after error failed:', e.message); }
         })();
+        this._teardownInFlight = teardown.finally(() => { this._teardownInFlight = null; });
         await Promise.race([
             teardown,
             new Promise((resolve) => setTimeout(() => {
@@ -1088,6 +1099,12 @@ class CanBusService extends EventEmitter {
     }
 
     async close() {
+        // If _handleCanError is already releasing the handle, let it finish first. Two
+        // teardowns overlapping on the same device is what left the adapter unable to
+        // answer a control transfer afterwards.
+        if (this._teardownInFlight) {
+            try { await this._teardownInFlight; } catch { /* it reports its own failures */ }
+        }
         if (!this.canDevice) {
             console.log('[CanBusService] No CAN device instance to close.');
             this.isStarted = false; // Ensure state is consistent

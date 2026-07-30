@@ -1049,7 +1049,20 @@ const wss = new WebSocket.Server({ server });
 	// until now nothing listened, so the error never reached the browser at all.
 	canbus.on('can_error', (message) => {
 		broadcastToClients(`CAN_ERROR: ${message}`);
+		// Only recover from a link that is actually down. canbus.js marks that by clearing
+		// isStarted; anything still reporting connected is a problem with what came over
+		// the wire, not with the wire — tearing the adapter down for that is worse than
+		// the error itself.
+		if (canbus.isConnected()) {
+			console.warn(`CAN error while the link is still up — not touching the connection: ${message}`);
+			return;
+		}
 		attemptAutoRecovery(message);
+	});
+
+	// A frame we could not parse. Worth showing, never worth reconnecting for.
+	canbus.on('frame_error', (message) => {
+		broadcastToClients(`CAN_ERROR: ${message}`);
 	});
 
 	// Close the stale handle and try to open the adapter again. Success puts the UI back
@@ -1075,6 +1088,10 @@ const wss = new WebSocket.Server({ server });
 			// Raced, because closing a handle whose device stopped answering can block
 			// inside libusb — and this path exists to make the app responsive again.
 			await withCanTimeout(canbus.close(), 'CAN close', 5000);
+			// Let the adapter settle before asking it anything. Reopening immediately after
+			// a stop had it answering the capabilities request with a stall, which failed
+			// the whole attempt.
+			await new Promise((resolve) => setTimeout(resolve, 400));
 			await checkCanDevicePresenceAndUpdateGlobal();
 			if (!detectedCanDeviceName) {
 				recoveryReason = 'adapter is no longer present';
@@ -1325,9 +1342,13 @@ const wss = new WebSocket.Server({ server });
 		setupUsbHotplug();
 		startPeriodicCanDeviceCheck();
 		console.log(`Initial CAN device state: ${detectedCanDeviceName ? 'Found (' + detectedCanDeviceName + ')' : 'Not Found'}`);
-		const start = (process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open');
-		if(detectedCanDeviceName)
-			require('child_process').exec(start + ' ' + 'http://localhost:8080');
+		// Always open the interface, adapter or not. It used to open only when a CANable
+		// was already detected, so starting the app with nothing plugged in — or before
+		// binding WinUSB, or simply intending to plug in afterwards — looked like a program
+		// that did nothing at all. The page itself reports that no adapter is present, and
+		// hotplug connects on its own once one appears.
+		const start = (process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start ""' : 'xdg-open');
+		require('child_process').exec(`${start} http://localhost:8080`);
 	});
 
 	// Without this, launching a second copy — double-clicking the .exe again, the usual
