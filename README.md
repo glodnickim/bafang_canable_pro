@@ -81,10 +81,17 @@ Without it the button stays clickable with no link and the write goes nowhere, q
 *Charts should not draw while their card is hidden.* Use `tabIsVisible('tab-ebics-…')`
 from `evistdrive/common.js` before calling Plotly, as every eVistDrive card now does.
 
-Background on both recent changes: [documentation/CB-010_ZDROWIE_LACZA_CANABLE_PL.md](documentation/CB-010_ZDROWIE_LACZA_CANABLE_PL.md)
-(adapter link health, auto-recovery, the pre-flash gate) and
-[documentation/CB-011_WYDAJNOSC_UI_PL.md](documentation/CB-011_WYDAJNOSC_UI_PL.md) (UI
-performance and a code review pass).
+*Editing must not write into the values as read.* `state.lastBanksAsRead` and
+`state.lastTuningAsRead` are untouched copies kept at read time, and they are what Restore
+and Shift+click go back to. A new editable card should keep the same separation, or there
+will again be nothing to return to.
+
+Background on the recent changes:
+[CB-010](documentation/CB-010_ZDROWIE_LACZA_CANABLE_PL.md) (adapter link health,
+auto-recovery, the pre-flash gate),
+[CB-011](documentation/CB-011_WYDAJNOSC_UI_PL.md) (UI performance and a code review pass),
+[CB-012/013/014](documentation/CB-012_014_PRZYWRACANIE_DYMKI_INFO_PL.md) (restoring
+settings, help bubbles at the page edges, device identification).
 
 ## (STM32G431) Required: candlelight firmware flashing 
 - For Canable 2.0 (STM32G431) use [HUD ECU Hacker candlelight firmware and updater](https://www.netcult.ch/elmue/CANable%20Firmware%20Update/)
