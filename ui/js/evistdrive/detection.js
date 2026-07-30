@@ -1,5 +1,5 @@
-// ebics-detection.js — read-only controller-family detection
-import { state, socket, switchTab, addLog } from './shared.js';
+// evistdrive/detection.js — read-only controller-family detection
+import { state, socket, switchTab, addLog } from '../shared.js';
 
 // Development preview switch. Keep true while building/reviewing the separate
 // cards without hardware. Set to false to show them only after EBICS detection.

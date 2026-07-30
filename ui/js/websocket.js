@@ -22,8 +22,10 @@ import { addSnifferLog } from './tab-sniffer.js';
 import { updateRideChart } from './tab-ride-logger.js';
 import {
     startControllerDetection, resetControllerDetection, confirmEbicsController,
-} from './ebics-detection.js';
-import { updateEbicsUI, updateTorqueCalUI, updateEngineUI, updateDiagUI, updateDiagTuning } from './tab-ebics.js';
+} from './evistdrive/detection.js';
+import {
+    updateEbicsUI, updateTorqueCalUI, updateSocFullUI, updateDiagUI, updateDiagTuning,
+} from './evistdrive/index.js';
 
 socket.onopen = () => {
     addLog('STATUS', 'WebSocket connection opened.');
@@ -204,10 +206,12 @@ socket.onmessage = (event) => {
                 case 'torque_cal_result':
                     addLog('ACK', `Torque calibration op: ${parsedEvent.data?.success ? 'OK' : 'FAILED'}${parsedEvent.data?.timedOut ? ' (timeout)' : ''}`);
                     break;
-                case 'controller_system': //FW-014: ride engine status
+                // FW-014 carried the ride engine here; FW-030 left a single engine, so
+                // today this frame only brings the FW-018 full-charge threshold.
+                case 'controller_system':
                     if (parsedEvent.data && !parsedEvent.data.parseError) {
                         state.lastSystem = parsedEvent.data;
-                        updateEngineUI(parsedEvent.data);
+                        updateSocFullUI(parsedEvent.data);
                     } else {
                         addLog('ERR', `System status failed: ${parsedEvent.data?.error}`);
                     }

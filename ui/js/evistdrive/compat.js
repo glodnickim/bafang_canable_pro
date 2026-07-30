@@ -1,11 +1,11 @@
-// ebics-compat.js — functional eVistDrive views for legacy Controller/Assist blocks
+// evistdrive/compat.js — functional eVistDrive views for legacy Controller/Assist blocks
 import {
     state, socket, addLog, waitFor, delay,
     sendCustomFrame, encodeToHex,
     wheelDiameterTable, uiToInternalAssistMap,
     torqueMvToKg, torqueKgToMv, LEGACY_TORQUE_LINEAR_MAX_KG,
     errorDescriptions, errorRecommendations, helpBadge, isEbicsConnected,
-} from './shared.js';
+} from '../shared.js';
 
 const LEVEL_NAMES = ['ECO', 'TOUR', 'SPORT', 'SPORT+', 'BOOST'];
 const LEVEL_MAP = uiToInternalAssistMap[5];

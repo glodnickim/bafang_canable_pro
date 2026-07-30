@@ -1038,8 +1038,8 @@ export function populateWheelSelect() {
     });
 }
 
-// FW-056: touch-friendly parameter help, shared by tab-ebics.js's fieldInput() and
-// ebics-compat.js's createField(). `title` only shows on mouse hover, which is invisible on
+// FW-056: touch-friendly parameter help, shared by evistdrive/common.js's fieldInput() and
+// evistdrive/compat.js's createField(). `title` only shows on mouse hover, which is invisible on
 // phones/tablets, so every field with help text also gets this small focusable "?" badge (CSS
 // shows the bubble on :hover AND :focus — see .ebics-help in style.css).
 export function helpBadge(helpText) {

@@ -12,8 +12,8 @@ import './tab-display.js';
 import './tab-sensor.js';
 import './tab-battery.js';
 import './tab-gears-m820.js';
-import './ebics-detection.js';
-import './tab-ebics.js';
+// Everything eVistDrive comes in through one entry point (ui/js/evistdrive/index.js).
+import './evistdrive/index.js';
 import './tab-info.js';
 import './tab-firmware.js';
 import './tab-sniffer.js';
