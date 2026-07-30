@@ -4,8 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Bafang CANable Pro</title>
-    <script src="tailwind.js"></script>
     <link rel="stylesheet" href="style.css">
+    <!-- Generated once by `npm run build:css`, not compiled in the browser. The old
+         @tailwindcss/browser script rebuilt every rule on any DOM change, and telemetry
+         rewrites ~20 fields per CAN frame. Loaded AFTER style.css because the in-browser
+         compiler appended its <style> to the end of <head>, so this keeps the same
+         cascade order and therefore the same appearance. -->
+    <link rel="stylesheet" href="tailwind.built.css">
 </head>
 <body class="bg-gray-100 font-sans text-sm antialiased">
 <div class="px-3 sm:px-5 py-4 flex flex-col gap-3">

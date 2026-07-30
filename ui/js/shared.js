@@ -993,7 +993,12 @@ export function addLog(prefix, data, details = null) {
 
 export const safeSetText = (element, value, formatter = getNullableString) => {
     if (element) {
-        element.textContent = formatter(value);
+        // Only write when it actually changed. Telemetry repaints every field on every CAN
+        // frame, but most of them (temperatures, capacity, distance, mode, bank) hold the
+        // same value frame after frame. Each pointless write is a DOM mutation that costs
+        // layout and style work for no visible difference.
+        const next = formatter(value);
+        if (element.textContent !== next) element.textContent = next;
     } else console.warn("UI Update failed: Text element is null for value:", value);
 };
 

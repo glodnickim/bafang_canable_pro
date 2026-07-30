@@ -1,0 +1,17 @@
+/* Input for the build-time Tailwind compile. Not served to the browser.
+ *
+ * The page used to load @tailwindcss/browser, the in-browser compiler, which installs a
+ * MutationObserver and rebuilds every rule on any DOM change. Telemetry rewrites ~20
+ * fields per CAN frame, so each frame from the bike triggered a full recompile of the
+ * whole document — the reason opening a dropdown showed an empty black box, worst on
+ * battery where the CPU downclocks.
+ *
+ * Generate the real stylesheet with:  npm run build:css
+ * The output (ui/tailwind.built.css) is committed, so running from source needs no build.
+ * Re-run it after adding Tailwind utility classes to the markup or to the JS that builds
+ * DOM — a class that is never scanned produces no rule.
+ */
+@import "tailwindcss";
+
+@source "./index.html";
+@source "./js/**/*.js";

@@ -13,7 +13,10 @@ export function updateTorqueSummary() {
     const safeLoad = isNumber(load) ? clamp(load, 0, GAUGE_FULL_SCALE_KG) : 0;
     setText('ebicsTorqueKg', safeLoad.toFixed(1));
     const fill = el('ebicsTorqueGaugeFill');
-    if (fill) fill.style.width = `${safeLoad / GAUGE_FULL_SCALE_KG * 100}%`;
+    // Rounded to whole percent and written only on change: the gauge is ~200 px wide, so
+    // sub-percent precision is invisible while every write forces a layout pass.
+    const width = `${Math.round(safeLoad / GAUGE_FULL_SCALE_KG * 100)}%`;
+    if (fill && fill.style.width !== width) fill.style.width = width;
     const level = selectedLevel().level || state.lastBanks?.[activeBankIndex()]?.levels?.[currentLevelIndex()];
     const minLoad = isNumber(level?.without_rotation_threshold_mv) ? level.without_rotation_threshold_mv / EBICS_MV_PER_KG : null;
     setText('ebicsTorqueMinLoadKg', displayNumber(minLoad, 1));
@@ -30,7 +33,8 @@ export function updateTorqueCalUI(t) {
         : 'Scale: default (estimated)');
     setText('ebicsTorqueKg', ((t.load_centikg || 0) / 100).toFixed(1));
     const fill = el('ebicsTorqueGaugeFill');
-    if (fill) fill.style.width = `${clamp((t.load_centikg || 0) / (GAUGE_FULL_SCALE_KG * 100) * 100, 0, 100)}%`;
+    const calWidth = `${Math.round(clamp((t.load_centikg || 0) / (GAUGE_FULL_SCALE_KG * 100) * 100, 0, 100))}%`;
+    if (fill && fill.style.width !== calWidth) fill.style.width = calWidth;
     setText('ebicsTorqueCalSource', t.calibration_source === 1 ? 'User calibrated' : 'Default');
     setText('ebicsTorqueZero', t.zero_effective_native ?? 'N/A');
     setText('ebicsTorqueFullScale', t.full_scale_native ?? 'N/A');

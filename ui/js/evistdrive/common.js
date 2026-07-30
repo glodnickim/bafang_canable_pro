@@ -70,7 +70,10 @@ export function selectedLevel(bankSelectId = 'ebicsProfileBankSelect', levelSele
 
 export function setText(id, value) {
     const node = el(id);
-    if (node) node.textContent = value;
+    // Write only on a real change: the Live and System cards refresh every field on every
+    // CAN frame, and most values are identical to the previous frame. A no-op write is
+    // still a DOM mutation, with the layout and style work that follows it.
+    if (node && node.textContent !== String(value)) node.textContent = value;
 }
 
 export function getPedalLoadKg() {
