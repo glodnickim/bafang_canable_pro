@@ -146,9 +146,50 @@ const PROFILE_LEVEL_PLACEHOLDER_BANKS = [
     buildProfilePlaceholderBank(1), // Bank 1 default: Power Linear (ASSIST_MODE_POWER_LINEAR)
     buildProfilePlaceholderBank(3), // Bank 2 default: eMTB (ASSIST_MODE_EMTB_TSDZ)
 ];
-function placeholderLevel(bankIndex, levelIndex) {
-    const bank = PROFILE_LEVEL_PLACEHOLDER_BANKS[bankIndex] || PROFILE_LEVEL_PLACEHOLDER_BANKS[0];
+// The offline editing surface. Handing out the objects from PROFILE_LEVEL_PLACEHOLDER_BANKS
+// directly meant that editing a field with no bike attached permanently overwrote the
+// project's own factory defaults for the rest of the session — so "back to defaults" would
+// have restored whatever had last been typed. The defaults table is now a read-only
+// reference and this working copy is what the editor touches.
+let placeholderWorkingBanks = null;
+function placeholderBanks() {
+    if (!placeholderWorkingBanks) {
+        placeholderWorkingBanks = JSON.parse(JSON.stringify(PROFILE_LEVEL_PLACEHOLDER_BANKS));
+    }
+    return placeholderWorkingBanks;
+}
+
+// The level the editor writes into when nothing has been read from the controller.
+export function offlineWorkingLevel(bankIndex, levelIndex) {
+    const banks = placeholderBanks();
+    const bank = banks[bankIndex] || banks[0];
     return bank[levelIndex] || bank[0];
+}
+const placeholderLevel = offlineWorkingLevel;
+
+// A copy of the firmware boot defaults. Always a copy: hand out the original and the next
+// edit silently redefines what "default" means.
+export function firmwareDefaultLevel(bankIndex, levelIndex) {
+    const bank = PROFILE_LEVEL_PLACEHOLDER_BANKS[bankIndex] || PROFILE_LEVEL_PLACEHOLDER_BANKS[0];
+    return JSON.parse(JSON.stringify(bank[levelIndex] || bank[0]));
+}
+
+// Throw away offline edits for one bank and take a fresh copy of the defaults.
+function resetPlaceholderBank(bankIndex) {
+    const banks = placeholderBanks();
+    const source = PROFILE_LEVEL_PLACEHOLDER_BANKS[bankIndex] || PROFILE_LEVEL_PLACEHOLDER_BANKS[0];
+    banks[bankIndex] = JSON.parse(JSON.stringify(source));
+}
+
+// CB-012: what a Restore should put back for one level — the values as read from the
+// controller when there are any, otherwise the firmware defaults. Always a fresh copy, so
+// the caller cannot write back through it into the source.
+function restoreSourceLevel(bankIndex, levelIndex) {
+    const read = state.lastBanksAsRead?.[bankIndex]?.levels?.[levelIndex];
+    if (read) return { source: 'read', level: JSON.parse(JSON.stringify(read)) };
+    const bank = PROFILE_LEVEL_PLACEHOLDER_BANKS[bankIndex] || PROFILE_LEVEL_PLACEHOLDER_BANKS[0];
+    const level = bank[levelIndex] || bank[0];
+    return { source: 'defaults', level: JSON.parse(JSON.stringify(level)) };
 }
 
 // FW-057: cadence compensation is stored per bank (blob header byte 12, schema v5),
@@ -238,8 +279,17 @@ export function renderProfileEditor() {
             : '⚠ This controller reports an older bank format and cannot store this mode. Writing is blocked — it would reject the whole bank and silently keep your old settings. Flash firmware with FW-056 first.';
         modeContainer.appendChild(note);
     }
-    modeFields(mode).forEach((field) => fieldInput(modeContainer, level, field, refresh));
-    sharedFields().forEach((field) => fieldInput(sharedContainer, level, field, refresh));
+    // CB-012: each field learns where its own "put it back" value comes from, so Shift+click
+    // on one field restores only that one.
+    const withRestore = (field) => ({
+        ...field,
+        restoreValue: () => {
+            const { source, level: original } = restoreSourceLevel(selected.bankIndex, selected.levelIndex);
+            return { value: original[field.key], source };
+        },
+    });
+    modeFields(mode).forEach((field) => fieldInput(modeContainer, level, withRestore(field), refresh));
+    sharedFields().forEach((field) => fieldInput(sharedContainer, level, withRestore(field), refresh));
     renderProfileChart();
 }
 
@@ -356,7 +406,9 @@ export function renderProfileChart() {
     const hasData = Array.isArray(levels) && levels.length > 0;
     const previewLevels = hasData
         ? levels.slice(0, LEVEL_NAMES.length)
-        : (PROFILE_LEVEL_PLACEHOLDER_BANKS[selected.bankIndex] || PROFILE_LEVEL_PLACEHOLDER_BANKS[0]);
+        // The working copy, not the pristine defaults: offline edits must still show up on
+        // the chart, and the editor writes into the working copy.
+        : (placeholderBanks()[selected.bankIndex] || placeholderBanks()[0]);
     const selectedMode = selected.level?.mode_type || levels?.[0]?.mode_type
         || parseInt(el('ebicsProfileModeSelect')?.value ?? '1', 10);
     const chartMode = (selectedMode === 1 || selectedMode === 2 || selectedMode === 6) ? 'power' : 'load';
@@ -471,5 +523,25 @@ export function bindProfileControls() {
         if (!socketReady() || !confirm('Persist both eVistDrive banks and tuning to flash at full standstill?')) return;
         socket.send('SAVE_BANKS');
         addLog('SAVE_REQ', 'Persist eVistDrive banks and tuning at standstill');
+    });
+
+    // CB-012: undo a session of clicking, for the whole selected bank. Only touches what is
+    // on screen — the bike keeps its settings until Write (RAM) is pressed.
+    el('ebicsProfilesRestoreButton')?.addEventListener('click', () => {
+        const selected = selectedLevel();
+        const read = state.lastBanksAsRead?.[selected.bankIndex];
+        const label = read ? 'the values read from the controller' : 'the firmware defaults';
+        if (!confirm(`Put bank ${selected.bankIndex + 1} back to ${label}?\n\nThis only changes what you see here. Nothing is sent to the bike until you press "Write (RAM)".`)) return;
+
+        if (read) {
+            state.lastBanks[selected.bankIndex] = JSON.parse(JSON.stringify(read));
+        } else {
+            // Nothing was ever read, so the editor is working on the offline copy: rebuild
+            // it from the untouched defaults table.
+            resetPlaceholderBank(selected.bankIndex);
+        }
+        renderProfileEditor();
+        updateLimitsSummary();
+        addLog('INFO', `Bank ${selected.bankIndex + 1} put back to ${label}. Not written to the bike — press "Write (RAM)" to apply.`);
     });
 }

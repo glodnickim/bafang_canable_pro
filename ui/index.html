@@ -901,6 +901,9 @@
                         <button id="ebicsProfilesReadButton" class="btn btn-blue">Read banks</button>
                         <button id="ebicsProfilesApplyButton" data-requires-link class="btn btn-orange">Write selected bank (RAM)</button>
                         <button id="ebicsProfilesSaveButton" data-requires-link class="btn btn-red">Save all (Flash)</button>
+                        <!-- CB-012. No data-requires-link: undoing your own clicking must work
+                             offline too, and it writes nothing to the controller. -->
+                        <button id="ebicsProfilesRestoreButton" class="btn btn-secondary">Restore</button>
                     </div>
                 </div>
                 <div class="ebics-toolbar">
@@ -1040,6 +1043,9 @@
                         <button id="ebicsDynamicsReadButton" class="btn btn-blue">Read tuning</button>
                         <button id="ebicsDynamicsApplyButton" data-requires-link class="btn btn-orange">Write (RAM)</button>
                         <button id="ebicsDynamicsSaveButton" data-requires-link class="btn btn-red">Save (Flash)</button>
+                        <!-- CB-012. No data-requires-link: undoing your own clicking must work
+                             offline too, and it writes nothing to the controller. -->
+                        <button id="ebicsDynamicsRestoreButton" class="btn btn-secondary">Restore</button>
                     </div>
                 </div>
                 <p class="text-sm mb-3">Low and high speed/cadence ramps are separate because the controller blends between two response times as riding speed and cadence rise.</p>

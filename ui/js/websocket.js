@@ -203,6 +203,13 @@ socket.onmessage = (event) => {
                         state.lastBanks = state.lastBanks || {};
                         state.lastBanks[parsedEvent.data.bank_index] =
                             JSON.parse(JSON.stringify(parsedEvent.data));
+                        // CB-012: a second, independent copy that the editor never touches.
+                        // The profile editor writes straight into state.lastBanks, so
+                        // without this the values as read stop existing the moment the
+                        // first field is changed — and there is nothing to go back to.
+                        state.lastBanksAsRead = state.lastBanksAsRead || {};
+                        state.lastBanksAsRead[parsedEvent.data.bank_index] =
+                            JSON.parse(JSON.stringify(parsedEvent.data));
                         state.ebicsReceivedBanks = state.ebicsReceivedBanks || {};
                         state.ebicsReceivedBanks[parsedEvent.data.bank_index] = true;
                         state.ebicsBankReadError = '';
@@ -223,6 +230,9 @@ socket.onmessage = (event) => {
                 case 'controller_tuning': //FW-010: global ride-feel tuning blob
                     if (parsedEvent.data && !parsedEvent.data.parseError) {
                         state.lastTuning = JSON.parse(JSON.stringify(parsedEvent.data));
+                        // CB-012: untouched copy for "back to what was read" — the Dynamics
+                        // card edits state.lastTuning in place.
+                        state.lastTuningAsRead = JSON.parse(JSON.stringify(parsedEvent.data));
                         state.tuningSynced = true;
                         updateDiagTuning(parsedEvent.data); // FW-017: show stored fall ramps in the diag panel
                         addLog('DATA', 'Tuning received');

@@ -138,6 +138,31 @@ export function populateSelects() {
     }
 }
 
+/**
+ * CB-012: Shift+click a field to put that one value back.
+ *
+ * `descriptor.restoreValue` is a function returning `{ value, source }` — `source` being
+ * 'read' (what the controller sent) or 'defaults' (firmware defaults, when nothing has
+ * been read). Cards that do not supply it simply do not get the behaviour.
+ *
+ * Only ever changes what is on screen. The controller keeps whatever it has until Write.
+ */
+function attachShiftRestore(input, target, descriptor, onChanged, applyToInput) {
+    if (typeof descriptor.restoreValue !== 'function') return;
+    const restore = (event) => {
+        if (!event.shiftKey) return;
+        event.preventDefault(); // do not also focus/toggle the control
+        const { value, source } = descriptor.restoreValue();
+        if (value === undefined) return;
+        target[descriptor.key] = value;
+        applyToInput(value);
+        addLog('INFO', `${descriptor.label}: back to ${source === 'read' ? 'the value read from the controller' : 'the firmware default'} (not written to the bike yet).`);
+        onChanged?.();
+    };
+    input.addEventListener('click', restore);
+    input.title = 'Shift+click to put this one value back to what was read (or to the firmware default).';
+}
+
 export function fieldInput(container, target, descriptor, onChanged) {
     if (!container || !target) return;
     const wrapper = document.createElement('div');
@@ -156,6 +181,7 @@ export function fieldInput(container, target, descriptor, onChanged) {
             target[descriptor.key] = input.checked;
             onChanged?.();
         });
+        attachShiftRestore(input, target, descriptor, onChanged, (value) => { input.checked = !!value; });
     } else {
         input.type = 'number';
         input.className = 'form-input';
@@ -173,6 +199,7 @@ export function fieldInput(container, target, descriptor, onChanged) {
             target[descriptor.key] = toNative(value);
             onChanged?.();
         });
+        attachShiftRestore(input, target, descriptor, onChanged, (value) => { input.value = fromNative(value); });
     }
     wrapper.appendChild(input);
     container.appendChild(wrapper);

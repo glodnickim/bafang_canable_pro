@@ -35,20 +35,14 @@ const DYNAMICS_CHART_HEIGHT = 380;
 
 function ensureTuningDefaults() {
     if (!state.lastTuning) {
-        state.lastTuning = {
-            iq_rise_slow_ms: 600, iq_rise_fast_ms: 300,
-            iq_fall_slow_ms: 1000, iq_fall_fast_ms: 140,
-            startup_boost_cadence_step: 20,
-            assist_run_deadband_mv: 5, assist_hold_ms: 1400, assist_min_iq_pct: 2,
-            assist_torque_run_filter_ms: 300,
-        };
-    } else {
-        // FW-032/033: an older controller read won't include these fields — backfill defaults.
-        if (state.lastTuning.assist_run_deadband_mv == null) state.lastTuning.assist_run_deadband_mv = 5;
-        if (state.lastTuning.assist_hold_ms == null) state.lastTuning.assist_hold_ms = 1400;
-        if (state.lastTuning.assist_min_iq_pct == null) state.lastTuning.assist_min_iq_pct = 2;
-        if (state.lastTuning.assist_torque_run_filter_ms == null) state.lastTuning.assist_torque_run_filter_ms = 300;
+        state.lastTuning = { ...TUNING_DEFAULTS };
+        return;
     }
+    // FW-032/033: an older controller read won't include these fields — backfill defaults.
+    ['assist_run_deadband_mv', 'assist_hold_ms', 'assist_min_iq_pct', 'assist_torque_run_filter_ms']
+        .forEach((key) => {
+            if (state.lastTuning[key] == null) state.lastTuning[key] = TUNING_DEFAULTS[key];
+        });
 }
 
 export function renderDynamics() {
@@ -63,9 +57,35 @@ export function renderDynamics() {
     groups.forEach((group) => {
         if (!group.container) return;
         group.container.innerHTML = '';
-        group.fields.forEach((field) => fieldInput(group.container, state.lastTuning, field, renderDynamicsCharts));
+        // CB-012: Shift+click a single field to put just that one back.
+        group.fields.forEach((field) => fieldInput(group.container, state.lastTuning, {
+            ...field,
+            restoreValue: () => {
+                const { source, tuning } = tuningRestoreSource();
+                return { value: tuning[field.key], source };
+            },
+        }, renderDynamicsCharts));
     });
     renderDynamicsCharts();
+}
+
+// Firmware defaults for the tuning block, kept apart from state.lastTuning so editing can
+// never overwrite the thing a restore is supposed to go back to.
+const TUNING_DEFAULTS = Object.freeze({
+    iq_rise_slow_ms: 600, iq_rise_fast_ms: 300,
+    iq_fall_slow_ms: 1000, iq_fall_fast_ms: 140,
+    startup_boost_cadence_step: 20,
+    assist_run_deadband_mv: 5, assist_hold_ms: 1400, assist_min_iq_pct: 2,
+    assist_torque_run_filter_ms: 300,
+});
+
+// What a restore should put back: the values as read when there are any, otherwise the
+// firmware defaults. Always a copy.
+function tuningRestoreSource() {
+    const read = state.lastTuningAsRead;
+    return read
+        ? { source: 'read', tuning: JSON.parse(JSON.stringify(read)) }
+        : { source: 'defaults', tuning: { ...TUNING_DEFAULTS } };
 }
 
 function renderDynamicsCharts() {
@@ -155,5 +175,15 @@ export function bindDynamicsControls() {
         if (!socketReady() || !confirm('Persist eVistDrive tuning and banks to flash at full standstill?')) return;
         socket.send('SAVE_BANKS');
         addLog('SAVE_REQ', 'Persist eVistDrive tuning and banks at standstill');
+    });
+
+    // CB-012: undo the whole card. Screen only — the bike keeps its settings until Write.
+    el('ebicsDynamicsRestoreButton')?.addEventListener('click', () => {
+        const { source, tuning } = tuningRestoreSource();
+        const label = source === 'read' ? 'the values read from the controller' : 'the firmware defaults';
+        if (!confirm(`Put the ride-feel tuning back to ${label}?\n\nThis only changes what you see here. Nothing is sent to the bike until you press "Write (RAM)".`)) return;
+        state.lastTuning = tuning;
+        renderDynamics();
+        addLog('INFO', `Ride-feel tuning put back to ${label}. Not written to the bike — press "Write (RAM)" to apply.`);
     });
 }
