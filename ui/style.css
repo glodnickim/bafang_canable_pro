@@ -147,6 +147,8 @@
     box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
 }
 .ebics-card-title { margin-bottom: 12px; color: var(--ebics-dark); font-size: 13px; font-weight: 800; }
+summary.ebics-card-title { cursor: pointer; margin-bottom: 0; }
+details[open] > summary.ebics-card-title { margin-bottom: 12px; }
 .ebics-field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 14px; }
 .ebics-dynamics-field-grid { grid-template-columns: 1fr; margin-bottom: 12px; }
 .ebics-field {
@@ -158,9 +160,43 @@
     padding-bottom: 8px;
     border-bottom: 1px solid #f1f5f9;
 }
-.ebics-field label { color: #475569; font-size: 12px; font-weight: 600; }
+.ebics-field label { display: inline-flex; align-items: center; gap: 4px; color: #475569; font-size: 12px; font-weight: 600; }
 .ebics-field input[type="number"], .ebics-field select { width: 100%; }
 .ebics-field input[type="checkbox"] { justify-self: end; width: 18px; height: 18px; }
+
+/* FW-056: touch-friendly parameter help. `title` (hover-only) is invisible on phones/tablets,
+   so every field with help text also gets this small "?" badge. Shown on :hover (mouse) AND
+   :focus (keyboard Tab, or tap on mobile browsers that focus a tabindex element on touch). */
+.ebics-help {
+    display: inline-flex; align-items: center; justify-content: center;
+    flex: none; width: 15px; height: 15px; border-radius: 50%;
+    background: #cbd5e1; color: #1e293b; font-size: 10px; font-weight: 700; line-height: 1;
+    cursor: help; position: relative;
+}
+.ebics-help:hover, .ebics-help:focus { background: #94a3b8; outline: none; }
+.ebics-help .tooltiptext {
+    visibility: hidden; opacity: 0;
+    width: max-content; max-width: 260px;
+    background-color: #1f2937; color: #f9fafb;
+    text-align: left; border-radius: 6px; padding: 8px 10px;
+    position: absolute; z-index: 20; bottom: 135%; left: 50%; transform: translateX(-50%);
+    transition: opacity 0.15s ease-out, visibility 0s linear 0.15s;
+    font-size: 11px; font-weight: 400; line-height: 1.4;
+    pointer-events: none; box-shadow: 0 4px 12px rgba(0,0,0,0.35); white-space: normal;
+}
+.ebics-help:hover .tooltiptext, .ebics-help:focus .tooltiptext {
+    visibility: visible; opacity: 1; transition-delay: 0s, 0s;
+}
+.ebics-help .tooltiptext::after {
+    content: ""; position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+    border-width: 5px; border-style: solid;
+    border-color: #1f2937 transparent transparent transparent;
+}
+/* Fields near the right edge of a row would otherwise clip the centered bubble off-screen. */
+.ebics-field:nth-child(2n) .ebics-help .tooltiptext,
+.ebics-toolbar .ebics-help .tooltiptext { left: auto; right: 0; transform: none; }
+.ebics-field:nth-child(2n) .ebics-help .tooltiptext::after,
+.ebics-toolbar .ebics-help .tooltiptext::after { left: auto; right: 6px; transform: none; }
 .ebics-limp-summary {
     padding: 10px 12px;
     border: 1px solid #bfdbfe;
@@ -199,7 +235,29 @@
     margin: 4px 0 8px;
 }
 .ebics-metric-grid { display: grid; grid-template-columns: repeat(5, minmax(125px, 1fr)); gap: 10px; }
-.ebics-profile-chart { height: 380px; min-height: 380px; margin-bottom: 8px; }
+/* FW-056: this chart's card is NOT inside .ebics-two-column, so on a wide viewport it used to
+   stretch to the full content width while its fixed 380px height stayed the same — very wide
+   and short, out of proportion with the narrower cards above it. Cap the width instead. */
+.ebics-profile-chart { height: 380px; min-height: 380px; max-width: 760px; margin: 0 0 8px; }
+
+/* Stale-data warning: connected to the controller but this bank/tuning has not actually been
+   read yet, so fields still show offline placeholders. Only shown while connected — browsing
+   placeholders while disconnected is normal and gets no warning at all. */
+.ebics-stale-warning { color: #b91c1c; font-weight: 700; }
+
+/* Subtle tint on the Profiles cards, matching the currently selected assist level's chart line
+   color (set inline via JS) — a quiet visual cue for which level you are editing. */
+.ebics-level-tinted { transition: background-color .2s ease; }
+@keyframes ebics-pulse-warn {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(234, 88, 12, .6); }
+    50% { box-shadow: 0 0 0 7px rgba(234, 88, 12, 0); }
+}
+.btn-needs-read {
+    background: #ea580c !important;
+    border-color: #ea580c !important;
+    color: #fff !important;
+    animation: ebics-pulse-warn 1.4s ease-in-out infinite;
+}
 .ebics-advanced-service {
     padding: 10px 12px;
     border: 1px dashed #cbd5e1;
@@ -223,7 +281,9 @@
 }
 .ebics-metric span:first-child { color: #64748b; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
 .ebics-metric b { align-self: end; color: #0f172a; font-size: 17px; }
-.ebics-chart { width: 100%; min-height: 300px; }
+/* Matches DYNAMICS_CHART_HEIGHT / profilePlotLayout in tab-ebics.js: the container must reserve
+   at least as much as the plots declare, or a chart overlaps the card below it. */
+.ebics-chart { width: 100%; min-height: 380px; }
 .ebics-gauge {
     position: relative;
     height: 18px;
@@ -665,3 +725,97 @@ h3.section-subtitle:first-of-type { margin-top: 0; }
     border-radius: 4px;
     box-sizing: border-box;
 }
+
+/* FW-057: bank-wide feature strip. Deliberately louder than the per-level fields,
+   because this one switch changes the feel of every level in the bank. */
+.ebics-feature-toggle {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 16px;
+    border: 1px solid #cbd5e1;
+    border-left: 5px solid #94a3b8;
+    border-radius: 12px;
+    background: #f8fafc;
+    transition: background .15s, border-color .15s;
+}
+.ebics-feature-toggle.is-on {
+    border-color: #86efac;
+    border-left-color: #16a34a;
+    background: #f0fdf4;
+}
+.ebics-feature-toggle.is-blocked {
+    border-color: #fecaca;
+    border-left-color: #dc2626;
+    background: #fef2f2;
+}
+.ebics-feature-switch {
+    position: relative;
+    flex: 0 0 auto;
+    width: 52px;
+    height: 28px;
+    cursor: pointer;
+}
+.ebics-feature-switch input {
+    position: absolute;
+    opacity: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    cursor: pointer;
+}
+.ebics-feature-slider {
+    position: absolute;
+    inset: 0;
+    border-radius: 999px;
+    background: #cbd5e1;
+    transition: background .15s;
+}
+.ebics-feature-slider::after {
+    content: "";
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: #ffffff;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, .35);
+    transition: transform .15s;
+}
+.ebics-feature-switch input:checked + .ebics-feature-slider { background: #16a34a; }
+.ebics-feature-switch input:checked + .ebics-feature-slider::after { transform: translateX(24px); }
+.ebics-feature-switch input:focus-visible + .ebics-feature-slider { outline: 2px solid #2563eb; outline-offset: 2px; }
+.ebics-feature-switch input:disabled { cursor: not-allowed; }
+.ebics-feature-switch input:disabled + .ebics-feature-slider { opacity: .45; }
+.ebics-feature-body { min-width: 0; }
+.ebics-feature-title {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    color: var(--ebics-dark);
+    font-size: 14px;
+    font-weight: 800;
+}
+.ebics-feature-scope {
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: #e2e8f0;
+    color: #475569;
+    font-size: 11px;
+    font-weight: 700;
+}
+.ebics-feature-state {
+    padding: 2px 9px;
+    border-radius: 999px;
+    background: #e2e8f0;
+    color: #475569;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: .08em;
+}
+.ebics-feature-toggle.is-on .ebics-feature-state { background: #16a34a; color: #ffffff; }
+.ebics-feature-toggle.is-blocked .ebics-feature-state { background: #dc2626; color: #ffffff; }
+.ebics-feature-note { margin-top: 4px; color: #475569; font-size: 11px; line-height: 1.5; }
+.ebics-feature-toggle.is-blocked .ebics-feature-note { color: #b91c1c; font-weight: 700; }

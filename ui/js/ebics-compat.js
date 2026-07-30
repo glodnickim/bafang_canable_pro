@@ -4,7 +4,7 @@ import {
     sendCustomFrame, encodeToHex,
     wheelDiameterTable, uiToInternalAssistMap,
     torqueMvToKg, torqueKgToMv, LEGACY_TORQUE_LINEAR_MAX_KG,
-    errorDescriptions, errorRecommendations,
+    errorDescriptions, errorRecommendations, helpBadge, isEbicsConnected,
 } from './shared.js';
 
 const LEVEL_NAMES = ['ECO', 'TOUR', 'SPORT', 'SPORT+', 'BOOST'];
@@ -62,7 +62,7 @@ function previewP1() {
         })),
         displayless_mode: false,
         lamps_always_on: false,
-        walk_assist_speed: 6,
+        walk_assist_speed: 45, // FW-043: target chainring RPM (was 6 km/h)
     };
 }
 
@@ -124,6 +124,9 @@ function captureEvent(eventType) {
         received.startup = true;
     }
     if (eventType === 'controller_errors' && Array.isArray(state.controllerErrors)) received.errors = true;
+    if (eventType === 'controller_bank' && state.ebicsReceivedBanks?.[0] && state.ebicsReceivedBanks?.[1]) {
+        received.banks = true;
+    }
 }
 
 function socketReady() {
@@ -135,20 +138,33 @@ function socketReady() {
 function sourceLabel(keys) {
     const received = state.ebicsCompatibilityReceived || {};
     const count = keys.filter((key) => received[key]).length;
-    if (count === keys.length) return 'Values read from controller';
-    if (count) return `Partly read (${count}/${keys.length}) — sync before writing`;
-    return 'Preview values — sync before writing';
+    const complete = count === keys.length;
+    const stale = !complete && isEbicsConnected();
+    let text;
+    if (complete) text = 'Values read from controller';
+    else if (stale) text = count
+        ? `⚠ Only partly read (${count}/${keys.length}) — read again before writing, values below may be stale.`
+        : '⚠ Not read from the controller yet — values below are placeholders, NOT your bike\'s real settings.';
+    else text = count
+        ? `Partly read (${count}/${keys.length}) — read all before writing`
+        : 'Offline defaults — connect and Read to load your real settings.';
+    return { text, stale };
 }
 
 function updateSourceLabels() {
     const labels = {
-        ebicsCompatibilitySourceLimits: ['p1', 'speed'],
-        ebicsCompatibilitySourceWalk: ['p1'],
-        ebicsCompatibilitySourceLegacy: ['p0', 'p1', 'p2', 'startup'],
-        ebicsCompatibilitySourceSystem: ['p1'],
+        ebicsCompatibilitySourceLimits: { keys: ['p1', 'speed'], readButton: 'ebicsLimitsSyncButton' },
+        ebicsCompatibilitySourceWalk: { keys: ['banks'], readButton: 'ebicsWalkSyncButton' },
+        ebicsCompatibilitySourceLegacy: { keys: ['p0', 'p1', 'p2', 'startup'], readButton: null },
+        ebicsCompatibilitySourceSystem: { keys: ['p1'], readButton: 'ebicsSystemSyncButton' },
     };
-    Object.entries(labels).forEach(([id, keys]) => {
-        if (el(id)) el(id).textContent = sourceLabel(keys);
+    Object.entries(labels).forEach(([id, { keys, readButton }]) => {
+        const { text, stale } = sourceLabel(keys);
+        if (el(id)) {
+            el(id).textContent = text;
+            el(id).classList.toggle('ebics-stale-warning', stale);
+        }
+        if (readButton) el(readButton)?.classList.toggle('btn-needs-read', stale);
     });
 }
 
@@ -157,13 +173,14 @@ function createField(container, target, descriptor) {
     const wrapper = document.createElement('div');
     wrapper.className = 'ebics-field';
     const label = document.createElement('label');
-    label.textContent = descriptor.unit ? `${descriptor.label} (${descriptor.unit})` : descriptor.label;
-    if (descriptor.help) label.title = descriptor.help;
+    label.append(descriptor.unit ? `${descriptor.label} (${descriptor.unit})` : descriptor.label);
+    if (descriptor.help) label.appendChild(helpBadge(descriptor.help));
     wrapper.appendChild(label);
 
     if (descriptor.options) {
         const select = document.createElement('select');
         select.className = 'form-select';
+        select.disabled = !!descriptor.disabled;
         descriptor.options.forEach((option) => select.add(new Option(option.label, String(option.value))));
         const fromNative = descriptor.fromNative || ((value) => value);
         select.value = String(fromNative(target[descriptor.key]));
@@ -182,6 +199,7 @@ function createField(container, target, descriptor) {
         input.min = descriptor.min;
         input.max = descriptor.max;
         input.step = descriptor.step ?? 1;
+        input.disabled = !!descriptor.disabled;
         const fromNative = descriptor.fromNative || ((value) => value);
         const current = fromNative(target[descriptor.key]);
         input.value = isNumber(current) ? current : '';
@@ -369,18 +387,19 @@ function renderLimitsFields() {
     if (speed) speed.innerHTML = '';
 
     [
-        { key: 'system_voltage', label: 'System voltage', options: voltageOptions },
-        { key: 'current_limit', label: 'Maximum battery current', unit: 'A', min: 1, max: 60, step: 1 },
-        {
-            key: 'max_current_on_low_charge', label: 'Stored low-charge current byte', unit: 'A', min: 0, max: 100, step: 1,
-            help: 'Stored in P1[9]. Current eVistDrive limp formula scales phase-current max and does not use this byte directly.',
-        },
-        { key: 'overvoltage', label: 'Overvoltage cutoff', unit: 'V', min: 0, max: 100, step: 1 },
+        { key: 'system_voltage', label: 'System voltage', options: voltageOptions,
+            help: 'Nominal battery voltage. Used by the controller for voltage-based calculations — set it to match your actual pack, not just a round number.' },
+        { key: 'current_limit', label: 'Maximum battery current', unit: 'A', min: 1, max: 60, step: 1,
+            help: 'Hard ceiling on current drawn from the battery, across all assist levels and Walk Assist. Protects the battery/BMS — separate from, and on top of, the per-level Maximum motor current phase-current limits in Profiles.' },
+        { key: 'overvoltage', label: 'Overvoltage cutoff', unit: 'V', min: 0, max: 100, step: 1,
+            help: 'Controller cuts off if pack voltage rises above this (e.g. during strong regen/braking on a full battery). Set above your pack\'s true full-charge voltage, not at or below it.' },
         {
             key: 'undervoltage_under_load', label: 'Undervoltage cutoff under load', unit: 'V', min: 0, max: 100, step: 0.1,
             fromNative: (value) => value / 1000, toNative: (value) => Math.round(value * 1000),
+            help: 'Controller cuts off if pack voltage sags below this while under load. Set below your pack\'s real resting voltage at low charge, but high enough to protect the cells — check your BMS/cell specs.',
         },
-        { key: 'battery_capacity', label: 'Battery capacity', unit: 'mAh', min: 100, max: 65000, step: 100 },
+        { key: 'battery_capacity', label: 'Battery capacity', unit: 'mAh', min: 100, max: 65000, step: 100,
+            help: 'Nominal battery capacity, used for the range/remaining-capacity estimate shown on the display. Doesn\'t affect how the motor is driven.' },
         {
             key: 'limp_mode_soc_limit', label: 'Limp SoC stage 1 threshold', unit: '%', min: 0, max: 100, step: 1,
             help: 'Below this displayed SoC, firmware starts reducing the phase-current limit.',
@@ -397,12 +416,16 @@ function renderLimitsFields() {
     updateLimpSocSummary();
 
     [
-        { key: 'coaster_brake', label: 'Legal speed-limit flag', options: [{ value: true, label: 'Enabled' }, { value: false, label: 'Disabled' }], boolean: true },
-        { key: 'speedmeter_magnets_number', label: 'Speed sensor pulses/revolution', min: 1, max: 255, step: 1 },
+        { key: 'coaster_brake', label: 'Legal speed-limit flag', options: [{ value: true, label: 'Enabled' }, { value: false, label: 'Disabled' }], boolean: true,
+            help: 'Turns the speed limit below on or off. When Disabled, there is no speed limit. This same limit can also be lifted temporarily on the bike, without touching Canable, with a handlebar gesture (cycle the assist level Eco→0→Eco within about 2.5 s); repeating the gesture restores the limit. The gesture resets to "restored" every time the bike is switched off.' },
+        { key: 'speedmeter_magnets_number', label: 'Speed sensor pulses/revolution', min: 1, max: 255, step: 1,
+            help: 'Number of speed-sensor pulses per wheel revolution. Must match your actual sensor/magnet setup — wrong here means every speed and distance reading (and the speed limit) is scaled incorrectly.' },
     ].forEach((field) => createField(speed, draft.p1, field));
-    createField(speed, draft.speed, { key: 'speed_limit', label: 'Speed limit', unit: 'km/h', min: 1, max: 99, step: 0.1 });
+    createField(speed, draft.speed, { key: 'speed_limit', label: 'Speed limit', unit: 'km/h', min: 1, max: 99, step: 0.1,
+        help: 'Above this speed, assist fades out (see Legal speed-limit flag above to turn this on/off, and the handlebar gesture to lift it temporarily).' });
     createWheelField(speed, draft.speed);
-    createField(speed, draft.speed, { key: 'circumference', label: 'Wheel circumference', unit: 'mm', min: 400, max: 3000, step: 1 });
+    createField(speed, draft.speed, { key: 'circumference', label: 'Wheel circumference', unit: 'mm', min: 400, max: 3000, step: 1,
+        help: 'Wheel circumference in millimetres, used together with the speed sensor to compute speed and distance. Overrides the rough estimate from Wheel diameter above if you\'ve measured your actual tyre. Typical values: 20″=1590, 24″=1905, 26″=2050, 27.5″(650B)=2145, 28″/700C=2224, 29″=2326 — exact figure depends on tyre width, so measure yours (roll the wheel one full turn, marked point to marked point) if you want it precise.' });
 }
 
 function createWheelField(container, speedDraft) {
@@ -410,7 +433,8 @@ function createWheelField(container, speedDraft) {
     const wrapper = document.createElement('div');
     wrapper.className = 'ebics-field';
     const label = document.createElement('label');
-    label.textContent = 'Wheel diameter';
+    label.append('Wheel diameter');
+    label.appendChild(helpBadge('Used with the speed sensor pulse count to compute wheel speed. Pick the closest standard size; small errors here are usually not worth chasing — set "Wheel circumference" below directly if you have measured it.'));
     const select = document.createElement('select');
     select.className = 'form-select';
     wheelDiameterTable.forEach((wheel, index) => select.add(new Option(wheel.text, String(index))));
@@ -424,13 +448,99 @@ function createWheelField(container, speedDraft) {
     container.appendChild(wrapper);
 }
 
+/*
+ * FW-044/FW-057: the Walk Assist cut-off speed is edited here for convenience, but it physically
+ * lives in the PROFILE BANK blob, not in the 0x6011 record the rest of this tab writes. Both
+ * banks are shown side by side (no picker) so the rider can compare/edit them without switching.
+ *
+ * Writing still needs a guard: state.lastBanks holds placeholder defaults until a bank has
+ * actually been read. Sending WRITE_BANK/SAVE_BANKS before that would overwrite the rider's real
+ * per-level tuning with those placeholders — so Write/Save check ebicsReceivedBanks per bank.
+ */
+function bankStateFor(index) {
+    const hasData = !!(state.lastBanks && state.ebicsReceivedBanks?.[index]);
+    return { index, bank: hasData ? state.lastBanks[index] : WALK_FIELD_PLACEHOLDERS[index], hasData };
+}
+
+function setWalkStatus(text, isError = false) {
+    const status = el('ebicsWalkStatus');
+    if (!status) return;
+    status.textContent = text;
+    status.style.display = text ? 'block' : 'none';
+    status.style.color = isError ? '#b91c1c' : '';
+}
+
+// Firmware boot defaults (assist_modes.c BANK_WA_*_DEFAULT) — matches what a fresh bank ships
+// with. One independent object PER bank so editing bank 1's placeholder never bleeds into bank 2.
+const WALK_FIELD_PLACEHOLDERS = [
+    { wa_current_pct: 30, wa_target_rpm: 50, wa_latch_after_release: false, wa_latch_timeout_s: 30, wa_cutoff_kmh: 7 },
+    { wa_current_pct: 30, wa_target_rpm: 50, wa_latch_after_release: false, wa_latch_timeout_s: 30, wa_cutoff_kmh: 7 },
+];
+
+function renderWalkActiveSummary() {
+    const active = state.lastBanks?.[0]?.active_bank ?? state.lastBanks?.[1]?.active_bank ?? 0;
+    const { bank, hasData } = bankStateFor(active);
+    if (el('ebicsWalkCurrent')) el('ebicsWalkCurrent').textContent = hasData ? (bank.wa_current_pct ?? 'N/A') : String(bank.wa_current_pct);
+    if (el('ebicsWalkSpeed')) el('ebicsWalkSpeed').textContent = hasData ? (bank.wa_target_rpm ?? 'N/A') : String(bank.wa_target_rpm);
+}
+
 function renderWalkFields() {
-    const container = el('ebicsWalkFields');
-    if (!container) return;
-    container.innerHTML = '';
-    const p1 = ensureDraft().p1;
-    createField(container, p1, { key: 'speed_limit_enabled', label: 'Walk motor current', unit: '%', min: 1, max: 100, step: 1 });
-    createField(container, p1, { key: 'walk_assist_speed', label: 'Walk target speed', unit: 'km/h', min: 0.5, max: 6, step: 0.1 });
+    const bothRead = !!(state.ebicsReceivedBanks?.[0] && state.ebicsReceivedBanks?.[1]);
+    const stale = !bothRead && isEbicsConnected();
+    if (!bothRead) {
+        const text = state.ebicsBankReadError
+            ? `Bank read failed: ${state.ebicsBankReadError}`
+            : (stale
+                ? '⚠ Not read from the controller yet — fields below are placeholders, NOT your bike\'s real settings. Press "Read".'
+                : 'Offline defaults — connect and press "Read" to load your real settings.');
+        setWalkStatus(text, stale || !!state.ebicsBankReadError);
+    } else {
+        setWalkStatus('');
+    }
+    el('ebicsWalkSyncButton')?.classList.toggle('btn-needs-read', stale);
+    renderWalkActiveSummary();
+
+    const active = state.lastBanks?.[0]?.active_bank ?? state.lastBanks?.[1]?.active_bank ?? 0;
+    [0, 1].forEach((index) => {
+        const container = el(`ebicsWalkFields${index}`);
+        if (!container) return;
+        container.innerHTML = '';
+        const { bank, hasData } = bankStateFor(index);
+        const label = el(`ebicsWalkBankLabel${index}`);
+        if (label) {
+            label.textContent = hasData
+                ? (index === active ? '— active' : '')
+                : (isEbicsConnected() ? '— ⚠ not read yet' : '— offline default');
+            label.classList.toggle('ebics-stale-warning', !hasData && isEbicsConnected());
+        }
+        createField(container, bank, {
+            key: 'wa_current_pct', label: 'Walk motor current', unit: '%', min: 1, max: 100, step: 1,
+            onChange: renderWalkActiveSummary,
+            help: 'How strong Walk Assist is allowed to push, as a percentage of its own current ceiling (kept deliberately separate from your normal riding current limits, for safety). Higher pulls harder, but is also more likely to feel jerky on a light bike.',
+        });
+        createField(container, bank, {
+            key: 'wa_target_rpm', label: 'Walk chainring speed', unit: 'RPM', min: 20, max: 60, step: 1,
+            onChange: renderWalkActiveSummary,
+            help: 'Target CHAINRING speed Walk Assist tries to hold (the crank/chainring shaft, not the wheel) — bike walking speed then depends on the gear you\'re in, same as normal pedalling. Range is deliberately narrow (20-60 RPM) to keep this at a safe walking pace.',
+        });
+        createField(container, bank, {
+            key: 'wa_cutoff_kmh', label: 'Cut-off speed', unit: 'km/h', min: 1, max: 25.5, step: 0.1,
+            help: 'Above this bike speed, Walk Assist switches off completely — a safety backstop since Walk Assist holds motor speed, not wheel speed, so a high gear could otherwise push the bike faster than you can walk beside it.',
+        });
+        createField(container, bank, {
+            key: 'wa_latch_after_release', label: 'Continue after releasing Walk button',
+            options: [
+                { value: false, label: 'Off - hold button' },
+                { value: true, label: 'On - timed run' },
+            ],
+            boolean: true,
+            help: 'Off (default): you must keep the Walk button held down the whole time — release it and the motor stops immediately. On: releasing the button after a proper press lets Walk Assist keep running hands-free for up to Timed run limit, until you brake, change assist level, press another button, or the timer runs out.',
+        });
+        createField(container, bank, {
+            key: 'wa_latch_timeout_s', label: 'Timed run limit', unit: 's', min: 1, max: 120, step: 1,
+            help: 'How long the hands-free timed run (see "Continue after releasing Walk button") is allowed to continue after you release the Walk button, if that option is enabled.',
+        });
+    });
 }
 
 function renderSystemFields() {
@@ -440,22 +550,33 @@ function renderSystemFields() {
     if (motor) motor.innerHTML = '';
     if (ride) ride.innerHTML = '';
     [
-        { key: 'motor_type', label: 'Motor direction', options: [{ value: 1, label: 'Forward' }, { value: 0, label: 'Reverse' }] },
-        { key: 'motor_pole_pair_number', label: 'Mechanical gear ratio', min: 1, max: 255, step: 1 },
-        { key: 'speedmeter_magnets_number', label: 'Speed sensor pulses/revolution', min: 1, max: 255, step: 1 },
-        { key: 'motor_max_rotor_rpm', label: 'Off-road Magic number', min: 0, max: 65535, step: 1 },
-        { key: 'temperature_sensor_type', label: 'Legacy decay base', min: 0, max: 255, step: 1 },
+        { key: 'motor_type', label: 'Motor direction', options: [{ value: 1, label: 'Forward' }, { value: 0, label: 'Reverse' }],
+            help: 'Which direction counts as "forward" for the motor\'s commutation. Wrong setting makes the motor fight itself or spin the wrong way — leave this alone unless you know it needs changing after a wiring/sensor change.' },
+        { key: 'motor_pole_pair_number', label: 'Mechanical gear ratio', min: 1, max: 255, step: 1,
+            help: 'Despite the label, this is electrical revolutions per crank revolution (motor pole pairs × the gearbox\'s mechanical reduction), not a simple mechanical ratio. On the M820: 7 pole pairs × 11.43:1 gearbox = 80. This feeds every speed/cadence/Walk-Assist-RPM calculation that depends on motor revolutions — do not "correct" it down to the mechanical ratio (≈11.4), that would inflate those readings roughly 7×.' },
+        { key: 'speedmeter_magnets_number', label: 'Speed sensor pulses/revolution', min: 1, max: 255, step: 1,
+            help: 'Number of speed-sensor pulses per wheel revolution. Must match your actual sensor/magnet setup — wrong here means every speed and distance reading (and the speed limit) is scaled incorrectly.' },
+        { key: 'motor_max_rotor_rpm', label: 'Off-road Magic number', min: 0, max: 65535, step: 1,
+            help: 'Not read by firmware since FW-050 — the off-road speed-limit-bypass gesture (cycle assist level Eco→0→Eco) now uses a fixed sequence instead of a code stored here. Kept in storage for compatibility; editing this field has no effect.' },
+        { key: 'temperature_sensor_type', label: 'Legacy decay base', min: 0, max: 255, step: 1,
+            help: 'Only used by the old Legacy cadence-based pedal-assist calculation, which is compiled in but not reached — the active ride-core assist path is the only one used (since FW-030), and Walk Assist uses its own separate motor-speed controller. Editing this has no effect on normal riding.' },
     ].forEach((field) => createField(motor, draft.p1, field));
     [
-        { key: 'full_capacity_range', label: 'Cadence exponent', min: 0, max: 255, step: 1 },
-        { key: 'throttle_start_voltage', label: 'Throttle start voltage', unit: 'V', min: 0, max: 4.2, step: 0.1 },
-        { key: 'throttle_max_voltage', label: 'Throttle maximum voltage', unit: 'V', min: 0, max: 4.2, step: 0.1 },
+        { key: 'full_capacity_range', label: 'Cadence exponent', min: 0, max: 255, step: 1,
+            help: 'Only used by the old Legacy cadence-based pedal-assist calculation, which is compiled in but not reached — the active ride-core assist path is the only one used (FW-030), and Walk Assist uses its own separate motor-speed controller. Editing this has no effect on normal riding.' },
+        { key: 'throttle_start_voltage', label: 'Throttle start voltage', unit: 'V', min: 0, max: 4.2, step: 0.1,
+            help: 'Throttle ADC voltage that reads as "no throttle input". Below this, the throttle contributes nothing — the natural off-point for a disconnected or idle throttle.' },
+        { key: 'throttle_max_voltage', label: 'Throttle maximum voltage', unit: 'V', min: 0, max: 4.2, step: 0.1,
+            help: 'Throttle ADC voltage that reads as "full throttle". Between Start and here, throttle current ramps linearly up to the level\'s current limit.' },
         {
             key: 'start_current', label: 'Legacy Extended Boost duration', unit: 'ms', min: 0, max: 10200, step: 40,
             fromNative: (value) => value * 40, toNative: (value) => Math.round(value / 40),
+            help: 'Only used by the old Legacy pedal-assist path (see Cadence exponent above) — not reached by the active ride-core assist path or Walk Assist. Editing this has no effect on normal riding.',
         },
-        { key: 'current_loading_time', label: 'PAS timeout', unit: 's', min: 0.1, max: 25.5, step: 0.1 },
-        { key: 'current_shedding_time', label: 'Legacy ramp-end control', min: 0.1, max: 25.5, step: 0.1 },
+        { key: 'current_loading_time', label: 'PAS timeout', unit: 's', min: 0.1, max: 25.5, step: 0.1,
+            help: 'How long the pedal sensor can go without a torque/rotation signal before cadence is forced to zero and the reverse-pedalling latch clears. Shared by both the active ride-core assist path and the Legacy path — not Legacy-only despite living among other "Legacy" fields here. Very short values can falsely read as "stopped pedalling" during the normal dead-spots between pedal strokes.' },
+        { key: 'current_shedding_time', label: 'Legacy ramp-end control', min: 0.1, max: 25.5, step: 0.1,
+            help: 'Stored but not read anywhere in the current firmware — dead. Editing this has no effect.' },
     ].forEach((field) => createField(ride, draft.p1, field));
 }
 
@@ -492,7 +613,7 @@ function legacyTorqueThresholdControl(entry, levelIndex) {
     if (isNumber(kg) && kg > LEGACY_TORQUE_LINEAR_MAX_KG) {
         const warning = document.createElement('small');
         warning.className = 'form-hint text-amber-600';
-        warning.textContent = `Read ${kg.toFixed(1)} kg; Legacy linear map ends at ${LEGACY_TORQUE_LINEAR_MAX_KG.toFixed(1)} kg. Editing or applying will clamp this value.`;
+        warning.textContent = `Read ${kg.toFixed(1)} kg; Legacy linear map ends at ${LEGACY_TORQUE_LINEAR_MAX_KG.toFixed(1)} kg. Editing or writing will clamp this value.`;
         wrapper.appendChild(warning);
     }
     return wrapper;
@@ -607,10 +728,10 @@ function renderLegacyStatus() {
     body.innerHTML = '';
     const draft = ensureDraft();
     const rows = [
-        ['0x6010', 'TQ filter and lower thresholds', '5 assist levels', sourceLabel(['p0'])],
-        ['0x6011', 'Limits, Walk, PAS and Legacy values', `${draft.p1.system_voltage} V / ${draft.p1.current_limit} A`, sourceLabel(['p1'])],
-        ['0x6012', 'assist_profile[5][6] and Extended Boost storage', '30 profile values', sourceLabel(['p2'])],
-        ['0x62D9', 'TS coefficient', draft.startup_angle, sourceLabel(['startup'])],
+        ['0x6010', 'TQ filter and lower thresholds', '5 assist levels', sourceLabel(['p0']).text],
+        ['0x6011', 'Limits, Walk, PAS and Legacy values', `${draft.p1.system_voltage} V / ${draft.p1.current_limit} A`, sourceLabel(['p1']).text],
+        ['0x6012', 'assist_profile[5][6] and Extended Boost storage', '30 profile values', sourceLabel(['p2']).text],
+        ['0x62D9', 'TS coefficient', draft.startup_angle, sourceLabel(['startup']).text],
     ];
     rows.forEach((values) => {
         const row = body.insertRow();
@@ -631,17 +752,17 @@ function renderCompatibilityUI() {
     updateSourceLabels();
 }
 
-async function readBlock(command, reset, predicate, key) {
+async function readBlock(command, reset, predicate, key, timeoutMs = 1800) {
     reset();
     socket.send(command);
-    const received = await waitFor(predicate, 1800, 50);
+    const received = await waitFor(predicate, timeoutMs, 50);
     if (!received) addLog('WARN', `Timeout while reading eVistDrive compatibility ${key}.`);
     return received;
 }
 
 export async function syncAllCompatibilityData() {
     if (!socketReady()) return;
-    addLog('REQ', 'Syncing eVistDrive compatibility Controller/Assist blocks...');
+    addLog('REQ', 'Reading eVistDrive compatibility Controller/Assist blocks...');
     state.ebicsCompatibilityReceived = {};
     await readBlock('READ:2:96:7', () => { state.controllerErrors = null; }, () => Array.isArray(state.controllerErrors), 'errors');
     await readBlock('READ:2:96:16', () => { state.lastControllerP0 = null; }, () => state.lastControllerP0 !== null, 'P0');
@@ -649,6 +770,42 @@ export async function syncAllCompatibilityData() {
     await readBlock('READ:2:96:18', () => { state.lastControllerP2 = null; }, () => state.lastControllerP2 !== null, 'P2');
     await readBlock('READ:2:50:3', () => { state.controllerSpeedParams = null; }, () => state.controllerSpeedParams !== null, 'speed');
     await readBlock('READ_STARTUP_ANGLE', () => { state.lastStartupAngle = null; }, () => state.lastStartupAngle !== null, 'startup angle');
+    renderCompatibilityUI();
+}
+
+async function syncWalkData() {
+    if (!socketReady()) return;
+    addLog('REQ', 'Reading eVistDrive Walk bank settings...');
+    setWalkStatus('Reading Walk settings from profile banks...');
+    state.ebicsBankReadError = '';
+    state.ebicsReceivedBanks = {};
+    state.banksSynced = false;
+    if (state.lastBanks) {
+        delete state.lastBanks[0];
+        delete state.lastBanks[1];
+    }
+    renderCompatibilityUI();
+
+    // Needed only for migration from very old bank blobs that did not store Walk current/RPM.
+    await readBlock('READ:2:96:17', () => {
+        state.lastControllerP1 = null;
+        state.controllerParams1 = null;
+    }, () => state.lastControllerP1 !== null, 'P1 for Walk migration');
+
+    const bank0Read = await readBlock('READ_BANK:0', () => {
+        state.ebicsReceivedBanks[0] = false;
+    }, () => state.ebicsReceivedBanks?.[0] === true, 'bank 1', 3000);
+    const bank1Read = await readBlock('READ_BANK:1', () => {
+        state.ebicsReceivedBanks[1] = false;
+    }, () => state.ebicsReceivedBanks?.[1] === true, 'bank 2', 3000);
+
+    state.banksSynced = !!(state.ebicsReceivedBanks?.[0] && state.ebicsReceivedBanks?.[1]);
+    if (!state.banksSynced) {
+        const missing = [];
+        if (!bank0Read) missing.push('bank 1');
+        if (!bank1Read) missing.push('bank 2');
+        state.ebicsBankReadError = `${missing.join(', ')} did not answer`;
+    }
     renderCompatibilityUI();
 }
 
@@ -685,7 +842,6 @@ const LIMIT_P1_KEYS = [
     'undervoltage_under_load', 'battery_capacity', 'limp_mode_soc_limit',
     'limp_mode_soc_limit_stage2', 'coaster_brake', 'speedmeter_magnets_number',
 ];
-const WALK_P1_KEYS = ['speed_limit_enabled', 'walk_assist_speed'];
 const SYSTEM_P1_KEYS = [
     'motor_type', 'motor_pole_pair_number', 'speedmeter_magnets_number',
     'motor_max_rotor_rpm', 'temperature_sensor_type', 'full_capacity_range',
@@ -694,8 +850,8 @@ const SYSTEM_P1_KEYS = [
 ];
 
 function applyLimits() {
-    if (!requireRead(['p1', 'speed'], 'apply limits and speed')) return;
-    if (!confirm('Apply eVistDrive electrical, battery, legal and speed settings to the controller?')) return;
+    if (!requireRead(['p1', 'speed'], 'write limits and speed')) return;
+    if (!confirm('Write eVistDrive electrical, battery, legal and speed settings to controller RAM?')) return;
     const draft = ensureDraft();
     socket.send(`WRITE_LONG_P1:${JSON.stringify(p1Subset(LIMIT_P1_KEYS))}`);
     socket.send(`WRITE_LONG_SPEED:${JSON.stringify(draft.speed)}`);
@@ -703,27 +859,40 @@ function applyLimits() {
 }
 
 function applyWalk() {
-    if (!requireRead(['p1'], 'apply Walk settings')) return;
-    if (!confirm('Apply eVistDrive Legacy Walk current and target speed?')) return;
-    socket.send(`WRITE_LONG_P1:${JSON.stringify(p1Subset(WALK_P1_KEYS))}`);
-    addLog('SAVE_REQ', 'eVistDrive Walk settings');
+    const readIndexes = [0, 1].filter((index) => state.ebicsReceivedBanks?.[index]);
+    if (!readIndexes.length) {
+        addLog('ERR', 'Read the profile banks before writing Walk settings.');
+        return;
+    }
+    if (!confirm(`Write Walk Assist settings for ${readIndexes.map((i) => `bank ${i + 1}`).join(' and ')} to controller RAM?`)) return;
+    readIndexes.forEach((index) => {
+        socket.send(`WRITE_BANK:${JSON.stringify(state.lastBanks[index])}`);
+    });
+    addLog('SAVE_REQ', `Walk settings -> ${readIndexes.map((i) => `bank ${i + 1}`).join(', ')} (RAM; use Save Flash to keep them)`);
+}
+
+function saveWalkCutoff() {
+    if (!requireRead(['banks'], 'save Walk settings')) return;
+    if (!confirm('Persist Walk Assist settings for both banks, plus tuning, to flash? Written at full standstill.')) return;
+    socket.send('SAVE_BANKS');
+    addLog('SAVE_REQ', 'Persist both banks + tuning incl. Walk settings (flash write deferred to standstill)');
 }
 
 function applySystem() {
-    if (!requireRead(['p1'], 'apply system settings')) return;
-    if (!confirm('Apply eVistDrive motor, PAS, throttle and Legacy timing settings?')) return;
+    if (!requireRead(['p1'], 'write system settings')) return;
+    if (!confirm('Write eVistDrive motor, PAS, throttle and Legacy timing settings to controller RAM?')) return;
     socket.send(`WRITE_LONG_P1:${JSON.stringify(p1Subset(SYSTEM_P1_KEYS))}`);
     addLog('SAVE_REQ', 'eVistDrive system settings');
 }
 
 async function applyLegacy() {
-    if (!requireRead(['p0', 'p1', 'p2', 'startup'], 'apply Legacy blocks')) return;
+    if (!requireRead(['p0', 'p1', 'p2', 'startup'], 'write Legacy blocks')) return;
     const draft = ensureDraft();
     const { p0, clamped } = legacyP0ForWrite();
     const clampNotice = clamped
         ? `\n\nLower torque threshold values above ${LEGACY_TORQUE_LINEAR_MAX_KG.toFixed(1)} kg will be clamped before writing.`
         : '';
-    if (!confirm(`Apply eVistDrive Legacy P0, assist-level P1, P2 and TS coefficient?${clampNotice}`)) return;
+    if (!confirm(`Write eVistDrive Legacy P0, assist-level P1, P2 and TS coefficient to controller RAM?${clampNotice}`)) return;
     socket.send(`WRITE_LONG_P0:${JSON.stringify(p0)}`);
     await delay(500);
     socket.send(`WRITE_LONG_P1:${JSON.stringify({
@@ -788,8 +957,11 @@ function repairChecksum(block) {
 }
 
 function bindButtons() {
-    ['ebicsLimitsSyncButton', 'ebicsWalkSyncButton', 'ebicsLegacySyncButton', 'ebicsSystemSyncButton']
+    ['ebicsLimitsSyncButton', 'ebicsLegacySyncButton', 'ebicsSystemSyncButton']
         .forEach((id) => el(id)?.addEventListener('click', syncAllCompatibilityData));
+    // Walk is bank-backed, so keep its reads sequential. Overlapping reads can leave the form blank.
+    el('ebicsWalkSyncButton')?.addEventListener('click', syncWalkData);
+    el('ebicsWalkCutoffSaveButton')?.addEventListener('click', saveWalkCutoff);
     el('ebicsLimitsApplyButton')?.addEventListener('click', applyLimits);
     el('ebicsWalkApplyButton')?.addEventListener('click', applyWalk);
     el('ebicsSystemApplyButton')?.addEventListener('click', applySystem);
@@ -807,8 +979,10 @@ export function updateEbicsCompatibilityUI(eventType = '') {
     const relevant = [
         'controller_params_0', 'controller_params_1', 'controller_params_2',
         'controller_speed_params', 'controller_startup_angle', 'controller_errors',
+        'controller_bank', // FW-044: unlocks/refreshes the Walk cut-off once banks are read
     ];
     if (!eventType || relevant.includes(eventType)) renderCompatibilityUI();
 }
 
 bindButtons();
+renderCompatibilityUI();

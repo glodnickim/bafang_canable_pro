@@ -20,11 +20,10 @@ import { populateHexEditor, handleCustomRaw } from './tab-debug.js';
 import { updateFwUpdateProgress, addFwUpdateLog } from './tab-firmware.js';
 import { addSnifferLog } from './tab-sniffer.js';
 import { updateRideChart } from './tab-ride-logger.js';
-import { updateBanksUI, updateTuningUI } from './tab-banks.js';
 import {
     startControllerDetection, resetControllerDetection, confirmEbicsController,
 } from './ebics-detection.js';
-import { updateEbicsUI, updateTorqueCalUI, updateEngineUI, updateDiagUI } from './tab-ebics.js';
+import { updateEbicsUI, updateTorqueCalUI, updateEngineUI, updateDiagUI, updateDiagTuning } from './tab-ebics.js';
 
 socket.onopen = () => {
     addLog('STATUS', 'WebSocket connection opened.');
@@ -145,15 +144,29 @@ socket.onmessage = (event) => {
                 case 'controller_bank': //FW-006: profile bank blob
                     if (parsedEvent.data && !parsedEvent.data.parseError) {
                         confirmEbicsController('Valid eVistDrive Ride Core bank signature, schema version and CRC received.');
+                        if ((parsedEvent.data.bank_schema_version ?? 1) < 2 && state.controllerParams1) {
+                            const current = state.controllerParams1.speed_limit_enabled;
+                            const rpm = state.controllerParams1.walk_assist_speed;
+                            parsedEvent.data.wa_current_pct =
+                                Number.isFinite(current) && current >= 1 && current <= 100 ? current : 30;
+                            parsedEvent.data.wa_target_rpm =
+                                Number.isFinite(rpm) && rpm >= 20 && rpm <= 60 ? rpm : 50;
+                        }
+                        if ((parsedEvent.data.bank_schema_version ?? 1) < 3) {
+                            parsedEvent.data.wa_latch_after_release = false;
+                            parsedEvent.data.wa_latch_timeout_s = 30;
+                        }
                         state.lastBanks = state.lastBanks || {};
                         state.lastBanks[parsedEvent.data.bank_index] =
                             JSON.parse(JSON.stringify(parsedEvent.data));
                         state.ebicsReceivedBanks = state.ebicsReceivedBanks || {};
                         state.ebicsReceivedBanks[parsedEvent.data.bank_index] = true;
-                        state.banksSynced = true;
-                        updateBanksUI();
+                        state.ebicsBankReadError = '';
+                        state.banksSynced = !!(state.ebicsReceivedBanks[0] && state.ebicsReceivedBanks[1]);
                         addLog('DATA', `Bank ${parsedEvent.data.bank_index + 1} received`);
                     } else {
+                        state.ebicsBankReadError = parsedEvent.data?.error || 'unknown bank read error';
+                        state.banksSynced = !!(state.ebicsReceivedBanks?.[0] && state.ebicsReceivedBanks?.[1]);
                         addLog('ERR', `Bank read failed: ${parsedEvent.data?.error}`);
                     }
                     break;
@@ -167,7 +180,7 @@ socket.onmessage = (event) => {
                     if (parsedEvent.data && !parsedEvent.data.parseError) {
                         state.lastTuning = JSON.parse(JSON.stringify(parsedEvent.data));
                         state.tuningSynced = true;
-                        updateTuningUI();
+                        updateDiagTuning(parsedEvent.data); // FW-017: show stored fall ramps in the diag panel
                         addLog('DATA', 'Tuning received');
                     } else {
                         addLog('ERR', `Tuning read failed: ${parsedEvent.data?.error}`);
@@ -201,6 +214,10 @@ socket.onmessage = (event) => {
                     break;
                 case 'engine_set_result':
                     addLog('ACK', `Engine switch request: ${parsedEvent.data?.success ? 'OK (applies at standstill)' : 'FAILED'}${parsedEvent.data?.timedOut ? ' (timeout)' : ''}`);
+                    setTimeout(() => { if (socket.readyState === WebSocket.OPEN) socket.send('READ_SYSTEM'); }, 400);
+                    break;
+                case 'soc_full_set_result': //FW-018: full-charge pack voltage saved (persists at standstill)
+                    addLog('ACK', `Full-charge voltage: ${parsedEvent.data?.success ? 'OK (saved at standstill)' : 'FAILED'}${parsedEvent.data?.timedOut ? ' (timeout)' : ''}`);
                     setTimeout(() => { if (socket.readyState === WebSocket.OPEN) socket.send('READ_SYSTEM'); }, 400);
                     break;
                 case 'controller_diag': //FW-015: TSDZ ride-core diagnostics

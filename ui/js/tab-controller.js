@@ -122,8 +122,9 @@ export function updateControllerUI() {
     safeSetText(controllerElements.p3CircumferenceValue, state.controllerSpeedParams?.circumference);
     safeSetInput(controllerElements.p3CircumferenceInput, state.controllerSpeedParams, 'circumference');
 
-    safeSetText(controllerElements.p1WalkAssistSpeedValue, state.controllerParams1?.walk_assist_speed, (val) => getNullableNumber(val, 2));
-    safeSetFormattedInput(controllerElements.p1WalkAssistSpeedInput, state.controllerParams1, 'walk_assist_speed', (val) => val?.toFixed(1));
+    // FW-043: this field is now the Walk Assist target chainring RPM (whole number), not km/h.
+    safeSetText(controllerElements.p1WalkAssistSpeedValue, state.controllerParams1?.walk_assist_speed, (val) => getNullableNumber(val, 0));
+    safeSetFormattedInput(controllerElements.p1WalkAssistSpeedInput, state.controllerParams1, 'walk_assist_speed', (val) => val?.toFixed(0));
 
     if (controllerElements.speedPlaceholder) controllerElements.speedPlaceholder.style.display = (state.controllerParams1 && state.controllerSpeedParams) ? 'none' : 'block';
 }

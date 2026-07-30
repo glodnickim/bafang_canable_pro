@@ -21,13 +21,14 @@
                     title="Waiting for CAN connection.">Controller: unknown</span>
             </div>
             <h1 class="text-xl font-bold text-olive tracking-tight">
-                <span style="color: black;">Bafang</span> / <span style="color: blue;">EBiCS</span> CANable Pro
+                <span style="color: black;">Bafang</span> / <span style="color: blue;">EBiCS</span> / <span style="color: #556B2F;">eVistDrive</span> CANable Pro
 
             </h1>
             <label class="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer select-none"
-                title="Chowa stare karty fabryczne Bafang: Controller, Display, Sensor, Battery, Assist (Full/Ltd), Banks">
-                <input type="checkbox" id="hideFactoryTabsCheckbox" class="w-4 h-4 accent-olive">
-                Ukryj karty fabryczne
+                title="Leaves only the eVistDrive tabs on screen and hides the legacy Bafang factory ones: Controller, Display, Sensor, Battery, Assist (Full/Ltd), Banks. Untick to bring them back.">
+                <!-- checked here too so the box does not flicker before tab-visibility.js runs -->
+                <input type="checkbox" id="hideFactoryTabsCheckbox" class="w-4 h-4 accent-olive" checked>
+                Show only eVistDrive tabs
             </label>
             <button id="connectCanButton" disabled class="btn btn-primary">Connect</button>
         </div>
@@ -53,14 +54,13 @@
             <button class="tab-button" data-tab="sensor" data-factory-tab="true">Sensor</button>
             <button class="tab-button" data-tab="battery" data-factory-tab="true">Battery</button>
             <button class="tab-button" data-tab="gears" data-factory-tab="true">Assist (Full)</button>
-            <button class="tab-button" data-tab="banks" data-factory-tab="true">Banks</button>
             <button class="tab-button ebics-tab-button" data-tab="ebics-live" data-ebics-only="true" style="display:none">eVistDrive Live</button>
             <button class="tab-button ebics-tab-button" data-tab="ebics-profiles" data-ebics-only="true" style="display:none">eVistDrive Profiles</button>
             <button class="tab-button ebics-tab-button" data-tab="ebics-torque" data-ebics-only="true" style="display:none">eVistDrive Torque</button>
             <button class="tab-button ebics-tab-button" data-tab="ebics-dynamics" data-ebics-only="true" style="display:none">eVistDrive Dynamics</button>
             <button class="tab-button ebics-tab-button" data-tab="ebics-limits" data-ebics-only="true" style="display:none">eVistDrive Limits</button>
             <button class="tab-button ebics-tab-button" data-tab="ebics-walk" data-ebics-only="true" style="display:none">eVistDrive Walk</button>
-            <button class="tab-button ebics-tab-button" data-tab="ebics-legacy" data-ebics-only="true" style="display:none">eVistDrive Legacy</button>
+<!-- FW-030: "eVistDrive Legacy" tab removed (single TSDZ engine) -->
             <button class="tab-button ebics-tab-button" data-tab="ebics-system" data-ebics-only="true" style="display:none">eVistDrive System</button>
             <button class="tab-button" data-tab="gearsM820" data-factory-tab="true">Assist (Ltd)</button>
             <button class="tab-button" data-tab="info">Info</button>
@@ -482,7 +482,7 @@
                                 <td>
                                     <span id="ctrlP1WalkAssistSpeedValue" class="value-display">N/A</span> Km/H
                                     <input type="number" id="ctrlP1WalkAssistSpeedInput" min="0" max="6" step="0.5" placeholder="New value (Km/H)" class="form-input mt-1 w-48">
-                                    <small class="form-hint">Typically 3-6 Km/H. Max ~6 Km/H.</small>
+                                    <small class="form-hint" style="color:#b45309">eVistDrive firmware reads this field as <b>chainring RPM</b>, not km/h (Walk Assist holds motor speed; the gear sets bike speed). Set it on the eVistDrive Walk tab instead — a value entered here as "6" means 6 RPM.</small>
                                 </td>
                             </tr>
                         </tbody>
@@ -843,51 +843,11 @@
                 <div id="startRampContainer" style="display:none"><div id="startRampChart"></div></div>
             </div>
 
-            <!-- #tab-banks ================================================= -->
-            <div class="tab-content" id="tab-banks">
-                <div class="flex items-center justify-between mb-5 flex-wrap gap-2">
-                    <h2 class="section-title text-lg">Profile Banks (eVistDrive Ride Core)</h2>
-                    <div class="flex gap-2 flex-wrap">
-                        <button id="banksReadButton" class="btn btn-blue">Read Banks</button>
-                        <button id="banksApplyButton" class="btn btn-orange">Apply (RAM)</button>
-                        <button id="banksSaveButton" class="btn btn-red">Save (Flash)</button>
-                    </div>
-                </div>
-                <p class="text-sm mb-2">Active bank on controller: <b id="activeBankLabel">N/A</b>
-                   &nbsp;|&nbsp; Handlebar gesture: at BOOST bounce BOOST&harr;SPORT+ twice within ~2.5 s
-                   (HMI speed briefly shows 10 = bank 1, 20 = bank 2). Requires firmware 0.0163+.</p>
-                <div id="banksPlaceholder" class="placeholder-text">Bank data not yet received. Click Read Banks.</div>
-                <div id="banksContainer" style="display:none">
-                    <div id="bankSection0" class="mb-6">
-                        <h3 class="section-subtitle">Bank 1
-                            &nbsp; Mode: <select id="bankMode0" class="border rounded px-1"></select>
-                        </h3>
-                        <div class="overflow-x-auto mb-1"><table class="description-table w-full border-collapse text-sm">
-                            <thead id="bankTableHead0"></thead><tbody id="bankTableBody0"></tbody>
-                        </table></div>
-                    </div>
-                    <div id="bankSection1" class="mb-6">
-                        <h3 class="section-subtitle">Bank 2
-                            &nbsp; Mode: <select id="bankMode1" class="border rounded px-1"></select>
-                        </h3>
-                        <div class="overflow-x-auto mb-1"><table class="description-table w-full border-collapse text-sm">
-                            <thead id="bankTableHead1"></thead><tbody id="bankTableBody1"></tbody>
-                        </table></div>
-                    </div>
-                </div>
-
-                <h3 class="section-subtitle mt-6">Global Ride-Feel Tuning</h3>
-                <p class="text-sm mb-2">Motor acceleration/deceleration ramps (shared by both riding engines) and the
-                   ride-core startup boost cadence decay. Requires firmware 0.0164+.
-                   <button id="tuningReadButton" class="btn btn-blue ml-2">Read Tuning</button>
-                   <button id="tuningApplyButton" class="btn btn-orange">Apply (RAM)</button>
-                   <button id="tuningSaveButton" class="btn btn-red">Save (Flash)</button>
-                </p>
-                <div id="tuningPlaceholder" class="placeholder-text">Tuning data not yet received. Click Read Tuning.</div>
-                <div id="tuningContainer" style="display:none" class="overflow-x-auto mb-1">
-                    <table class="description-table w-full border-collapse text-sm"><tbody id="tuningTableBody"></tbody></table>
-                </div>
-            </div>
+            <!-- FW-055: #tab-banks removed — Profile Banks + Global Ride-Feel Tuning are fully
+                 covered by #tab-ebics-profiles (bank/level editing) and the Dynamics section of
+                 #tab-ebics-live's sibling tabs (tuning), which already had their own independent
+                 Read/Write(RAM)/Save(Flash) controls. Active-bank display lives in eVistDrive Live
+                 (ebicsLiveBank below). See documentation/FW-055_REMOVE_BANKS_TAB.md. -->
 
             <!-- #tab-ebics-live =========================================== -->
             <div class="tab-content ebics-tab" id="tab-ebics-live">
@@ -932,30 +892,59 @@
                     </div>
                     <div class="flex gap-2 flex-wrap">
                         <button id="ebicsProfilesReadButton" class="btn btn-blue">Read banks</button>
-                        <button id="ebicsProfilesApplyButton" class="btn btn-orange">Apply selected bank (RAM)</button>
+                        <button id="ebicsProfilesApplyButton" class="btn btn-orange">Write selected bank (RAM)</button>
                         <button id="ebicsProfilesSaveButton" class="btn btn-red">Save all (Flash)</button>
                     </div>
                 </div>
                 <div class="ebics-toolbar">
                     <label>Bank <select id="ebicsProfileBankSelect" class="form-select"><option value="0">Bank 1</option><option value="1">Bank 2</option></select></label>
                     <label>Assist level <select id="ebicsProfileLevelSelect" class="form-select"></select></label>
-                    <label>Ride engine <select id="ebicsProfileModeSelect" class="form-select"></select></label>
+                    <label>Profile mode <select id="ebicsProfileModeSelect" class="form-select"></select></label>
                     <span id="ebicsProfilesSource" class="ebics-source-note">Not read from controller</span>
                 </div>
+                <!-- FW-057: cadence compensation is a property of the BANK, not of a level -
+                     it applies to every level and every pedalling mode in this bank, so it gets
+                     its own strip rather than hiding among the per-level fields. -->
+                <section class="ebics-feature-toggle mt-4" id="ebicsCadenceCompRow">
+                    <label class="ebics-feature-switch">
+                        <input type="checkbox" id="ebicsCadenceCompEnabled">
+                        <span class="ebics-feature-slider"></span>
+                    </label>
+                    <div class="ebics-feature-body">
+                        <div class="ebics-feature-title">
+                            Cadence compensation
+                            <span id="ebicsCadenceCompBank" class="ebics-feature-scope">Bank 1</span>
+                            <span id="ebicsCadenceCompState" class="ebics-feature-state">OFF</span>
+                        </div>
+                        <div id="ebicsCadenceCompNote" class="ebics-feature-note"></div>
+                    </div>
+                </section>
                 <div class="ebics-two-column mt-4">
-                    <section class="ebics-card">
+                    <section id="ebicsProfileModeCard" class="ebics-card ebics-level-tinted">
                         <div class="ebics-card-title">Engine-specific settings</div>
                         <div id="ebicsProfileModeFields" class="ebics-field-grid"></div>
                     </section>
-                    <section class="ebics-card">
+                    <section id="ebicsProfileSharedCard" class="ebics-card ebics-level-tinted">
                         <div class="ebics-card-title">Shared safety and ride settings</div>
                         <div id="ebicsProfileSharedFields" class="ebics-field-grid"></div>
                     </section>
                 </div>
-                <div class="ebics-chart-card mt-5">
+                <div id="ebicsProfileChartCard" class="ebics-chart-card ebics-level-tinted mt-5">
                     <div class="ebics-card-title">Selected engine preview</div>
-                    <div id="ebicsProfileChart" class="ebics-chart ebics-profile-chart"></div>
-                    <small class="form-hint">Preview is calculated before controller runtime safety, thermal and current limiters.</small>
+                    <!-- FW-056: support ratio and final motor power are different things;
+                         a curve that looks gentle in one can be steep in the other, so both
+                         are drawn side by side instead of hidden behind a toggle. -->
+                    <div class="ebics-two-column">
+                        <div>
+                            <div class="ebics-card-title">Support ratio (%)</div>
+                            <div id="ebicsProfileChartSupport" class="ebics-chart ebics-profile-chart"></div>
+                        </div>
+                        <div>
+                            <div class="ebics-card-title">Requested motor power (W)</div>
+                            <div id="ebicsProfileChart" class="ebics-chart ebics-profile-chart"></div>
+                        </div>
+                    </div>
+                    <small class="form-hint">Shows all five levels from the selected bank; the edited level is drawn thicker. Power is capped by nominal battery voltage × configured battery current, and by per-level Maximum motor power when it is set. The support view shows the raw ratio before those caps.</small>
                 </div>
             </div>
 
@@ -986,7 +975,13 @@
                 </div>
                 <section class="ebics-card mt-4">
                     <div class="ebics-card-title">Load calibration (optional)</div>
-                    <p class="form-hint">Hang a known weight (10–30 kg recommended) on the pedal with the crank horizontal. The firmware measures the signal and computes the full scale. Skipping this keeps the default scale — the bike always rides.</p>
+                    <p class="form-hint">Optional — the bike always rides fine on the default scale (740 mV zero, 1620 mV = 60 kg) even if you never do this. Calibrating only makes the "kg" readings and level thresholds match your actual pedal/sensor more precisely.</p>
+                    <ol class="form-hint" style="padding-left:1.2em; margin:6px 0 0;">
+                        <li><b>Zero point:</b> take all load off the pedal (crank position doesn't matter), then press <b>"1. Start (no load)"</b>. This captures the sensor's resting signal as zero.</li>
+                        <li><b>Full scale:</b> enter the weight you're about to hang in <b>Reference weight (kg)</b> (5-30 kg), hang exactly that known weight on the pedal with the crank horizontal, then press <b>"2. Capture load"</b>. This measures the signal at that load and computes the full-scale point.</li>
+                        <li><b>Save:</b> remove the weight, make sure the bike is at a complete standstill, then press <b>"3. Save"</b> to commit the new zero/full-scale pair to the controller. Saving while moving is rejected.</li>
+                        <li><b>Cancel</b> aborts a Start/Capture in progress without changing anything already saved. <b>Restore default</b> discards any saved user calibration and goes back to the factory estimated scale — use it if a calibration attempt went wrong.</li>
+                    </ol>
                     <div class="ebics-status-list mt-2">
                         <div><span>State</span><b id="ebicsCalState">Idle</b></div>
                         <div><span>Last error</span><b id="ebicsCalError">None</b></div>
@@ -1001,6 +996,33 @@
                         <button id="ebicsCalRestore" class="btn">Restore default</button>
                     </div>
                 </section>
+
+                <!-- FW-061: the automatic zero re-calibration that runs on long coasts.
+                     Without this block a zero that walks looks exactly like a zero that
+                     is never corrected at all. Counters are cumulative since power-on. -->
+                <section class="ebics-card mt-4">
+                    <div class="ebics-card-title">Automatic zero re-calibration (coast)</div>
+                    <p class="form-hint">The controller re-checks the sensor's resting point during long coasts: at least 5 s without pedalling and no motor current, then a 0.5 s sampling window that is frozen and must be quiet. While riding, a correction is allowed at most once every 60 s and never exceeds 5 mV. Read the torque telemetry to refresh.</p>
+                    <div class="ebics-status-list mt-2">
+                        <div><span>Last outcome</span><b id="coastLastResult">—</b></div>
+                        <div><span>Raw / effective zero</span><b><span id="coastRaw">—</span> / <span id="coastZero">—</span> mV</b></div>
+                        <div><span>Frozen candidate</span><b><span id="coastCandidate">—</span> mV</b></div>
+                        <div><span>Window spread</span><b id="coastSpread">—</b></div>
+                        <div><span>Last step</span><b id="coastLastStep">—</b></div>
+                        <div><span>Total zero shift</span><b id="coastOffset">—</b></div>
+                        <div><span>Lockout</span><b id="coastLockout">—</b></div>
+                        <div><span>State</span><b id="coastState">—</b></div>
+                        <div><span>Windows completed / started</span><b id="coastWindows">—</b></div>
+                        <div><span>Corrections applied</span><b id="coastApplied">—</b></div>
+                        <div><span>Rejected: too short</span><b id="coastRejTooShort">—</b></div>
+                        <div><span>Rejected: unstable</span><b id="coastRejUnstable">—</b></div>
+                        <div><span>Rejected: lockout</span><b id="coastRejLockout">—</b></div>
+                        <div><span>Rejected: out of range</span><b id="coastRejRange">—</b></div>
+                        <div><span>Rejected: implausible raw</span><b id="coastRejImplausible">—</b></div>
+                        <div><span>Evaluated, no change</span><b id="coastNoChange">—</b></div>
+                    </div>
+                    <p class="form-hint mt-2" id="coastResultHint"></p>
+                </section>
             </div>
 
             <!-- #tab-ebics-dynamics ======================================= -->
@@ -1009,7 +1031,7 @@
                     <div><div class="ebics-kicker">eVistDrive Ride Core</div><h2 class="section-title text-lg">Dynamics</h2></div>
                     <div class="flex gap-2 flex-wrap">
                         <button id="ebicsDynamicsReadButton" class="btn btn-blue">Read tuning</button>
-                        <button id="ebicsDynamicsApplyButton" class="btn btn-orange">Apply (RAM)</button>
+                        <button id="ebicsDynamicsApplyButton" class="btn btn-orange">Write (RAM)</button>
                         <button id="ebicsDynamicsSaveButton" class="btn btn-red">Save (Flash)</button>
                     </div>
                 </div>
@@ -1033,6 +1055,16 @@
                     <div id="ebicsDynamicsBoostFields" class="ebics-field-grid ebics-dynamics-field-grid"></div>
                     <div id="ebicsDynamicsBoostChart" class="ebics-chart"></div>
                 </div>
+                <div class="ebics-chart-card mt-5">
+                    <div class="ebics-card-title">Ride latch — anti-dropout between pedal strokes</div>
+                    <p class="text-sm mb-3">After a legal start (forward pedalling above the level's "Minimum pedal load"), assist stays latched so very light pedalling and the crank dead-spots don't cut power. Braking, backpedalling, a fault, or stopping the cranks still cut instantly.</p>
+                    <div id="ebicsDynamicsLatchFields" class="ebics-field-grid ebics-dynamics-field-grid"></div>
+                </div>
+                <div class="ebics-chart-card mt-5">
+                    <div class="ebics-card-title">RUN torque smoothing — anti-pulse "left leg / right leg"</div>
+                    <p class="text-sm mb-3">A slower estimate of pedal effort used to compute power/eMTB while riding, so the motor follows your average effort instead of each individual leg push. Start, boost and the safety cut stay on the fast signal. 0 ms = off (old behaviour). Higher = smoother but more rubbery.</p>
+                    <div id="ebicsDynamicsTorqueRunFields" class="ebics-field-grid ebics-dynamics-field-grid"></div>
+                </div>
             </div>
 
             <!-- #tab-ebics-limits ========================================= -->
@@ -1040,8 +1072,8 @@
                 <div class="ebics-heading">
                     <div><div class="ebics-kicker">eVistDrive Ride Core</div><h2 class="section-title text-lg">Limits</h2></div>
                     <div class="flex gap-2 flex-wrap">
-                        <button id="ebicsLimitsSyncButton" class="btn btn-blue">Sync controller blocks</button>
-                        <button id="ebicsLimitsApplyButton" class="btn btn-orange">Apply limits and speed</button>
+                        <button id="ebicsLimitsSyncButton" class="btn btn-blue">Read</button>
+                        <button id="ebicsLimitsApplyButton" class="btn btn-orange">Write (RAM)</button>
                     </div>
                 </div>
                 <div class="ebics-toolbar">
@@ -1056,8 +1088,7 @@
                     <div class="ebics-metric"><span>Live current</span><b><span id="ebicsLimitLiveCurrent">N/A</span> A</b></div>
                     <div class="ebics-metric"><span>Live electrical power</span><b><span id="ebicsLimitLivePower">N/A</span> W</b></div>
                 </div>
-                <div class="ebics-chart-card mt-5"><div class="ebics-card-title">Live value versus configured ceiling</div><div id="ebicsLimitsChart" class="ebics-chart"></div></div>
-                <div class="ebics-toolbar mt-5"><span id="ebicsCompatibilitySourceLimits" class="ebics-source-note">Preview values — sync before writing</span></div>
+                <div class="ebics-toolbar mt-5"><span id="ebicsCompatibilitySourceLimits" class="ebics-source-note">Preview values — read before writing</span></div>
                 <div class="ebics-two-column mt-4">
                     <section class="ebics-card">
                         <div class="ebics-card-title">Electrical and battery limits (0x6011)</div>
@@ -1069,133 +1100,72 @@
                         <div id="ebicsLimitsSpeedFields" class="ebics-field-grid"></div>
                     </section>
                 </div>
-                <div class="info-message mt-4"><span>These controls replace the EBICS-used electrical, battery and speed fields from Controller Settings. Unused factory bytes remain available only in Debug.</span></div>
+                <section class="ebics-card mt-4">
+                    <div class="ebics-card-title">Full charge voltage — 100% anchor (0x602B)</div>
+                    <p class="form-hint">Pack voltage treated as 100% state of charge. Measure it on the battery right after a full charge and balancing (e.g. ~45.9&nbsp;V for an 11S pack). On the next power-up, if the pack sits at or above this voltage, SOC is anchored to 100% — works even if the charger bypasses the controller shunt. Saves at a full standstill; kept across restarts. Needs eVistDrive firmware with 0x6028 v2.</p>
+                    <div class="ebics-metric-grid mt-2">
+                        <div class="ebics-metric"><span>Current threshold</span><b id="ebicsSocFullActive">N/A</b></div>
+                    </div>
+                    <div class="flex items-center gap-2 mt-3 flex-wrap">
+                        <label>Full-charge pack voltage
+                            <input id="ebicsSocFullInput" type="number" min="20" max="90" step="0.1" class="form-input w-48"> V
+                        </label>
+                        <button id="ebicsSocFullSaveButton" class="btn btn-blue">Save</button>
+                    </div>
+                </section>
+                <div class="info-message mt-4"><span>These controls replace the eVistDrive-used electrical, battery and speed fields from Controller Settings. Unused factory bytes remain available only in Debug.</span></div>
             </div>
 
             <!-- #tab-ebics-walk =========================================== -->
             <div class="tab-content ebics-tab" id="tab-ebics-walk">
                 <div class="ebics-heading">
-                    <div><div class="ebics-kicker">EBICS Ride Core</div><h2 class="section-title text-lg">Walk assist</h2></div>
+                    <div><div class="ebics-kicker">eVistDrive Ride Core</div><h2 class="section-title text-lg">Walk assist</h2></div>
                     <div class="flex gap-2 flex-wrap">
-                        <button id="ebicsWalkSyncButton" class="btn btn-blue">Sync</button>
-                        <button id="ebicsWalkApplyButton" class="btn btn-orange">Apply Walk settings</button>
+                        <button id="ebicsWalkSyncButton" class="btn btn-blue">Read</button>
+                        <button id="ebicsWalkApplyButton" class="btn btn-orange">Write (RAM)</button>
                     </div>
                 </div>
                 <div class="ebics-metric-grid">
-                    <div class="ebics-metric"><span>Walk current (legacy byte)</span><b id="ebicsWalkCurrent">N/A</b></div>
-                    <div class="ebics-metric"><span>Walk speed</span><b><span id="ebicsWalkSpeed">N/A</span> km/h</b></div>
-                    <div class="ebics-metric"><span>Minimum ERPS</span><b>N/A</b></div>
-                    <div class="ebics-metric"><span>Maximum ERPS</span><b>N/A</b></div>
-                    <div class="ebics-metric"><span>Ramp</span><b>N/A</b></div>
+                    <div class="ebics-metric"><span>Walk motor current</span><b><span id="ebicsWalkCurrent">N/A</span> %</b></div>
+                    <div class="ebics-metric"><span>Walk chainring speed</span><b><span id="ebicsWalkSpeed">N/A</span> RPM</b></div>
                 </div>
-                <section class="ebics-card mt-5">
-                    <div class="ebics-card-title">Functional Legacy Walk settings (0x6011)</div>
-                    <div id="ebicsWalkFields" class="ebics-field-grid"></div>
-                    <small id="ebicsCompatibilitySourceWalk" class="form-hint">Preview values — sync before writing</small>
-                </section>
-                <div class="info-message mt-4"><span>Walk current and target speed can now be read and written here. Dedicated ERPS and walk-ramp fields remain pending until firmware exposes their protocol.</span></div>
+                <div id="ebicsWalkStatus" class="placeholder-text">Click Read to load Walk settings from both profile banks.</div>
+                <p class="text-sm mb-3">Both banks are shown at once — no need to pick one first. "Cut-off speed" is the bike speed above which Walk Assist switches off completely: a safety backstop, since Walk Assist holds <b>motor</b> speed, so in a high gear the bike could otherwise be pushed faster than you can walk beside it.</p>
+                <div class="ebics-two-column mt-2">
+                    <section class="ebics-card">
+                        <div class="ebics-card-title">Bank 1 <span id="ebicsWalkBankLabel0" class="form-hint"></span></div>
+                        <div id="ebicsWalkFields0" class="ebics-field-grid"></div>
+                    </section>
+                    <section class="ebics-card">
+                        <div class="ebics-card-title">Bank 2 <span id="ebicsWalkBankLabel1" class="form-hint"></span></div>
+                        <div id="ebicsWalkFields1" class="ebics-field-grid"></div>
+                    </section>
+                </div>
+                <div class="ebics-toolbar mt-4">
+                    <span id="ebicsCompatibilitySourceWalk" class="ebics-source-note">Preview values — read before writing</span>
+                    <button id="ebicsWalkCutoffSaveButton" class="btn btn-red">Save both banks (Flash)</button>
+                </div>
+                <div class="info-message mt-4"><span>Walk Assist holds <b>motor speed</b>, so the target is set as <b>chainring RPM</b> — the gear you select decides how fast the bike walks. "Walk motor current" is the strength ceiling, not a speed. All Walk settings are banked. Timed run is off by default and stops on another button, brake, error, wheel-speed cut-off or timeout.</span></div>
             </div>
 
-            <!-- #tab-ebics-legacy ========================================= -->
-            <div class="tab-content ebics-tab" id="tab-ebics-legacy">
-                <div class="ebics-heading">
-                    <div><div class="ebics-kicker">eVistDrive Ride Core</div><h2 class="section-title text-lg">Legacy compatibility blocks</h2></div>
-                    <div class="flex gap-2 flex-wrap">
-                        <button id="ebicsLegacySyncButton" class="btn btn-blue">Sync P0 / P1 / P2</button>
-                        <button id="ebicsLegacyApplyButton" class="btn btn-orange">Apply Legacy blocks</button>
-                    </div>
-                </div>
-                <div class="ebics-toolbar mb-4">
-                    <span class="ebics-readonly-pill">0x6010 / 0x6011 / 0x6012 / 0x62D9</span>
-                    <span id="ebicsCompatibilitySourceLegacy" class="ebics-source-note">Preview values — sync before writing</span>
-                    <label class="ebics-inline-check"><input id="ebicsLegacyAutoCorrectionCheckbox" type="checkbox" checked> Keep level values ascending</label>
-                </div>
-                <section class="ebics-card mb-5">
-                    <div class="ebics-card-title">Legacy advanced controls</div>
-                    <div id="ebicsLegacyAdvancedFields" class="ebics-field-grid"></div>
-                </section>
-                <h3 class="section-subtitle">Five assist levels</h3>
-                <div class="overflow-x-auto mb-5"><table class="description-table assist-table w-full border-collapse text-sm">
-                    <thead><tr><th>Level</th><th>Motor current (%)</th><th>Speed limit (%)</th><th>Ride mode / TQ filter</th><th>Lower torque threshold (kg)</th></tr></thead>
-                    <tbody id="ebicsLegacyAssistTableBody"></tbody>
-                </table>
-                <small class="form-hint">Legacy lower torque threshold is limited to 31.2 kg because the current firmware map reaches full current at TQ_FULL_SCALE_MV=2000. The 0-60 kg scale remains the raw torque sensor display range.</small></div>
-                <h3 class="section-subtitle">Legacy assist_profile[5][6]</h3>
-                <div class="overflow-x-auto mb-5"><table class="description-table assist-table w-full border-collapse text-sm">
-                    <thead><tr><th>Level</th><th>0–3</th><th>3–6</th><th>6–9</th><th>9–12</th><th>12–15</th><th>15–18 mph</th></tr></thead>
-                    <tbody id="ebicsLegacyProfileTableBody"></tbody>
-                </table></div>
-                <h3 class="section-subtitle">Extended Boost storage</h3>
-                <p class="text-sm mb-2">Values are preserved for compatibility, but Extended Boost is disabled in the current firmware.</p>
-                <div class="overflow-x-auto mb-5"><table class="description-table assist-table w-full border-collapse text-sm">
-                    <thead><tr><th>Level</th><th>Strength (%)</th><th>Duration (raw)</th></tr></thead>
-                    <tbody id="ebicsLegacyBoostTableBody"></tbody>
-                </table></div>
-                <h3 class="section-subtitle">Block status</h3>
-                <div class="overflow-x-auto"><table class="description-table w-full border-collapse text-sm"><thead><tr><th>Block</th><th>eVistDrive field</th><th>Current value</th><th>Status</th></tr></thead><tbody id="ebicsLegacyTableBody"></tbody></table></div>
-            </div>
+            <!-- FW-030: eVistDrive Legacy tab content removed (single TSDZ engine) -->
 
             <!-- #tab-ebics-system ========================================= -->
             <div class="tab-content ebics-tab" id="tab-ebics-system">
                 <div class="ebics-heading">
                     <div><div class="ebics-kicker">eVistDrive Ride Core</div><h2 class="section-title text-lg">System and protocol</h2></div>
                     <div class="flex gap-2 flex-wrap">
-                        <button id="ebicsSystemSyncButton" class="btn btn-blue">Sync all controller settings</button>
-                        <button id="ebicsSystemApplyButton" class="btn btn-orange">Apply system settings</button>
+                        <button id="ebicsSystemSyncButton" class="btn btn-blue">Read</button>
+                        <button id="ebicsSystemApplyButton" class="btn btn-orange">Write (RAM)</button>
                         <button id="ebicsProbeAgainButton" class="btn btn-secondary">Detect again</button>
                     </div>
                 </div>
                 <div class="ebics-status-list ebics-card">
                     <div><span>Detected controller</span><b id="ebicsDetectionState">Controller: unknown</b></div>
                     <div><span>Detection evidence</span><b id="ebicsDetectionReason">Waiting for CAN connection.</b></div>
-                    <div><span>Ride Core bank schema</span><b>Version 1</b></div>
+                    <div><span>Ride Core bank schema</span><b>Version 2</b></div>
                     <div><span>Factory Bafang compatibility</span><b>Kept active</b></div>
                 </div>
-                <section class="ebics-card mt-4">
-                    <div class="ebics-card-title">Ride engine (developer)</div>
-                    <div class="warning-message">
-                        <span><b>Warning:</b> "TSDZ (new)" runs the new eVistDrive ride-core assist (Power/eMTB/Torque) — never tested on this hub motor. First switch with the rear wheel in the air, then a safe area. "Legacy" is the proven default. The switch applies only at a full standstill and is remembered across restarts.</span>
-                    </div>
-                    <div class="ebics-status-list mt-2">
-                        <div><span>Active engine</span><b id="ebicsEngineActive">N/A</b></div>
-                        <div><span>Pending (applies at standstill)</span><b id="ebicsEnginePending">None</b></div>
-                    </div>
-                    <div class="flex items-center gap-2 mt-3 flex-wrap">
-                        <button id="ebicsEngineReadButton" class="btn btn-blue">Read status</button>
-                        <button id="ebicsEngineLegacyButton" class="btn">Set Legacy</button>
-                        <button id="ebicsEngineTsdzButton" class="btn btn-red">Set TSDZ (new)</button>
-                    </div>
-                </section>
-                <section class="ebics-card mt-4">
-                    <div class="ebics-card-title">TSDZ diagnostics (peak-hold)</div>
-                    <p class="form-hint">Values are the PEAK since the last read — so a brief press is catchable. Method: click "Read once" (clears peaks), press the pedal / crank a bit, then click "Read once" again to see the captured peak of each value. Watch which one stays near zero — that is where the assist collapses. Needs firmware 0.0173+ on the TSDZ engine.</p>
-                    <div class="flex items-center gap-2 mt-2 flex-wrap">
-                        <button id="ebicsDiagReadButton" class="btn btn-blue">Read once</button>
-                        <label><input id="ebicsDiagAuto" type="checkbox"> Auto (2 Hz)</label>
-                    </div>
-                    <div class="ebics-status-list mt-2">
-                        <div><span>Cadence seen by mode</span><b><span id="diagCadence">N/A</span> rpm</b></div>
-                        <div><span>Torque to assist</span><b><span id="diagTorque">N/A</span> mV</b></div>
-                        <div><span>Human power</span><b><span id="diagHumanPower">N/A</span> W</b></div>
-                        <div><span>Support ratio</span><b><span id="diagSupport">N/A</span> %</b></div>
-                        <div><span>Motor power (requested)</span><b><span id="diagMotorPower">N/A</span> W</b></div>
-                        <div><span>Battery current (requested)</span><b><span id="diagBatCurrent">N/A</span> mA</b></div>
-                        <div><span>iq requested (by mode)</span><b id="diagIqRequest">N/A</b></div>
-                        <div><span>iq setpoint (reaching motor)</span><b id="diagIqSetpoint">N/A</b></div>
-                        <div><span>Speed</span><b><span id="diagSpeed">N/A</span> km/h</b></div>
-                    </div>
-                </section>
-                <div class="ebics-two-column mt-5">
-                    <section class="ebics-card">
-                        <div class="ebics-card-title">Motor and sensor configuration</div>
-                        <div id="ebicsSystemMotorFields" class="ebics-field-grid"></div>
-                    </section>
-                    <section class="ebics-card">
-                        <div class="ebics-card-title">PAS, throttle and Legacy timing</div>
-                        <div id="ebicsSystemRideFields" class="ebics-field-grid"></div>
-                    </section>
-                </div>
-                <div class="ebics-toolbar mt-4"><span id="ebicsCompatibilitySourceSystem" class="ebics-source-note">Preview values — sync before writing</span></div>
                 <h3 class="section-subtitle mt-6">Controller service</h3>
                 <div class="flex gap-2 flex-wrap mb-4">
                     <button id="ebicsCalibratePositionButton" class="btn btn-warning">Calibrate position sensor</button>
@@ -1212,6 +1182,50 @@
                     </div>
                 </details>
                 <div class="overflow-x-auto"><table class="description-table w-full border-collapse text-sm"><thead><tr><th>Code</th><th>Description</th><th>Recommendation</th></tr></thead><tbody id="ebicsControllerErrorsTableBody"></tbody></table></div>
+                <!-- FW-030/043: "Ride engine (developer)" section removed. TSDZ is the only engine;
+                     the 0x6027 switch command no longer exists in firmware, so those buttons were dead. -->
+                <details class="ebics-card mt-4">
+                    <summary class="ebics-card-title">eVistDrive diagnostics (live + peak-hold)</summary>
+                    <p class="form-hint">Enable "Auto (10 Hz)" and pedal/press. LIVE values show the current moment (good for watching the cut-off after you stop pedalling); PEAK values hold the maximum since the last read (good for catching a brief press). To diagnose slow release: click "Read tuning" first (records the stored fall ramps), then stop pedalling and watch how long iq setpoint (live) takes to reach 0. Needs firmware 0.0178+ (v2); older firmware shows live values as "—".</p>
+                    <div class="flex items-center gap-2 mt-2 flex-wrap">
+                        <button id="ebicsDiagReadButton" class="btn btn-blue">Read once</button>
+                        <label><input id="ebicsDiagAuto" type="checkbox"> Auto (10 Hz)</label>
+                        <button id="ebicsDiagTuningButton" class="btn btn-secondary">Read tuning (fall ramps)</button>
+                    </div>
+                    <div class="ebics-status-list mt-2">
+                        <div><span>Stored fall ramp (slow / fast)</span><b><span id="diagFallSlow">—</span> / <span id="diagFallFast">—</span> ms</b></div>
+                        <div><span>PAS idle (live)</span><b><span id="diagPasIdle">—</span> ms</b></div>
+                        <div><span>Pedaling active (live)</span><b id="diagPedaling">—</b></div>
+                        <div><span>Fast pressure (live)</span><b><span id="diagFastPressure">—</span></b></div>
+                        <div><span>RUN pressure (live)</span><b><span id="diagRunPressure">—</span></b></div>
+                        <div><span>iq request (live)</span><b id="diagIqReqNow">—</b></div>
+                        <div><span>iq setpoint (live)</span><b id="diagIqSetNow">—</b></div>
+                        <div><span>iq measured (live)</span><b><span id="diagIqMeasured">—</span></b></div>
+                        <div><span>Battery limiting (live)</span><b><span id="diagBattLimit">—</span></b></div>
+                        <div><span>Brake / torque fault (live)</span><b><span id="diagRelease">—</span> / <span id="diagLatched">—</span></b></div>
+                        <div style="opacity:.6;margin-top:6px"><span>— peak since last read —</span><b></b></div>
+                        <div><span>Cadence (peak)</span><b><span id="diagCadence">N/A</span> rpm</b></div>
+                        <div><span>Torque to assist (peak)</span><b><span id="diagTorque">N/A</span> mV</b></div>
+                        <div><span>Human power (peak)</span><b><span id="diagHumanPower">N/A</span> W</b></div>
+                        <div><span>Support ratio (peak)</span><b><span id="diagSupport">N/A</span> %</b></div>
+                        <div><span>Motor power (peak)</span><b><span id="diagMotorPower">N/A</span> W</b></div>
+                        <div><span>Battery current (peak)</span><b><span id="diagBatCurrent">N/A</span> mA</b></div>
+                        <div><span>iq requested (peak)</span><b id="diagIqRequest">N/A</b></div>
+                        <div><span>iq setpoint (peak)</span><b id="diagIqSetpoint">N/A</b></div>
+                        <div><span>Speed</span><b><span id="diagSpeed">N/A</span> km/h</b></div>
+                    </div>
+                </details>
+                <div class="ebics-two-column mt-5">
+                    <section class="ebics-card">
+                        <div class="ebics-card-title">Motor and sensor configuration</div>
+                        <div id="ebicsSystemMotorFields" class="ebics-field-grid"></div>
+                    </section>
+                    <section class="ebics-card">
+                        <div class="ebics-card-title">PAS, throttle and Legacy timing</div>
+                        <div id="ebicsSystemRideFields" class="ebics-field-grid"></div>
+                    </section>
+                </div>
+                <div class="ebics-toolbar mt-4"><span id="ebicsCompatibilitySourceSystem" class="ebics-source-note">Preview values — read before writing</span></div>
                 <h3 class="section-subtitle mt-6">Implemented eVistDrive transport</h3>
                 <div class="overflow-x-auto"><table class="description-table w-full border-collapse text-sm"><thead><tr><th>CAN block</th><th>Operation</th><th>UI use</th></tr></thead><tbody>
                     <tr><td>0x6020</td><td>Read profile bank</td><td>Detection, Profiles, Limits</td></tr>
@@ -1537,7 +1551,7 @@
                                 <td colspan="3">
                                     <div class="flex items-center gap-2">
                                         <input type="checkbox" id="snifferLogToFileCheckbox" name="snifferLogToFileCheckbox" class="w-4 h-4 accent-olive">
-                                        <span class="text-xs text-gray-500 font-mono">→ C:\snapshot\bafang_canable_pro\logs</span>
+                                        <span class="text-xs text-gray-500 font-mono">→ logs\ folder next to the application</span>
                                     </div>
                                 </td>
                             </tr>
@@ -1584,7 +1598,7 @@
                                 <td>
                                     <div class="flex items-center gap-2">
                                         <input type="checkbox" id="rideLoggerLogToFileCheckbox" name="rideLoggerLogToFileCheckbox" class="w-4 h-4 accent-olive">
-                                        <span class="text-xs text-gray-500 font-mono">→ C:\snapshot\bafang_canable_pro\logs</span>
+                                        <span class="text-xs text-gray-500 font-mono">→ logs\ folder next to the application</span>
                                     </div>
                                 </td>
                                 <th>Refresh Rate (ms)</th>

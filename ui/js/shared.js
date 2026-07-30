@@ -56,6 +56,12 @@ export const LEGACY_TORQUE_LINEAR_MAX_KG = Math.floor(((LEGACY_TORQUE_MAP_FULL_S
 // --- WebSocket ---
 export const socket = new WebSocket('ws://' + window.location.host);
 
+// Silent connection check (no addLog side effect) — used to decide whether unread/placeholder
+// eVistDrive data should be flagged as stale, or is just normal offline browsing.
+export function isEbicsConnected() {
+    return socket.readyState === WebSocket.OPEN && state.isCanConnected;
+}
+
 // --- Mutowalne dane (state object) ---
 export const state = {
     // Display
@@ -1030,4 +1036,20 @@ export function populateWheelSelect() {
             circInput.max = "3000";
         }
     });
+}
+
+// FW-056: touch-friendly parameter help, shared by tab-ebics.js's fieldInput() and
+// ebics-compat.js's createField(). `title` only shows on mouse hover, which is invisible on
+// phones/tablets, so every field with help text also gets this small focusable "?" badge (CSS
+// shows the bubble on :hover AND :focus — see .ebics-help in style.css).
+export function helpBadge(helpText) {
+    const badge = document.createElement('span');
+    badge.className = 'ebics-help';
+    badge.tabIndex = 0;
+    badge.textContent = '?';
+    const bubble = document.createElement('span');
+    bubble.className = 'tooltiptext';
+    bubble.textContent = helpText;
+    badge.appendChild(bubble);
+    return badge;
 }
