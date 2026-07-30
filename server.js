@@ -28,6 +28,20 @@ let isCheckingPresence = false; // Mutex flag for presence check
 let manualDisconnect = false; // user clicked Disconnect: suppress auto-connect until the device is physically re-plugged
 let autoConnectInProgress = false; // guard against overlapping auto-connect attempts
 
+// CB-010: recovery from a link that died without the device leaving the USB bus —
+// the sleep/wake case. 'recovering' and 'failed' are broadcast to the browser so the
+// user sees the link is gone instead of a green pill over a dead connection.
+let recoveryState = 'idle'; // 'idle' | 'recovering' | 'failed'
+let recoveryReason = null;
+let recoveryAttempt = 0;
+let recoveryTimer = null;
+let fwUpdateInProgress = false; // a flash is delay-sensitive: no probing, no reconnecting under it
+let lastProbeAt = 0;
+let probeMissCount = 0;
+let lastTickAt = Date.now();
+const PROBE_INTERVAL_MS = 5000;
+const RECOVERY_BACKOFF_MS = [1000, 2000, 4000, 8000, 15000];
+
 // --- HTTP Server setup (Serves the index.html UI) ---
 const server = http.createServer((req, res) => {
     // Determine file path, default to index.html
@@ -180,9 +194,23 @@ async function checkCanDevicePresenceAndUpdateGlobal() {
 }
 
 
+// libusb messages contain ':' and the browser splits the status line on it
+// (websocket.js takes parts[1] as the device name), so a raw reason would break the parse.
+function sanitiseReason(reason) {
+    return `${reason || 'unknown reason'}`.replace(/:/g, ' -').replace(/\s+/g, ' ').trim();
+}
+
 function broadcastCanDeviceStatus() {
     let messageToSend = ''; // Determine the message based on state
-    if (canbus.isConnected()) {
+    // Recovery outranks everything else. Without this, the can_status(false) that
+    // accompanies a link error would re-run presence detection, find the adapter still
+    // enumerated (it is — that is the whole problem after a resume) and broadcast FOUND
+    // over the top of the real message. One function decides, so nothing races.
+    if (recoveryState === 'recovering') {
+        messageToSend = `CAN_DEVICE_STATUS:RECOVERING:${detectedCanDeviceName || 'Adapter'}:${sanitiseReason(recoveryReason)}`;
+    } else if (recoveryState === 'failed') {
+        messageToSend = `CAN_DEVICE_STATUS:LINK_LOST:${detectedCanDeviceName || 'Adapter'}:${sanitiseReason(recoveryReason)}`;
+    } else if (canbus.isConnected()) {
         messageToSend = `CAN_DEVICE_STATUS:CONNECTED:${detectedCanDeviceName || "Connected Device"}`;
     } else {
         if (detectedCanDeviceName) {
@@ -217,6 +245,7 @@ const wss = new WebSocket.Server({ server });
 		}
 		if (messageString === 'CONNECT_CAN') {
 			manualDisconnect = false; // explicit user intent to be connected
+			clearRecoveryState(); // a manual Reconnect wipes the failed state and its backoff
 			if (canbus.isConnected()) {
 				ws.send('INFO: Already connected.');
 				broadcastCanDeviceStatus();
@@ -234,6 +263,7 @@ const wss = new WebSocket.Server({ server });
 		}
 		if (messageString === 'DISCONNECT_CAN') {
 			manualDisconnect = true; // suppress auto-connect until the device is re-plugged or user reconnects
+			clearRecoveryState(); // stop any pending retry; the user asked to be disconnected
 			if (!canbus.isConnected()) {
 				ws.send('INFO: Already disconnected.');
 				broadcastCanDeviceStatus();
@@ -989,6 +1019,85 @@ const wss = new WebSocket.Server({ server });
 		}
 	});
 
+	// CB-010: the link died without the device leaving the bus. canbus.js emits this;
+	// until now nothing listened, so the error never reached the browser at all.
+	canbus.on('can_error', (message) => {
+		broadcastToClients(`CAN_ERROR: ${message}`);
+		attemptAutoRecovery(message);
+	});
+
+	// Close the stale handle and try to open the adapter again. Success puts the UI back
+	// to green with no user action; exhausting the attempts leaves it red with the reason.
+	async function attemptAutoRecovery(reason) {
+		if (autoConnectInProgress || recoveryState === 'recovering' || manualDisconnect) return;
+		if (fwUpdateInProgress) {
+			// Never yank the handle out from under a running flash — the updater has its
+			// own abort path, which fails cleanly. Show the loss and wait for it to finish.
+			recoveryState = 'failed';
+			recoveryReason = reason;
+			broadcastCanDeviceStatus();
+			return;
+		}
+
+		autoConnectInProgress = true;
+		recoveryState = 'recovering';
+		recoveryReason = reason;
+		broadcastCanDeviceStatus(); // amber immediately, before any slow USB work
+
+		let recovered = false;
+		try {
+			// Raced, because closing a handle whose device stopped answering can block
+			// inside libusb — and this path exists to make the app responsive again.
+			await withCanTimeout(canbus.close(), 'CAN close', 5000);
+			await checkCanDevicePresenceAndUpdateGlobal();
+			if (!detectedCanDeviceName) {
+				recoveryReason = 'adapter is no longer present';
+			} else {
+				const started = await withCanTimeout(canbus.init(detectedCanDeviceName), 'CAN reconnect', 15000);
+				// init() can "succeed" against a zombie: GSUsb.start() returns
+				// "Stop in progress, retry scheduled" and schedules its own retry. Only a
+				// passing probe proves we actually have a working adapter again.
+				if (started === true) {
+					const alive = await canbus.checkAlive({ force: true });
+					if (alive.ok) recovered = true;
+					else recoveryReason = alive.reason || 'adapter did not answer after reconnect';
+				} else {
+					recoveryReason = 'could not reopen the adapter';
+				}
+			}
+		} catch (e) {
+			recoveryReason = e.message || `${e}`;
+		} finally {
+			autoConnectInProgress = false;
+		}
+
+		if (recovered) {
+			recoveryState = 'idle';
+			recoveryAttempt = 0;
+			probeMissCount = 0;
+			console.log('Auto-recovery: adapter is back.');
+		} else if (++recoveryAttempt < RECOVERY_BACKOFF_MS.length) {
+			const wait = RECOVERY_BACKOFF_MS[recoveryAttempt - 1];
+			console.warn(`Auto-recovery attempt ${recoveryAttempt} failed (${recoveryReason}); retrying in ${wait} ms.`);
+			recoveryState = 'failed';
+			// Scheduled AFTER clearing autoConnectInProgress above, or the retry would
+			// trip its own guard on the first line and silently do nothing.
+			recoveryTimer = setTimeout(() => { recoveryTimer = null; attemptAutoRecovery(reason); }, wait);
+		} else {
+			console.error(`Auto-recovery gave up after ${recoveryAttempt} attempts: ${recoveryReason}`);
+			recoveryState = 'failed';
+		}
+		broadcastCanDeviceStatus();
+	}
+
+	function clearRecoveryState() {
+		if (recoveryTimer) { clearTimeout(recoveryTimer); recoveryTimer = null; }
+		recoveryState = 'idle';
+		recoveryReason = null;
+		recoveryAttempt = 0;
+		probeMissCount = 0;
+	}
+
 	canbus.on('can_status', async (isConnected, statusMessage) => { // Make async
 		console.log("CAN Operational Status Update from canbus.js:", statusMessage, "- IsConnectedFlag:", isConnected);
 		if (isConnected && canbus.getConnectedDeviceName()) {
@@ -1030,13 +1139,49 @@ const wss = new WebSocket.Server({ server });
 
 	let connectedMissCount = 0; // consecutive periodic checks where the connected device was absent
 
+	// The device is still enumerated — but is the link to it actually working? This is the
+	// question the USB-list check above cannot answer, and the one that matters after a
+	// host resume, where the adapter is still listed and only the handle is dead.
+	async function checkLinkLiveness(force = false) {
+		// A flash is delay-sensitive and has its own liveness handling; recovery must not
+		// reach in while one is running.
+		if (fwUpdateInProgress || autoConnectInProgress || recoveryState === 'recovering') return;
+		const now = Date.now();
+		if (!force && now - lastProbeAt < PROBE_INTERVAL_MS) return;
+		lastProbeAt = now;
+
+		const alive = await canbus.checkAlive({ force });
+		if (alive.ok) { probeMissCount = 0; return; }
+		if (alive.soft) {
+			// Two strikes before acting, matching the connectedMissCount convention above:
+			// one failed transfer is not proof that the adapter is gone.
+			if (++probeMissCount < 2) return;
+			probeMissCount = 0;
+			console.warn(`Periodic Check: adapter failed two liveness probes (${alive.reason}) — treating the link as dead.`);
+			attemptAutoRecovery(alive.reason);
+			return;
+		}
+		// A hard failure already went through _handleCanError, which emits can_error and
+		// starts recovery. Nothing more to do here.
+		probeMissCount = 0;
+	}
+
 	async function periodicCheck() { // Renamed and made async
+		// A long gap between ticks means the process was suspended — the host slept.
+		// That is the cheapest and most direct sleep/wake signal available, and it cuts
+		// detection of a dead link down to this single tick.
+		const sinceLastTick = Date.now() - lastTickAt;
+		lastTickAt = Date.now();
+		const wokeFromSleep = sinceLastTick > 10000;
+		if (wokeFromSleep) console.log(`Periodic Check: ${Math.round(sinceLastTick / 1000)} s gap since the last tick — host likely slept; forcing a liveness probe.`);
+
 		// While connected: watch for a physical unplug. The CAN handle stays
 		// "started" on its own, so without this the UI keeps showing CONNECTED
 		// with a dead handle (flash/read fail until a manual disconnect+reconnect).
 		if (canbus.isConnected()) {
 			if (isCanableInDeviceList()) {
 				connectedMissCount = 0;
+				await checkLinkLiveness(wokeFromSleep);
 			} else if (++connectedMissCount >= 2) { // ~6s absent, guards against a transient enumeration glitch
 				connectedMissCount = 0;
 				console.warn('Periodic Check: connected CANable disappeared from USB — resetting connection.');
@@ -1061,6 +1206,9 @@ const wss = new WebSocket.Server({ server });
 
 		// Auto-connect: when a device is present and the user has not deliberately
 		// disconnected, bring the connection up on its own.
+		// Recovery owns the reconnect while it is running or waiting out its backoff —
+		// two paths calling init() at once would fight over the same handle.
+		if (recoveryTimer || recoveryState === 'recovering') return;
 		if (detectedCanDeviceName && !manualDisconnect && !canbus.isConnected() && !autoConnectInProgress) {
 			autoConnectInProgress = true;
 			try {
@@ -1097,6 +1245,9 @@ const wss = new WebSocket.Server({ server });
 				console.warn('USB hotplug: CANable detached.');
 				manualDisconnect = false; // a physical unplug is not a manual disconnect
 				connectedMissCount = 0;
+				// A real unplug is not something recovery can fix, and a re-plug is a clean
+				// slate — drop any pending retry so it cannot fire against the new handle.
+				clearRecoveryState();
 				if (canbus.isConnected()) {
 					try { await canbus.close(); } catch (e) { console.warn('close() on detach failed:', e.message); }
 				}
@@ -1106,6 +1257,7 @@ const wss = new WebSocket.Server({ server });
 			events.on('attach', (device) => {
 				if (!matches(device)) return;
 				console.log('USB hotplug: CANable attached.');
+				clearRecoveryState(); // fresh device, fresh attempt budget
 				// Let the OS finish enumerating, then probe + (auto)connect.
 				setTimeout(() => { periodicCheck().catch((e) => console.warn('post-attach check failed:', e.message)); }, 400);
 			});
