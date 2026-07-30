@@ -16,6 +16,7 @@ import { updateWalkAndLegacy } from './walk.js';
 import { renderProfileEditor, bindProfileControls } from './profiles.js';
 import { renderDynamics, bindDynamicsControls } from './dynamics.js';
 import { bindSystemControls, stopDiagPoll } from './system.js';
+import { updateDeviceInfoUI, bindDeviceInfoControls } from './device-info.js';
 
 // Re-exported for websocket.js, which pushes freshly parsed frames straight at the
 // card that displays them.
@@ -38,7 +39,14 @@ export function updateEbicsUI(eventType = '') {
     if (fullUpdate || ['controller_params_0', 'controller_params_1', 'controller_params_2'].includes(eventType)) updateWalkAndLegacy();
     if (fullUpdate || eventType === 'controller_bank') renderProfileEditor();
     if (fullUpdate || eventType === 'controller_tuning') renderDynamics();
+    // Identification arrives one field per frame across four devices, so refresh on any of
+    // them rather than trying to name every sub-code here.
+    if (fullUpdate || DEVICE_INFO_EVENTS.test(eventType)) updateDeviceInfoUI();
 }
+
+// controller_hw_version, display_sn, sensor_mn, battery_sw_version, … — the identification
+// replies all end in one of these suffixes and no realtime frame does.
+const DEVICE_INFO_EVENTS = /_(hw_version|sw_version|bootloader_version|sn|mn|cn|mfg)$/;
 
 function bindControls() {
     bindProfileControls();
@@ -46,6 +54,7 @@ function bindControls() {
     bindDynamicsControls();
     bindTorqueControls();
     bindSystemControls();
+    bindDeviceInfoControls();
 
     // FW-030/043: the "Ride engine (developer)" card is gone (single TSDZ engine).
     // READ_SYSTEM survives because the FW-018 full-charge threshold shares 0x6028.

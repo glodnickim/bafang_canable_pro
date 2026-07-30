@@ -68,7 +68,9 @@
 <!-- FW-030: "eVistDrive Legacy" tab removed (single TSDZ engine) -->
             <button class="tab-button ebics-tab-button" data-tab="ebics-system" data-ebics-only="true" style="display:none">eVistDrive System</button>
             <button class="tab-button" data-tab="gearsM820" data-factory-tab="true">Assist (Ltd)</button>
-            <button class="tab-button" data-tab="info">Info</button>
+            <!-- Marked as a factory tab so "show only eVistDrive tabs" hides it: its device
+                 identification is duplicated read-only in the eVistDrive System card. -->
+            <button class="tab-button" data-tab="info" data-factory-tab="true">Info</button>
             <button class="tab-button" data-tab="debug">Debug</button>
             <button class="tab-button" data-tab="fwUpdate">Firmware</button>
             <button class="tab-button" data-tab="sniffer">Sniffer</button>
@@ -1163,6 +1165,22 @@
                         <button id="ebicsSystemSyncButton" class="btn btn-blue">Read</button>
                         <button id="ebicsSystemApplyButton" data-requires-link class="btn btn-orange">Write (RAM)</button>
                         <button id="ebicsProbeAgainButton" class="btn btn-secondary">Detect again</button>
+                    </div>
+                </div>
+                <!-- Device identification. Same data as the factory Info tab, read-only,
+                     so hiding that tab in "show only eVistDrive tabs" mode does not take
+                     serial numbers and firmware versions away during diagnosis. -->
+                <div class="ebics-card">
+                    <div class="ebics-heading">
+                        <h3 class="section-title text-base">Device identification</h3>
+                        <button id="evdInfoReadButton" class="btn btn-blue btn-sm">Read device info</button>
+                    </div>
+                    <div class="form-hint mb-2" id="evdInfoSource">Nothing read yet — press "Read device info".</div>
+                    <div class="ebics-two-column">
+                        <div class="overflow-x-auto"><table class="description-table w-full border-collapse text-sm"><thead><tr><th colspan="2">Controller</th></tr></thead><tbody id="evdInfoCtrlBody"></tbody></table></div>
+                        <div class="overflow-x-auto"><table class="description-table w-full border-collapse text-sm"><thead><tr><th colspan="2">Display</th></tr></thead><tbody id="evdInfoDisplayBody"></tbody></table></div>
+                        <div class="overflow-x-auto"><table class="description-table w-full border-collapse text-sm"><thead><tr><th colspan="2">Torque sensor</th></tr></thead><tbody id="evdInfoSensorBody"></tbody></table></div>
+                        <div class="overflow-x-auto"><table class="description-table w-full border-collapse text-sm"><thead><tr><th colspan="2">Battery</th></tr></thead><tbody id="evdInfoBatteryBody"></tbody></table></div>
                     </div>
                 </div>
                 <div class="ebics-status-list ebics-card">

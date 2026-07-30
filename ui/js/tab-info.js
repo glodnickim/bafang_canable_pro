@@ -3,7 +3,7 @@ import {
     state, socket,
     infoElements,
     getNullableString,
-    addLog, waitFor,
+    addLog, syncAllDeviceInfo,
 } from './shared.js';
 
 export function updateInfoUI() {
@@ -47,76 +47,11 @@ export function updateInfoUI() {
     infoElements.batteryPlaceholder.style.display = (state.batteryOtherInfo.hwVersion || state.batteryOtherInfo.swVersion || state.batteryOtherInfo.modelNumber || state.batteryOtherInfo.serialNumber) ? 'none' : 'block';
 }
 
-async function controllerInfoSend() {
-    state.controllerOtherInfo.hwVersion = null;
-    socket.send('READ:2:96:0');
-    await waitFor(() => state.controllerOtherInfo.hwVersion !== null);
-    state.controllerOtherInfo.swVersion = null;
-    socket.send('READ:2:96:1');
-    await waitFor(() => state.controllerOtherInfo.swVersion !== null);
-    state.controllerOtherInfo.serialNumber = null;
-    socket.send('READ:2:96:3');
-    await waitFor(() => state.controllerOtherInfo.serialNumber !== null);
-    state.controllerOtherInfo.modelNumber = null;
-    socket.send('READ:2:96:2');
-    await waitFor(() => state.controllerOtherInfo.modelNumber !== null);
-    socket.send('READ:2:96:5');
-}
-
-async function displayInfoSend() {
-    state.displayOtherInfo.hwVersion = null;
-    socket.send('READ:3:96:0');
-    await waitFor(() => state.displayOtherInfo.hwVersion !== null);
-    state.displayOtherInfo.swVersion = null;
-    socket.send('READ:3:96:1');
-    await waitFor(() => state.displayOtherInfo.swVersion !== null);
-    state.displayOtherInfo.serialNumber = null;
-    socket.send('READ:3:96:3');
-    await waitFor(() => state.displayOtherInfo.serialNumber !== null);
-    state.displayOtherInfo.bootloaderVersion = null;
-    socket.send('READ:3:96:8');
-    await waitFor(() => state.displayOtherInfo.bootloaderVersion !== null);
-    state.displayOtherInfo.manufacturer = null;
-    socket.send('READ:3:96:5');
-    await waitFor(() => state.displayOtherInfo.manufacturer !== null);
-    state.displayOtherInfo.customerNumber = null;
-    socket.send('READ:3:96:4');
-    await waitFor(() => state.displayOtherInfo.customerNumber !== null);
-    socket.send('READ:3:96:2');
-}
-
-async function sensorInfoSend() {
-    state.sensorOtherInfo.hwVersion = null;
-    socket.send('READ:1:96:0');
-    await waitFor(() => state.sensorOtherInfo.hwVersion !== null);
-    state.sensorOtherInfo.swVersion = null;
-    socket.send('READ:1:96:1');
-    await waitFor(() => state.sensorOtherInfo.swVersion !== null);
-    state.sensorOtherInfo.serialNumber = null;
-    socket.send('READ:1:96:3');
-    await waitFor(() => state.sensorOtherInfo.serialNumber !== null);
-    socket.send('READ:1:96:2');
-}
-
-async function batteryInfoSend() {
-    state.batteryOtherInfo.hwVersion = null;
-    socket.send('READ:4:96:0');
-    await waitFor(() => state.batteryOtherInfo.hwVersion !== null);
-    state.batteryOtherInfo.swVersion = null;
-    socket.send('READ:4:96:1');
-    await waitFor(() => state.batteryOtherInfo.swVersion !== null);
-    state.batteryOtherInfo.serialNumber = null;
-    socket.send('READ:4:96:3');
-    await waitFor(() => state.batteryOtherInfo.serialNumber !== null);
-    socket.send('READ:4:96:2');
-}
-
 infoElements.syncButton.onclick = () => {
     addLog('REQ', 'Syncing all Device Info...');
-    controllerInfoSend();
-    displayInfoSend();
-    sensorInfoSend();
-    batteryInfoSend();
+    // Sequences moved to shared.js so the eVistDrive Device identification card reads the
+    // same way, from one definition.
+    syncAllDeviceInfo();
 };
 
 infoElements.saveButton.onclick = () => {

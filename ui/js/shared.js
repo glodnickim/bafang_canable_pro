@@ -1136,6 +1136,84 @@ export function populateWheelSelect() {
 // evistdrive/compat.js's createField(). `title` only shows on mouse hover, which is invisible on
 // phones/tablets, so every field with help text also gets this small focusable "?" badge (CSS
 // shows the bubble on :hover AND :focus — see .ebics-help in style.css).
+// Device identification reads (0x60 sub-codes), one sequence per device. They live here
+// rather than in tab-info.js because two cards now show this data — the factory Info tab
+// and the eVistDrive Device identification card — and the rule for ui/js/evistdrive/ is
+// that it may reach into shared.js but never into a factory tab.
+//
+// Each read is awaited before the next: the controller answers one request at a time, and
+// firing them together loses replies.
+async function controllerInfoSend() {
+    state.controllerOtherInfo.hwVersion = null;
+    socket.send('READ:2:96:0');
+    await waitFor(() => state.controllerOtherInfo.hwVersion !== null);
+    state.controllerOtherInfo.swVersion = null;
+    socket.send('READ:2:96:1');
+    await waitFor(() => state.controllerOtherInfo.swVersion !== null);
+    state.controllerOtherInfo.serialNumber = null;
+    socket.send('READ:2:96:3');
+    await waitFor(() => state.controllerOtherInfo.serialNumber !== null);
+    state.controllerOtherInfo.modelNumber = null;
+    socket.send('READ:2:96:2');
+    await waitFor(() => state.controllerOtherInfo.modelNumber !== null);
+    socket.send('READ:2:96:5');
+}
+
+async function displayInfoSend() {
+    state.displayOtherInfo.hwVersion = null;
+    socket.send('READ:3:96:0');
+    await waitFor(() => state.displayOtherInfo.hwVersion !== null);
+    state.displayOtherInfo.swVersion = null;
+    socket.send('READ:3:96:1');
+    await waitFor(() => state.displayOtherInfo.swVersion !== null);
+    state.displayOtherInfo.serialNumber = null;
+    socket.send('READ:3:96:3');
+    await waitFor(() => state.displayOtherInfo.serialNumber !== null);
+    state.displayOtherInfo.bootloaderVersion = null;
+    socket.send('READ:3:96:8');
+    await waitFor(() => state.displayOtherInfo.bootloaderVersion !== null);
+    state.displayOtherInfo.manufacturer = null;
+    socket.send('READ:3:96:5');
+    await waitFor(() => state.displayOtherInfo.manufacturer !== null);
+    state.displayOtherInfo.customerNumber = null;
+    socket.send('READ:3:96:4');
+    await waitFor(() => state.displayOtherInfo.customerNumber !== null);
+    socket.send('READ:3:96:2');
+}
+
+async function sensorInfoSend() {
+    state.sensorOtherInfo.hwVersion = null;
+    socket.send('READ:1:96:0');
+    await waitFor(() => state.sensorOtherInfo.hwVersion !== null);
+    state.sensorOtherInfo.swVersion = null;
+    socket.send('READ:1:96:1');
+    await waitFor(() => state.sensorOtherInfo.swVersion !== null);
+    state.sensorOtherInfo.serialNumber = null;
+    socket.send('READ:1:96:3');
+    await waitFor(() => state.sensorOtherInfo.serialNumber !== null);
+    socket.send('READ:1:96:2');
+}
+
+async function batteryInfoSend() {
+    state.batteryOtherInfo.hwVersion = null;
+    socket.send('READ:4:96:0');
+    await waitFor(() => state.batteryOtherInfo.hwVersion !== null);
+    state.batteryOtherInfo.swVersion = null;
+    socket.send('READ:4:96:1');
+    await waitFor(() => state.batteryOtherInfo.swVersion !== null);
+    state.batteryOtherInfo.serialNumber = null;
+    socket.send('READ:4:96:3');
+    await waitFor(() => state.batteryOtherInfo.serialNumber !== null);
+    socket.send('READ:4:96:2');
+}
+
+export function syncAllDeviceInfo() {
+    controllerInfoSend();
+    displayInfoSend();
+    sensorInfoSend();
+    batteryInfoSend();
+}
+
 export function helpBadge(helpText) {
     const badge = document.createElement('span');
     badge.className = 'ebics-help';
