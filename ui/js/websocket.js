@@ -253,6 +253,13 @@ socket.onmessage = (event) => {
                     }
                     break;
                 case 'tuning_write_result':
+                    // Recorded so "Save to flash" can confirm the write landed before
+                    // asking the controller to persist anything.
+                    state.lastTuningWriteResult = {
+                        success: !!parsedEvent.data?.success,
+                        timedOut: !!parsedEvent.data?.timedOut,
+                        error: parsedEvent.data?.error || '',
+                    };
                     addLog('ACK', `Tuning write: ${parsedEvent.data?.success ? 'OK' : 'FAILED'}${parsedEvent.data?.timedOut ? ' (timeout)' : ''}`);
                     break;
                 case 'controller_torque': //FW-013: torque load telemetry + calibration status

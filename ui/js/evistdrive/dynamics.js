@@ -3,6 +3,7 @@
 import { state, socket, addLog } from '../shared.js';
 import {
     el, clamp, setText, socketReady, selectedLevel, activeBankIndex, currentLevelIndex, tabIsVisible,
+    writeTuningAndWait, saveToFlashAndWait,
     fieldInput, plotLayout,
 } from './common.js';
 
@@ -171,10 +172,36 @@ export function bindDynamicsControls() {
         socket.send(`WRITE_TUNING:${JSON.stringify(state.lastTuning)}`);
         addLog('SAVE_REQ', 'eVistDrive tuning -> controller RAM');
     });
-    el('ebicsDynamicsSaveButton')?.addEventListener('click', () => {
-        if (!socketReady() || !confirm('Persist eVistDrive tuning and banks to flash at full standstill?')) return;
-        socket.send('SAVE_BANKS');
-        addLog('SAVE_REQ', 'Persist eVistDrive tuning and banks at standstill');
+    // Sent the tuning to RAM first. On its own, SAVE_BANKS persists whatever the controller
+    // already holds — so edits made here (acceleration, deceleration, latch, boost) were
+    // never part of the save and came back at their old values on the next read.
+    el('ebicsDynamicsSaveButton')?.addEventListener('click', async () => {
+        if (!socketReady()) return;
+        if (!state.tuningSynced) {
+            addLog('ERR', 'Read the tuning before saving it — otherwise the placeholder values on screen would be written to the bike.');
+            return;
+        }
+        if (!confirm('Write the ride-feel tuning to controller RAM and then persist it, plus the banks, to flash?\n\nThe flash write happens at full standstill.')) return;
+
+        const button = el('ebicsDynamicsSaveButton');
+        if (button) button.disabled = true;
+        try {
+            ensureTuningDefaults();
+            const written = await writeTuningAndWait(state.lastTuning);
+            if (!written.ok) {
+                addLog('ERR', `Tuning was not written (${written.reason}) — nothing has been saved to flash.`);
+                return;
+            }
+            addLog('ACK', 'Ride-feel tuning written to controller RAM.');
+            const saved = await saveToFlashAndWait();
+            if (!saved.ok) {
+                addLog('ERR', `Tuning is in RAM, but the flash write was refused (${saved.reason}). It will be lost at power-off.`);
+                return;
+            }
+            addLog('SAVE_REQ', 'Tuning written to RAM and accepted for flash — the controller writes it at full standstill.');
+        } finally {
+            if (button) button.disabled = false;
+        }
     });
 
     // CB-012: undo the whole card. Screen only — the bike keeps its settings until Write.

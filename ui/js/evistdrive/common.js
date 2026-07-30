@@ -205,6 +205,58 @@ export function fieldInput(container, target, descriptor, onChanged) {
     container.appendChild(wrapper);
 }
 
+/* ── Writing to the controller ──────────────────────────────────────────────────────
+ *
+ * SAVE_BANKS only tells the controller to persist what it already holds in RAM. Edits
+ * made in a card live in the browser until a WRITE_BANK or WRITE_TUNING sends them over,
+ * so a "Save to flash" button that sends SAVE_BANKS alone persists the OLD values and the
+ * next read brings them straight back. Every one of the three save buttons did exactly
+ * that. These helpers live here so all three do the same thing and cannot drift apart.
+ *
+ * Each waits for the controller's own acknowledgement. Only one write is ever outstanding,
+ * so a single result slot per kind is enough.
+ */
+const WRITE_ACK_TIMEOUT_MS = 5000;
+
+async function waitForResult(read, clear, timeoutMs) {
+    clear();
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+        const result = read();
+        if (result) {
+            return result.success
+                ? { ok: true }
+                : { ok: false, reason: result.timedOut ? 'timed out' : (result.error || 'the controller rejected it') };
+        }
+        await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    return { ok: false, reason: 'no answer from the controller' };
+}
+
+// A bank blob is ~190 bytes of multi-frame traffic, hence the generous wait.
+export async function writeBankAndWait(bank, timeoutMs = WRITE_ACK_TIMEOUT_MS) {
+    const pending = waitForResult(() => state.lastBankWriteResult,
+        () => { state.lastBankWriteResult = null; }, timeoutMs);
+    socket.send(`WRITE_BANK:${JSON.stringify(bank)}`);
+    return pending;
+}
+
+export async function writeTuningAndWait(tuning, timeoutMs = WRITE_ACK_TIMEOUT_MS) {
+    const pending = waitForResult(() => state.lastTuningWriteResult,
+        () => { state.lastTuningWriteResult = null; }, timeoutMs);
+    socket.send(`WRITE_TUNING:${JSON.stringify(tuning)}`);
+    return pending;
+}
+
+// The controller defers the actual flash write to full standstill; this only confirms it
+// accepted the request.
+export async function saveToFlashAndWait(timeoutMs = WRITE_ACK_TIMEOUT_MS) {
+    const pending = waitForResult(() => state.lastBankSaveResult,
+        () => { state.lastBankSaveResult = null; }, timeoutMs);
+    socket.send('SAVE_BANKS');
+    return pending;
+}
+
 // Drawing a chart nobody can see costs exactly as much as drawing one they can. The Live
 // and Limits cards already checked this; Profiles and Dynamics did not, so switching to
 // any eVistDrive tab redrew five hidden charts.

@@ -23,6 +23,8 @@ import {
     torqueMvToKg, torqueKgToMv, LEGACY_TORQUE_LINEAR_MAX_KG,
     errorDescriptions, errorRecommendations, helpBadge, isEbicsConnected,
 } from '../shared.js';
+// Shared write-then-confirm helpers, so every 'Save to flash' button behaves identically.
+import { writeBankAndWait, saveToFlashAndWait } from './common.js';
 
 const LEVEL_NAMES = ['ECO', 'TOUR', 'SPORT', 'SPORT+', 'BOOST'];
 const LEVEL_MAP = uiToInternalAssistMap[5];
@@ -925,19 +927,6 @@ function applyWalk() {
     addLog('SAVE_REQ', `Walk settings -> ${readIndexes.map((i) => `bank ${i + 1}`).join(', ')} (RAM; use Save Flash to keep them)`);
 }
 
-// Send one bank to controller RAM and wait for the controller to confirm it.
-// A bank blob is ~190 bytes of multi-frame traffic, so the wait is generous.
-async function writeBankAndWait(index, timeoutMs = 5000) {
-    state.lastBankWriteResult = null;
-    socket.send(`WRITE_BANK:${JSON.stringify(state.lastBanks[index])}`);
-    const answered = await waitFor(() => state.lastBankWriteResult !== null, timeoutMs, 50);
-    if (!answered) return { ok: false, reason: 'no answer from the controller' };
-    const result = state.lastBankWriteResult;
-    return result.success
-        ? { ok: true }
-        : { ok: false, reason: result.timedOut ? 'timed out' : (result.error || 'the controller rejected it') };
-}
-
 // "Save both banks (Flash)" used to send SAVE_BANKS on its own. SAVE_BANKS only tells the
 // controller to persist what it already holds in RAM, so edits made in this card — which
 // live in the browser until a WRITE_BANK — were never part of the save: flash got the old
@@ -963,7 +952,7 @@ async function saveWalkCutoff() {
             setWalkStatus(`Writing bank ${index + 1} to RAM...`);
             // state.lastBanks[index] is the bank as read, carrying its own schema version
             // and its assist levels untouched — this card only edits the Walk fields on it.
-            const written = await writeBankAndWait(index);
+            const written = await writeBankAndWait(state.lastBanks[index]);
             if (!written.ok) {
                 const message = `Bank ${index + 1} was not written (${written.reason}) — nothing has been saved to flash.`;
                 addLog('ERR', message);
@@ -974,11 +963,9 @@ async function saveWalkCutoff() {
         }
 
         setWalkStatus('Both banks in RAM. Requesting the flash write...');
-        state.lastBankSaveResult = null;
-        socket.send('SAVE_BANKS');
-        const answered = await waitFor(() => state.lastBankSaveResult !== null, 5000, 50);
-        if (!answered || !state.lastBankSaveResult?.success) {
-            const reason = !answered ? 'no answer from the controller' : (state.lastBankSaveResult?.error || 'the controller rejected it');
+        const saved = await saveToFlashAndWait();
+        if (!saved.ok) {
+            const reason = saved.reason;
             const message = `Both banks are in RAM, but the flash write was refused (${reason}). They will be lost at power-off.`;
             addLog('ERR', message);
             setWalkStatus(message, true);
