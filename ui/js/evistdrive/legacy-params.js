@@ -220,6 +220,40 @@ function createField(container, target, descriptor) {
         const fromNative = descriptor.fromNative || ((value) => value);
         const current = fromNative(target[descriptor.key]);
         input.value = isNumber(current) ? current : '';
+
+        // CB-015: some firmware fields carry an "off" value outside their own range — limp
+        // mode uses 255. Shown in a plain 0-100 box it read as a broken value, the browser
+        // flagged it as out of range, and touching the box clamped 255 down to 100, turning
+        // "off" into a real threshold with no way to type "off" back. The switch makes the
+        // state explicit and settable in both directions.
+        if (descriptor.disabledValue !== undefined) {
+            const isOff = (value) => value === descriptor.disabledValue || value === 0 || !isNumber(value);
+            const toggle = document.createElement('label');
+            toggle.className = 'ebics-inline-check';
+            const box = document.createElement('input');
+            box.type = 'checkbox';
+            box.checked = !isOff(target[descriptor.key]);
+            toggle.appendChild(box);
+            toggle.append(descriptor.enableLabel || 'Enabled');
+            wrapper.appendChild(toggle);
+
+            const applyState = () => {
+                input.disabled = !box.checked || !!descriptor.disabled;
+                if (!box.checked) {
+                    target[descriptor.key] = descriptor.disabledValue;
+                    input.value = '';
+                } else if (!isNumber(parseFloat(input.value))) {
+                    // Coming back from off with nothing to go on: start somewhere sane
+                    // rather than at the range minimum, which is itself "off".
+                    input.value = descriptor.enableDefault ?? descriptor.min;
+                    target[descriptor.key] = Number(input.value);
+                }
+                descriptor.onChange?.();
+            };
+            box.addEventListener('change', applyState);
+            // Off at render time means the box shows nothing rather than a raw 255.
+            if (isOff(target[descriptor.key])) { input.value = ''; input.disabled = true; }
+        }
         const updateValue = (normalizeInput) => {
             let value = parseFloat(input.value);
             if (!Number.isFinite(value)) return;
@@ -418,14 +452,17 @@ function renderLimitsFields() {
         { key: 'battery_capacity', label: 'Battery capacity', unit: 'mAh', min: 100, max: 65000, step: 100,
             help: 'Nominal battery capacity, used for the range/remaining-capacity estimate shown on the display. Doesn\'t affect how the motor is driven.' },
         {
-            key: 'limp_mode_soc_limit', label: 'Limp SoC stage 1 threshold', unit: '%', min: 0, max: 100, step: 1,
-            help: 'Below this displayed SoC, firmware starts reducing the phase-current limit.',
+            key: 'limp_mode_soc_limit', label: 'Limp SoC stage 1 threshold', unit: '%', min: 1, max: 100, step: 1,
+            // 255 is the firmware's "off"; so is 0. A fresh controller ships with both off.
+            disabledValue: LIMP_DISABLED, enableLabel: 'Limp mode on', enableDefault: 20,
+            help: 'Below this displayed SoC, firmware starts reducing the phase-current limit. Unticked means limp mode is off — which is how a controller leaves the factory.',
             onChange: updateLimpSocSummary,
             liveUpdate: true,
         },
         {
-            key: 'limp_mode_soc_limit_stage2', label: 'Limp SoC stage 2 threshold', unit: '%', min: 0, max: 100, step: 1,
-            help: 'Active only when greater than 0 and lower than Stage 1. Its raw 15% request is clamped by firmware to the 30% floor.',
+            key: 'limp_mode_soc_limit_stage2', label: 'Limp SoC stage 2 threshold', unit: '%', min: 1, max: 100, step: 1,
+            disabledValue: LIMP_DISABLED, enableLabel: 'Second stage on', enableDefault: 10,
+            help: 'A steeper second slope below this SoC. Only does anything when it is lower than Stage 1. Its raw 15% request is clamped by firmware to the 30% floor. Unticked means one slope only.',
             onChange: updateLimpSocSummary,
             liveUpdate: true,
         },
