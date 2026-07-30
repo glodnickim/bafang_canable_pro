@@ -4,7 +4,7 @@ Stan dokumentu: 2026-07-17
 
 ## Tymczasowy tryb podglądu podczas budowy UI
 
-W `ui/js/ebics-detection.js` znajduje się przełącznik:
+W `ui/js/evistdrive/detection.js` znajduje się przełącznik:
 
 ```js
 export const EBICS_UI_PREVIEW_WITHOUT_DETECTION = true;
@@ -126,7 +126,7 @@ Do czasu rozszerzenia firmware/protokołu jako `N/A` lub `protocol pending` pozo
 - ESLint dla zmienionych modułów UI: zaliczony.
 - Sprawdzenie unikalności wszystkich identyfikatorów HTML: brak duplikatów.
 - Zgodność przycisków kart z kontenerami kart: 21/21.
-- Test HTTP uruchomionej aplikacji: strona główna, `tab-ebics.js` i `ebics-compat.js` zwracają 200; znaleziono wszystkie wymagane kontenery kroku drugiego.
+- Test HTTP uruchomionej aplikacji: strona główna, `ui/js/evistdrive/index.js` i `ui/js/evistdrive/legacy-params.js` zwracają 200; znaleziono wszystkie wymagane kontenery kroku drugiego.
 - Test serializacji P1: Walk `5,50 km/h` daje poprawny zapis natywny `550`, bez wcześniejszej utraty części dziesiętnej.
 - Test DOM w Edge: widocznych 8 kart EBICS; utworzono 13 kontrolek Limits, 2 Walk, 11 System oraz po 5 wierszy poziomów i profili Legacy.
 - Test ładowania w trybie headless Edge: moduły wykonały się, a stan bez CAN został poprawnie ustawiony na `unknown`.
