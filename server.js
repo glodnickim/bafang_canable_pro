@@ -790,9 +790,35 @@ const wss = new WebSocket.Server({ server });
 			const delayPart = messageParts[2];
 			const base64Content = messageParts[3];
 			const buffer = Buffer.from(base64Content, 'base64');
+
+			// Refuse before a single byte goes out. Previously the flash started
+			// regardless, wrote into a dead link and failed 15 s later with a timeout
+			// that said nothing about the real cause.
+			if (!canbus.isConnected()) {
+				const reason = 'the CANable adapter is not connected';
+				ws.send(`FW_UPDATE_LOG:[ERROR] Firmware update aborted: ${reason}.`);
+				ws.send(`FW_UPDATE_END:FAILED:${reason}`);
+				return true;
+			}
+			const alive = await canbus.checkAlive({ force: true });
+			if (!alive.ok) {
+				const reason = alive.reason || 'the adapter did not respond';
+				ws.send(`FW_UPDATE_LOG:[ERROR] Firmware update aborted: ${reason}. Reconnect the adapter and try again. This checks the USB adapter only — it cannot tell whether the bike is switched on.`);
+				ws.send(`FW_UPDATE_END:FAILED:${reason}`);
+				return true;
+			}
+
 			const fwUpdater = new FwUpdater(canbus,ws);
 			fwUpdater.delayUs = parseInt(delayPart) || 300;
-			fwUpdater.startUpdateProcedure(buffer,modePart);
+			// Awaited so the flag covers the whole flash: liveness probing and auto-recovery
+			// both stand down while it is set, and a flash is too delay-sensitive to have the
+			// handle pulled out from under it. startUpdateProcedure swallows its own errors.
+			fwUpdateInProgress = true;
+			try {
+				await fwUpdater.startUpdateProcedure(buffer,modePart);
+			} finally {
+				fwUpdateInProgress = false;
+			}
 			return true
 		}
 		return false;

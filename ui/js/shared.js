@@ -872,6 +872,60 @@ export function updateCanInterfaceDisplay(statusType, deviceName = null) {
             enableAppControls(false);
     }
     enableAppControls(true); //for testing, remove later
+    updateWriteControlsGating();
+}
+
+// CB-010: gate only the controls that WRITE to the controller.
+//
+// Deliberately separate from enableAppControls, and deliberately running after the
+// line above: browsing the eVistDrive cards with no bike attached is intentional
+// (profile curves are explored offline), so the sweep that unblocks everything
+// stays. What must not happen offline is a write — a Flash or an Apply that goes
+// nowhere and looks like it worked.
+//
+// Each gated control also gets a small focusable "?" explaining why it is disabled.
+// A bare disabled button tells the user nothing, and `title` alone is invisible on
+// a phone or tablet — the badge's bubble shows on :hover AND :focus.
+export function updateWriteControlsGating() {
+    const linkOk = !!state.isCanConnected;
+    let reason;
+    if (linkOk) reason = '';
+    else if (state.canLinkRecovering) reason = 'Link to the adapter was lost — reconnecting. Writing is blocked until it is back.';
+    else reason = 'Connect the CANable adapter before writing to the controller.';
+
+    document.querySelectorAll('[data-requires-link]').forEach((ctrl) => {
+        // The Flash button additionally needs a file, which is its own pre-existing rule.
+        const needsFile = ctrl.id === 'fwUpdateStartButton';
+        const fileChosen = !needsFile || !!fwUpdateElements.fileInput?.files?.length;
+        const enabled = linkOk && fileChosen;
+        ctrl.disabled = !enabled;
+
+        let why = reason;
+        if (linkOk && needsFile && !fileChosen) why = 'Choose a firmware file first.';
+        ctrl.title = enabled ? '' : why;
+        applyGateBadge(ctrl, enabled ? '' : why);
+    });
+}
+
+// Created once per control and then only shown/hidden with its text swapped:
+// broadcastCanDeviceStatus fires roughly every 3 s, so rebuilding DOM each time
+// would be pure churn.
+function applyGateBadge(ctrl, why) {
+    let badge = ctrl.nextElementSibling;
+    if (!badge?.classList?.contains('write-gate-help')) {
+        if (!why) return; // nothing to show and nothing built yet
+        badge = helpBadge(why);
+        badge.classList.add('write-gate-help');
+        ctrl.parentNode?.insertBefore(badge, ctrl.nextSibling);
+        return;
+    }
+    if (!why) {
+        badge.style.display = 'none';
+        return;
+    }
+    badge.style.display = '';
+    const bubble = badge.querySelector('.tooltiptext');
+    if (bubble) bubble.textContent = why;
 }
 
 export function enableControls(enable) { allControls.forEach(ctrl => ctrl.disabled = !enable); }

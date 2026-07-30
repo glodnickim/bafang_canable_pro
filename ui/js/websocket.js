@@ -5,7 +5,7 @@ import {
     controllerElements, displayElements,
     fwUpdateElements, tabButtons, connectCanButton,
     addLog, autoPopup, updateStatus,
-    updateCanInterfaceDisplay,
+    updateCanInterfaceDisplay, updateWriteControlsGating,
     getProductionDateFromSerial, calculateStartPulse,
     wheelDiameterTable, torqueModel,
 } from './shared.js';
@@ -437,10 +437,24 @@ socket.onmessage = (event) => {
     else if (message.startsWith('FW_UPDATE_LOG:')) { addFwUpdateLog(message.substring('FW_UPDATE_LOG:'.length).trim()); }
     else if (message.startsWith('FW_UPDATE_PROGRESS:')) { updateFwUpdateProgress(message.substring('FW_UPDATE_PROGRESS:'.length).trim()); }
     else if (message.startsWith('FW_UPDATE_END')) {
+        // FW_UPDATE_END[:OK|:FAILED[:reason]]. A bare FW_UPDATE_END is the old form and
+        // says nothing about the outcome — which is exactly why a failed flash used to
+        // look identical to a finished one.
+        const parts = message.split(':');
+        const outcome = (parts[1] || '').trim();
+        const reason = parts.slice(2).join(':').trim();
         fwUpdateElements.fileInput.disabled = false;
-        fwUpdateElements.fileInput.value = "";
+        if (outcome === 'FAILED') {
+            // Keep the selected file so a retry does not mean picking it again.
+            addFwUpdateLog(`[FAILED] Firmware update did not complete${reason ? `: ${reason}` : '.'}`);
+            addLog('ERR', `Firmware update failed${reason ? `: ${reason}` : ''}`);
+        } else {
+            fwUpdateElements.fileInput.value = "";
+            if (outcome === 'OK') addFwUpdateLog('[OK] Firmware update finished.');
+        }
         tabButtons.forEach(button => button.disabled = false);
         connectCanButton.disabled = false;
+        updateWriteControlsGating(); // re-evaluate the Flash button now the file may be gone
     }
     else if (message.startsWith('SNIFFER_ENTRY:')) { addSnifferLog(message.substring('SNIFFER_ENTRY:'.length).trim()); }
     else if (message.startsWith('RIDE_LOGGER_ENTRY:')) { updateRideChart(message.substring('RIDE_LOGGER_ENTRY:'.length).trim()); }

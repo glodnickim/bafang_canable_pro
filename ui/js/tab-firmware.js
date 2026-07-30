@@ -1,20 +1,23 @@
 // tab-firmware.js — ES Module
 import {
-    socket,
+    socket, state,
     fwUpdateElements, tabButtons, connectCanButton,
     safeSetText,
-    addLog,
+    addLog, updateWriteControlsGating,
 } from './shared.js';
 
+// Choosing a file is no longer enough on its own: writing firmware over a link that
+// is not there used to start regardless and fail 15 s later. The connection half of
+// the condition lives in updateWriteControlsGating, which also supplies the reason.
 fwUpdateElements.fileInput.onchange = () => {
-    if (fwUpdateElements.fileInput.files && fwUpdateElements.fileInput.files.length > 0) {
-        fwUpdateElements.startButton.disabled = false;
-    } else {
-        fwUpdateElements.startButton.disabled = true;
-    }
+    updateWriteControlsGating();
 };
 
 fwUpdateElements.startButton.onclick = () => {
+    if (!state.isCanConnected) {
+        addLog('ERR', 'Cannot start the firmware update: the CANable adapter is not connected.');
+        return;
+    }
     fwUpdateElements.logArea.innerHTML = '';
     fwUpdateElements.startButton.disabled = true;
     fwUpdateElements.fileInput.disabled = true;

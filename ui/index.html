@@ -95,7 +95,7 @@
                     <h2 class="section-title text-lg">Controller Settings</h2>
                     <div class="flex gap-2 flex-wrap">
                         <button id="controllerSyncButton" class="btn btn-primary">Sync Controller Data</button>
-                        <button id="controllerSaveButton" class="btn btn-save">Save Controller Changes</button>
+                        <button id="controllerSaveButton" data-requires-link class="btn btn-save">Save Controller Changes</button>
                     </div>
                 </div>
 
@@ -497,13 +497,13 @@
                             <tr>
                                 <th>Position Sensor</th>
                                 <td>
-                                    <button id="ctrlCalibratePositionButton" class="btn btn-warning">Calibrate Position Sensor</button>
+                                    <button id="ctrlCalibratePositionButton" data-requires-link class="btn btn-warning">Calibrate Position Sensor</button>
                                     <small class="form-hint text-red-600 font-semibold not-italic mt-1">WARNING: Motor will spin! Remove chain first!</small>
                                 </td>
                             </tr>
                             <tr>
                                 <th>Torque Sensor</th>
-                                <td><button id="ctrlCalibrateTorqueButton" class="btn btn-primary">Calibrate Torque Sensor</button></td>
+                                <td><button id="ctrlCalibrateTorqueButton" data-requires-link class="btn btn-primary">Calibrate Torque Sensor</button></td>
                             </tr>
                         </tbody>
                     </table>
@@ -529,7 +529,7 @@
                     <h2 class="section-title text-lg">Display Settings</h2>
                     <div class="flex gap-2 flex-wrap">
                         <button id="displaySyncButton" class="btn btn-primary">Sync All Display Data</button>
-                        <button id="displaySaveButton" class="btn btn-save">Save Display Changes</button>
+                        <button id="displaySaveButton" data-requires-link class="btn btn-save">Save Display Changes</button>
                     </div>
                 </div>
 
@@ -717,7 +717,7 @@
                     <h2 class="section-title text-lg">Assist</h2>
                     <div class="flex gap-2 flex-wrap">
                         <button id="gearsSyncButton" class="btn btn-primary">Sync Data</button>
-                        <button id="gearsSaveButton" class="btn btn-save">Save Changes</button>
+                        <button id="gearsSaveButton" data-requires-link class="btn btn-save">Save Changes</button>
                     </div>
                 </div>
 
@@ -892,8 +892,8 @@
                     </div>
                     <div class="flex gap-2 flex-wrap">
                         <button id="ebicsProfilesReadButton" class="btn btn-blue">Read banks</button>
-                        <button id="ebicsProfilesApplyButton" class="btn btn-orange">Write selected bank (RAM)</button>
-                        <button id="ebicsProfilesSaveButton" class="btn btn-red">Save all (Flash)</button>
+                        <button id="ebicsProfilesApplyButton" data-requires-link class="btn btn-orange">Write selected bank (RAM)</button>
+                        <button id="ebicsProfilesSaveButton" data-requires-link class="btn btn-red">Save all (Flash)</button>
                     </div>
                 </div>
                 <div class="ebics-toolbar">
@@ -991,7 +991,7 @@
                         <label>Reference weight (kg): <input id="ebicsCalRefKg" type="number" min="5" max="30" step="0.1" value="11" style="width:6em"></label>
                         <button id="ebicsCalStart" class="btn btn-blue">1. Start (no load)</button>
                         <button id="ebicsCalCapture" class="btn btn-blue">2. Capture load</button>
-                        <button id="ebicsCalSave" class="btn btn-red">3. Save</button>
+                        <button id="ebicsCalSave" data-requires-link class="btn btn-red">3. Save</button>
                         <button id="ebicsCalCancel" class="btn">Cancel</button>
                         <button id="ebicsCalRestore" class="btn">Restore default</button>
                     </div>
@@ -1031,8 +1031,8 @@
                     <div><div class="ebics-kicker">eVistDrive Ride Core</div><h2 class="section-title text-lg">Dynamics</h2></div>
                     <div class="flex gap-2 flex-wrap">
                         <button id="ebicsDynamicsReadButton" class="btn btn-blue">Read tuning</button>
-                        <button id="ebicsDynamicsApplyButton" class="btn btn-orange">Write (RAM)</button>
-                        <button id="ebicsDynamicsSaveButton" class="btn btn-red">Save (Flash)</button>
+                        <button id="ebicsDynamicsApplyButton" data-requires-link class="btn btn-orange">Write (RAM)</button>
+                        <button id="ebicsDynamicsSaveButton" data-requires-link class="btn btn-red">Save (Flash)</button>
                     </div>
                 </div>
                 <p class="text-sm mb-3">Low and high speed/cadence ramps are separate because the controller blends between two response times as riding speed and cadence rise.</p>
@@ -1073,7 +1073,7 @@
                     <div><div class="ebics-kicker">eVistDrive Ride Core</div><h2 class="section-title text-lg">Limits</h2></div>
                     <div class="flex gap-2 flex-wrap">
                         <button id="ebicsLimitsSyncButton" class="btn btn-blue">Read</button>
-                        <button id="ebicsLimitsApplyButton" class="btn btn-orange">Write (RAM)</button>
+                        <button id="ebicsLimitsApplyButton" data-requires-link class="btn btn-orange">Write (RAM)</button>
                     </div>
                 </div>
                 <div class="ebics-toolbar">
@@ -1110,7 +1110,7 @@
                         <label>Full-charge pack voltage
                             <input id="ebicsSocFullInput" type="number" min="20" max="90" step="0.1" class="form-input w-48"> V
                         </label>
-                        <button id="ebicsSocFullSaveButton" class="btn btn-blue">Save</button>
+                        <button id="ebicsSocFullSaveButton" data-requires-link class="btn btn-blue">Save</button>
                     </div>
                 </section>
                 <div class="info-message mt-4"><span>These controls replace the eVistDrive-used electrical, battery and speed fields from Controller Settings. Unused factory bytes remain available only in Debug.</span></div>
@@ -1122,7 +1122,7 @@
                     <div><div class="ebics-kicker">eVistDrive Ride Core</div><h2 class="section-title text-lg">Walk assist</h2></div>
                     <div class="flex gap-2 flex-wrap">
                         <button id="ebicsWalkSyncButton" class="btn btn-blue">Read</button>
-                        <button id="ebicsWalkApplyButton" class="btn btn-orange">Write (RAM)</button>
+                        <button id="ebicsWalkApplyButton" data-requires-link class="btn btn-orange">Write (RAM)</button>
                     </div>
                 </div>
                 <div class="ebics-metric-grid">
@@ -1143,7 +1143,7 @@
                 </div>
                 <div class="ebics-toolbar mt-4">
                     <span id="ebicsCompatibilitySourceWalk" class="ebics-source-note">Preview values — read before writing</span>
-                    <button id="ebicsWalkCutoffSaveButton" class="btn btn-red">Save both banks (Flash)</button>
+                    <button id="ebicsWalkCutoffSaveButton" data-requires-link class="btn btn-red">Save both banks (Flash)</button>
                 </div>
                 <div class="info-message mt-4"><span>Walk Assist holds <b>motor speed</b>, so the target is set as <b>chainring RPM</b> — the gear you select decides how fast the bike walks. "Walk motor current" is the strength ceiling, not a speed. All Walk settings are banked. Timed run is off by default and stops on another button, brake, error, wheel-speed cut-off or timeout.</span></div>
             </div>
@@ -1156,7 +1156,7 @@
                     <div><div class="ebics-kicker">eVistDrive Ride Core</div><h2 class="section-title text-lg">System and protocol</h2></div>
                     <div class="flex gap-2 flex-wrap">
                         <button id="ebicsSystemSyncButton" class="btn btn-blue">Read</button>
-                        <button id="ebicsSystemApplyButton" class="btn btn-orange">Write (RAM)</button>
+                        <button id="ebicsSystemApplyButton" data-requires-link class="btn btn-orange">Write (RAM)</button>
                         <button id="ebicsProbeAgainButton" class="btn btn-secondary">Detect again</button>
                     </div>
                 </div>
@@ -1168,7 +1168,7 @@
                 </div>
                 <h3 class="section-subtitle mt-6">Controller service</h3>
                 <div class="flex gap-2 flex-wrap mb-4">
-                    <button id="ebicsCalibratePositionButton" class="btn btn-warning">Calibrate position sensor</button>
+                    <button id="ebicsCalibratePositionButton" data-requires-link class="btn btn-warning">Calibrate position sensor</button>
                     <button id="ebicsRestoreControllerDefaultsButton" class="btn btn-danger">Restore controller defaults</button>
                     <button id="ebicsClearControllerErrorsButton" class="btn btn-secondary">Clear controller errors</button>
                 </div>
@@ -1244,7 +1244,7 @@
                     <h2 class="section-title text-lg">Assist (Limited)</h2>
                     <div class="flex gap-2 flex-wrap">
                         <button id="gearsSyncButtonM820" class="btn btn-primary">Sync Data</button>
-                        <button id="gearsSaveButtonM820" class="btn btn-save">Save Changes</button>
+                        <button id="gearsSaveButtonM820" data-requires-link class="btn btn-save">Save Changes</button>
                     </div>
                 </div>
 
@@ -1323,7 +1323,7 @@
                     <h2 class="section-title text-lg">Device Information</h2>
                     <div class="flex gap-2 flex-wrap">
                         <button id="infoSyncButton" class="btn btn-primary">Sync All Info Data</button>
-                        <button id="infoSaveButton" class="btn btn-save">Save Info Changes</button>
+                        <button id="infoSaveButton" data-requires-link class="btn btn-save">Save Info Changes</button>
                     </div>
                 </div>
 
@@ -1439,7 +1439,7 @@
                             <option value="controller_params_6018">Controller Block (6018)</option>
                         </select>
                         <button id="rawParamSyncButton" class="btn btn-primary whitespace-nowrap">Sync Selected</button>
-                        <button id="rawParamSaveButton" class="btn btn-save whitespace-nowrap">Save Selected</button>
+                        <button id="rawParamSaveButton" data-requires-link class="btn btn-save whitespace-nowrap">Save Selected</button>
                     </div>
                     <div class="flex flex-wrap gap-2 mb-3">
                         <select id="rawDestSelect" class="form-select w-36">
@@ -1453,7 +1453,7 @@
                         <button id="rawParamCustomSyncButton" class="btn btn-primary whitespace-nowrap">Sync Custom</button>
                         <button id="rawParamCustomSyncIntervalStartButton" class="btn btn-success whitespace-nowrap">Interval Start (1s)</button>
                         <button id="rawParamCustomSyncIntervalStopButton" class="btn btn-danger whitespace-nowrap">Interval Stop</button>
-                        <button id="rawParamCustomSaveButton" class="btn btn-save whitespace-nowrap">Save Custom</button>
+                        <button id="rawParamCustomSaveButton" data-requires-link class="btn btn-save whitespace-nowrap">Save Custom</button>
                     </div>
                     <div class="hex-editor-container overflow-x-auto mt-3">
                         <table id="hexEditorTable">
@@ -1477,7 +1477,7 @@
             <div class="tab-content" id="tab-fwUpdate">
                 <div class="flex items-center justify-between mb-5 flex-wrap gap-2">
                     <h2 class="section-title text-lg">Firmware Update</h2>
-                    <button id="fwUpdateStartButton" disabled class="btn btn-success">Start Update Procedure</button>
+                    <button id="fwUpdateStartButton" data-requires-link disabled class="btn btn-success">Start Update Procedure</button>
                 </div>
 
                 <div class="overflow-x-auto mb-4">

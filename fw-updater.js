@@ -148,6 +148,13 @@ class FwUpdater {
         });
     }
     async sendRawFrameWithRetry(id,data,retries = 3){
+        // Every step of the flash funnels through here, so one check covers all of them.
+        // Without it a link that dies mid-flash is only noticed at the next ACK checkpoint
+        // — up to 255 chunks later — or at a step timeout 15 s on, and the failure reads
+        // as a cryptic timeout instead of what actually happened.
+        if (!this.canbus.isConnected()) {
+            throw new Error('CAN link lost during the firmware update — the adapter stopped responding.');
+        }
         let sent = false;
         let tryCount = 0;
         //this.logMessage(`Sending ID:${this.leadingIdNum+id}`, 'SENT');
@@ -179,7 +186,9 @@ class FwUpdater {
         do{
             await this.sendRawFrameWithRetry("5FF3005","00",0);
             await delay(60);
-        }while(!this.controllerReady && !this.end);
+            // Also stop on a dead link, so this loop cannot keep writing frames into a
+            // handle that step 2 already gave up on.
+        }while(!this.controllerReady && !this.end && this.canbus.isConnected());
     }
     async checkForControllerReady(){
         this.logMessage('Step 2:Waiting for controler ready state...', 'INFO');
@@ -192,7 +201,9 @@ class FwUpdater {
             //     this.setupForOldMotor();
             // }
             if (Date.now() - this.startTime > this.timeout) {
-                throw 'Step 2: Timeout reached, exiting loop....'
+                // Reworded deliberately: the pre-flight only checks the USB adapter, so a
+                // powered-down bike still reaches this point. Say what to look at.
+                throw 'Step 2: the controller never announced it was ready. Is the bike switched on and the CAN harness connected?'
             }
         }while(!this.controllerReady);
     }
@@ -310,8 +321,25 @@ class FwUpdater {
         await delay(1000);
     }
 
+    // Is the adapter itself responding? Checked before the first byte goes out, because
+    // writing firmware into a dead link is the worst way to find out.
+    //
+    // Deliberately ADAPTER ONLY — it does not ask the controller anything. So "adapter
+    // fine, bike switched off" still passes here and fails later, at step 2, with the
+    // reworded message that says to check the bike.
+    async preflightAdapter() {
+        if (!this.canbus.isConnected()) {
+            return { ok: false, reason: 'the CANable adapter is not connected' };
+        }
+        if (typeof this.canbus.checkAlive !== 'function') return { ok: true }; // older canbus
+        const alive = await this.canbus.checkAlive({ force: true });
+        return alive.ok ? { ok: true } : { ok: false, reason: alive.reason || 'the adapter did not respond' };
+    }
+
     async startUpdateProcedure(fileBuffer,mode="CONTROLER") {
         const startTime = performance.now();
+        let ok = false;
+        let failureReason = '';
         try {
             this.init();
             if(mode == "HMI")
@@ -327,9 +355,23 @@ class FwUpdater {
             else
                 this.setupForNewMotor()
             this.logToFile = await setupLogger();
+            // Placed after setupLogger on purpose: logMessage() calls this.logToFile
+            // unconditionally, so anything logged before this line throws internally and
+            // never reaches the browser. fw-update-cli.js bypasses the server entirely,
+            // which is why the check lives here as well as in the server handler.
+            const preflight = await this.preflightAdapter();
+            if (!preflight.ok) {
+                throw `Firmware update aborted before sending anything: ${preflight.reason}. `
+                    + 'Reconnect the adapter and try again. Note this checks the USB adapter only '
+                    + '— it cannot tell whether the bike is switched on.';
+            }
             this.initFile(fileBuffer);
-            this.emitProgress()
-            this.announceHostReady();
+            // Both loops run until this.end and must NOT be plain-awaited — announceHostReady
+            // is meant to run concurrently with checkForControllerReady. Keep the promises so
+            // their rejections are handled instead of becoming unhandled, and so they can be
+            // drained in finally rather than writing into a torn-down handle afterwards.
+            this.progressLoop = this.emitProgress().catch((e) => this.logMessage(`Progress reporting stopped: ${e.message || e}`, 'ERROR', false));
+            this.hostReadyLoop = this.announceHostReady().catch((e) => this.logMessage(`Host-ready announce stopped: ${e.message || e}`, 'ERROR'));
             await this.checkForControllerReady();
             await delay(20);
             if(this.readyIdSent.includes('4000')){
@@ -351,17 +393,26 @@ class FwUpdater {
             else
                 await this.announceFirmwareUpgradeEndOld();
             this.logMessage('Firmware update completed successfully!', 'INFO');
+            ok = true;
         } catch (error) {
+            failureReason = `${error?.message || error}`;
             this.logMessage(error, 'ERROR');
             this.logMessage('Firmware update failed or was not completed.', 'ERROR');
         } finally {
             this.end = true
+            // Drain the concurrent loops before reporting the end, so neither can still be
+            // sending frames or progress after we have declared the procedure over.
+            try { await this.hostReadyLoop; } catch { /* already reported by its own catch */ }
+            try { await this.progressLoop; } catch { /* already reported by its own catch */ }
             const endTime = performance.now();
             const timeInSeconds = (endTime - startTime) / 1000;
             this.logMessage(`Runtime: ${timeInSeconds}s`,'INFO');
             if(this.ws)
-                this.ws.send(`FW_UPDATE_END`);
+                // The outcome travels with the message. It used to be a bare FW_UPDATE_END
+                // on both paths, so a failed flash looked exactly like a finished one.
+                this.ws.send(ok ? 'FW_UPDATE_END:OK' : `FW_UPDATE_END:FAILED:${failureReason}`);
         }
+        return ok;
     }
 
 }
