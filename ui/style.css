@@ -174,12 +174,20 @@ details[open] > summary.ebics-card-title { margin-bottom: 12px; }
     cursor: help; position: relative;
 }
 .ebics-help:hover, .ebics-help:focus { background: #94a3b8; outline: none; }
+/* position: fixed, not absolute, and placed by helpBadge() in shared.js.
+ *
+ * Two separate things used to cut these bubbles off. An absolutely positioned bubble is
+ * clipped by any ancestor that scrolls — and the markup has 37 `overflow-x-auto`
+ * containers — so a help bubble inside a wide table was chopped no matter where the page
+ * sat. On top of that, a bubble centred on a badge near the window edge simply ran off
+ * screen. Taking it out of the flow fixes the clipping; the JS clamp fixes the edges. The
+ * old nth-child(2n) rules guessed at the second problem for even columns only. */
 .ebics-help .tooltiptext {
     visibility: hidden; opacity: 0;
-    width: max-content; max-width: 260px;
+    width: max-content; max-width: min(320px, calc(100vw - 24px));
     background-color: #1f2937; color: #f9fafb;
     text-align: left; border-radius: 6px; padding: 8px 10px;
-    position: absolute; z-index: 20; bottom: 135%; left: 50%; transform: translateX(-50%);
+    position: fixed; z-index: 60; top: 0; left: 0;
     transition: opacity 0.15s ease-out, visibility 0s linear 0.15s;
     font-size: 11px; font-weight: 400; line-height: 1.4;
     pointer-events: none; box-shadow: 0 4px 12px rgba(0,0,0,0.35); white-space: normal;
@@ -187,16 +195,18 @@ details[open] > summary.ebics-card-title { margin-bottom: 12px; }
 .ebics-help:hover .tooltiptext, .ebics-help:focus .tooltiptext {
     visibility: visible; opacity: 1; transition-delay: 0s, 0s;
 }
+/* --arrow-x is set by the positioning code so the pointer keeps aiming at the badge even
+   after the bubble has been clamped sideways. */
 .ebics-help .tooltiptext::after {
-    content: ""; position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+    content: ""; position: absolute; top: 100%; left: var(--arrow-x, 50%); transform: translateX(-50%);
     border-width: 5px; border-style: solid;
     border-color: #1f2937 transparent transparent transparent;
 }
-/* Fields near the right edge of a row would otherwise clip the centered bubble off-screen. */
-.ebics-field:nth-child(2n) .ebics-help .tooltiptext,
-.ebics-toolbar .ebics-help .tooltiptext { left: auto; right: 0; transform: none; }
-.ebics-field:nth-child(2n) .ebics-help .tooltiptext::after,
-.ebics-toolbar .ebics-help .tooltiptext::after { left: auto; right: 6px; transform: none; }
+/* Flipped below the badge when there is no room above it. */
+.ebics-help .tooltiptext.tooltip-below::after {
+    top: auto; bottom: 100%;
+    border-color: transparent transparent #1f2937 transparent;
+}
 .ebics-limp-summary {
     padding: 10px 12px;
     border: 1px solid #bfdbfe;

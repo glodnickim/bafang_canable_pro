@@ -1145,5 +1145,40 @@ export function helpBadge(helpText) {
     bubble.className = 'tooltiptext';
     bubble.textContent = helpText;
     badge.appendChild(bubble);
+    // The bubble is position:fixed (see style.css), so it has to be placed by hand — but
+    // that is also what stops a scrolling ancestor from clipping it.
+    const place = () => positionHelpBubble(badge, bubble);
+    badge.addEventListener('mouseenter', place);
+    badge.addEventListener('focus', place);
     return badge;
+}
+
+// Put the bubble above the badge, centred, then pull it back inside the window if it does
+// not fit. Long help texts on fields at the far right or the top of the page used to run
+// off screen and simply could not be read.
+const HELP_BUBBLE_MARGIN = 8; // keep this much clear of every window edge
+export function positionHelpBubble(badge, bubble) {
+    // Measure while it is laid out but before it is painted at the wrong place: the
+    // stylesheet keeps it hidden until :hover/:focus, and reading offsetWidth here forces
+    // the layout we need.
+    const anchor = badge.getBoundingClientRect();
+    const width = bubble.offsetWidth;
+    const height = bubble.offsetHeight;
+
+    let left = anchor.left + anchor.width / 2 - width / 2;
+    left = Math.max(HELP_BUBBLE_MARGIN, Math.min(left, window.innerWidth - width - HELP_BUBBLE_MARGIN));
+
+    // Above by default; below when the top of the window is in the way.
+    const spaceAbove = anchor.top;
+    const below = spaceAbove < height + HELP_BUBBLE_MARGIN * 2;
+    const top = below
+        ? anchor.bottom + HELP_BUBBLE_MARGIN
+        : anchor.top - height - HELP_BUBBLE_MARGIN;
+
+    bubble.classList.toggle('tooltip-below', below);
+    bubble.style.left = `${Math.round(left)}px`;
+    bubble.style.top = `${Math.round(top)}px`;
+    // Keep the arrow pointing at the badge after any sideways clamping.
+    const arrowX = anchor.left + anchor.width / 2 - left;
+    bubble.style.setProperty('--arrow-x', `${Math.round(Math.max(10, Math.min(arrowX, width - 10)))}px`);
 }
