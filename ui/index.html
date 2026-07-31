@@ -1148,7 +1148,11 @@
                     </div>
                 </div>
                 <div class="ebics-metric-grid">
-                    <div class="ebics-metric"><span>Walk motor current</span><b><span id="ebicsWalkCurrent">N/A</span> %</b></div>
+                    <!-- CB-019: "Walk motor current" removed. The value is stored in the bank
+                         and reported back correctly, but no firmware code reads it — walk
+                         current is fixed by constants in walk_assist_motor.c. The byte stays
+                         in the blob so stored banks keep their layout; only the control and
+                         the readout are gone. -->
                     <div class="ebics-metric"><span>Walk chainring speed</span><b><span id="ebicsWalkSpeed">N/A</span> RPM</b></div>
                 </div>
                 <div id="ebicsWalkStatus" class="placeholder-text">Click Read to load Walk settings from both profile banks.</div>

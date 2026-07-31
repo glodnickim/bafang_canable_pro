@@ -12,7 +12,6 @@ export function updateWalkAndLegacy() {
     const p2 = state.controllerParams2;
     const walkBankIndex = state.lastBanks?.[0]?.active_bank ?? state.lastBanks?.[1]?.active_bank ?? 0;
     const walkBank = state.banksSynced ? state.lastBanks?.[walkBankIndex] : null;
-    setText('ebicsWalkCurrent', walkBank?.wa_current_pct ?? 'N/A');
     setText('ebicsWalkSpeed', displayNumber(walkBank?.wa_target_rpm, 0));
     const rows = [
         ['0x6010', 'Acceleration table entries', p0?.acceleration_levels?.length ?? 'N/A'],
@@ -20,7 +19,9 @@ export function updateWalkAndLegacy() {
         ['0x6011', 'System voltage', isNumber(p1?.system_voltage) ? `${p1.system_voltage} V` : 'N/A'],
         ['0x6011', 'Battery current limit', isNumber(p1?.current_limit) ? `${p1.current_limit} A` : 'N/A'],
         ['0x6011', 'Stored low-charge current byte', isNumber(p1?.max_current_on_low_charge) ? `${p1.max_current_on_low_charge} A` : 'N/A'],
-        ['0x6020', 'Walk motor current', walkBank?.wa_current_pct != null ? `${walkBank.wa_current_pct} %` : 'N/A'],
+        // CB-019: Walk motor current is not listed — the byte travels but firmware never
+        // reads it (assist_modes_get_wa_current_pct has no caller), so showing it here
+        // would suggest a setting that does nothing.
         ['0x6020', 'Walk chainring speed', isNumber(walkBank?.wa_target_rpm) ? `${walkBank.wa_target_rpm.toFixed(0)} RPM` : 'N/A'],
         ['0x6012', 'Torque profile rows', p2?.torque_profiles?.length ?? 'N/A'],
     ];

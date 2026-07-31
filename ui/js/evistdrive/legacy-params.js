@@ -615,7 +615,6 @@ const WALK_FIELD_PLACEHOLDERS = [
 function renderWalkActiveSummary() {
     const active = state.lastBanks?.[0]?.active_bank ?? state.lastBanks?.[1]?.active_bank ?? 0;
     const { bank, hasData } = bankStateFor(active);
-    if (el('ebicsWalkCurrent')) el('ebicsWalkCurrent').textContent = hasData ? (bank.wa_current_pct ?? 'N/A') : String(bank.wa_current_pct);
     if (el('ebicsWalkSpeed')) el('ebicsWalkSpeed').textContent = hasData ? (bank.wa_target_rpm ?? 'N/A') : String(bank.wa_target_rpm);
 }
 
@@ -648,11 +647,16 @@ function renderWalkFields() {
                 : (isEbicsConnected() ? '— ⚠ not read yet' : '— offline default');
             label.classList.toggle('ebics-stale-warning', !hasData && isEbicsConnected());
         }
-        createField(container, bank, {
-            key: 'wa_current_pct', label: 'Walk motor current', unit: '%', min: 1, max: 100, step: 1,
-            onChange: renderWalkActiveSummary,
-            help: 'How strong Walk Assist is allowed to push, as a percentage of its own current ceiling (kept deliberately separate from your normal riding current limits, for safety). Higher pulls harder, but is also more likely to feel jerky on a light bike.',
-        });
+        // CB-019: "Walk motor current" removed. The value travels correctly all the way —
+        // Para1[36] seeds it, the bank stores it in byte 8, the controller reports it back —
+        // but nothing in firmware ever reads it: assist_modes_get_wa_current_pct() has no
+        // caller, and walk_assist_motor.c limits current with fixed constants
+        // (WA_MOTOR_IQ_ABS_MAX, WA_MOTOR_RUN_MAX_IQ). A slider that looks like the main
+        // strength control and moves nothing is worse than no slider.
+        //
+        // The byte itself stays in the blob, untouched: dropping it would change the bank
+        // layout and invalidate every bank already stored in a controller. Whatever was
+        // read is written back unchanged.
         createField(container, bank, {
             key: 'wa_target_rpm', label: 'Walk chainring speed', unit: 'RPM', min: 20, max: 60, step: 1,
             onChange: renderWalkActiveSummary,
