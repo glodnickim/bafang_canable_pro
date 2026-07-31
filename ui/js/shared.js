@@ -1222,11 +1222,31 @@ export function syncAllDeviceInfo() {
     batteryInfoSend();
 }
 
+// One open tooltip at a time: tapping a second badge closes the first, so a touch user
+// never ends up with a screen full of stacked bubbles they cannot dismiss.
+let openHelpBadge = null;
+
+function closeOpenHelpBadge() {
+    if (!openHelpBadge) return;
+    openHelpBadge.classList.remove('is-open');
+    openHelpBadge.setAttribute('aria-expanded', 'false');
+    openHelpBadge = null;
+}
+
 export function helpBadge(helpText) {
-    const badge = document.createElement('span');
+    /*
+     * A <button>, not a <span tabindex=0>. The bubble used to appear on :hover and :focus
+     * only, which covers mouse and keyboard but NOT touch: tapping a non-interactive
+     * element does not reliably focus it on mobile, and there was no way to dismiss the
+     * bubble afterwards. A real button is tappable, announces itself to screen readers,
+     * and gives us a click to toggle on.
+     */
+    const badge = document.createElement('button');
+    badge.type = 'button'; // never submit: these sit inside forms on some tabs
     badge.className = 'ebics-help';
-    badge.tabIndex = 0;
     badge.textContent = '?';
+    badge.setAttribute('aria-label', 'Show help for this setting');
+    badge.setAttribute('aria-expanded', 'false');
     const bubble = document.createElement('span');
     bubble.className = 'tooltiptext';
     bubble.textContent = helpText;
@@ -1236,8 +1256,25 @@ export function helpBadge(helpText) {
     const place = () => positionHelpBubble(badge, bubble);
     badge.addEventListener('mouseenter', place);
     badge.addEventListener('focus', place);
+    badge.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation(); // a click on the page closes bubbles; this one must not
+        const wasOpen = badge.classList.contains('is-open');
+        closeOpenHelpBadge();
+        if (wasOpen) return;
+        place();
+        badge.classList.add('is-open');
+        badge.setAttribute('aria-expanded', 'true');
+        openHelpBadge = badge;
+    });
     return badge;
 }
+
+// Tap anywhere else, or press Escape, to dismiss. Registered once for the whole page.
+document.addEventListener('click', closeOpenHelpBadge);
+document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') closeOpenHelpBadge();
+});
 
 // Put the bubble above the badge, centred, then pull it back inside the window if it does
 // not fit. Long help texts on fields at the far right or the top of the page used to run

@@ -169,7 +169,25 @@ export function fieldInput(container, target, descriptor, onChanged) {
     wrapper.className = 'ebics-field';
     const label = document.createElement('label');
     label.append(descriptor.unit ? `${descriptor.label} (${descriptor.unit})` : descriptor.label);
-    if (descriptor.help) label.appendChild(helpBadge(descriptor.help));
+    if (descriptor.help) {
+        const details = [descriptor.help];
+        if (Object.prototype.hasOwnProperty.call(descriptor, 'factoryDefault')) {
+            const fromNative = descriptor.fromNative || ((value) => value);
+            const rawDefault = descriptor.factoryDefault;
+            const displayDefault = descriptor.type === 'checkbox'
+                ? (rawDefault ? 'On' : 'Off')
+                : fromNative(rawDefault);
+            const suffix = descriptor.type === 'checkbox' || !descriptor.unit
+                ? '' : ` ${descriptor.unit}`;
+            details.push(`${descriptor.factoryDefaultLabel || 'Factory default'}: ${displayDefault}${suffix}.`);
+        }
+        if (descriptor.type !== 'checkbox'
+            && Number.isFinite(descriptor.min) && Number.isFinite(descriptor.max)) {
+            const suffix = descriptor.unit ? ` ${descriptor.unit}` : '';
+            details.push(`Allowed range: ${descriptor.min}-${descriptor.max}${suffix}.`);
+        }
+        label.appendChild(helpBadge(details.join(' ')));
+    }
     wrapper.appendChild(label);
 
     const input = document.createElement('input');
