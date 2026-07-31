@@ -780,8 +780,17 @@ export function enableAppControls(enable) {
     if (debugElements.canDataInput) debugElements.canDataInput.disabled = false;
 }
 
+// Repainting this means walking every control in every tab twice, via enableAppControls.
+// Bringing a link up sends several status messages in a row, and repainting for each one
+// is what made the whole interface flash. Nothing below depends on being re-run for an
+// unchanged status, so the identical repeat is dropped.
+let lastRenderedStatus = null;
+
 // `detail` carries the reason a link was lost (CB-010); the other states ignore it.
 export function updateCanInterfaceDisplay(statusType, deviceName = null, detail = null) {
+    const signature = `${statusType}|${deviceName}|${detail}`;
+    if (signature === lastRenderedStatus) return;
+    lastRenderedStatus = signature;
     if (!statusIndicator || !statusText || !connectCanButton || !canDeviceNameElement) {
         console.error("One or more essential UI status elements are missing!");
         addLog("ERROR", "UI Error: Status elements missing.");
@@ -806,7 +815,6 @@ export function updateCanInterfaceDisplay(statusType, deviceName = null, detail 
             connectCanButton.textContent = 'Connect';
             connectCanButton.disabled = true;
             canDeviceNameElement.textContent = 'No compatible device detected.';
-            enableAppControls(false);
             break;
         case 'FOUND':
             state.isCanDeviceFound = true;
@@ -816,7 +824,6 @@ export function updateCanInterfaceDisplay(statusType, deviceName = null, detail 
             connectCanButton.textContent = 'Connect';
             connectCanButton.disabled = false;
             canDeviceNameElement.textContent = `Device: ${deviceName}`;
-            enableAppControls(false);
             break;
         case 'CONNECTED':
             state.isCanDeviceFound = true;
@@ -837,7 +844,6 @@ export function updateCanInterfaceDisplay(statusType, deviceName = null, detail 
             connectCanButton.textContent = 'Connect';
             connectCanButton.disabled = false;
             canDeviceNameElement.textContent = `Device: ${deviceName}`;
-            enableAppControls(false);
             break;
         case 'CONNECTING':
             state.currentCanDeviceName = deviceName;
@@ -846,14 +852,12 @@ export function updateCanInterfaceDisplay(statusType, deviceName = null, detail 
             connectCanButton.textContent = 'Connecting...';
             connectCanButton.disabled = true;
             canDeviceNameElement.textContent = deviceName ? `Device: ${deviceName}` : 'Attempting connection...';
-            enableAppControls(false);
             break;
         case 'DISCONNECTING':
             statusText.textContent = `Disconnecting`;
             statusIndicator.style.backgroundColor = '#ffc107';
             connectCanButton.textContent = 'Disconnecting...';
             connectCanButton.disabled = true;
-            enableAppControls(false);
             break;
         // CB-010: the adapter is still plugged in but the link to it died — the state
         // after the host sleeps. Previously this showed a green "Connected" pill over a
@@ -866,7 +870,6 @@ export function updateCanInterfaceDisplay(statusType, deviceName = null, detail 
             connectCanButton.textContent = 'Reconnecting...';
             connectCanButton.disabled = true;
             canDeviceNameElement.textContent = detail ? `Reason: ${detail}` : 'Reopening the adapter...';
-            enableAppControls(false);
             break;
         case 'LINK_LOST':
             state.currentCanDeviceName = deviceName;
@@ -878,7 +881,6 @@ export function updateCanInterfaceDisplay(statusType, deviceName = null, detail 
             canDeviceNameElement.textContent = detail
                 ? `Adapter stopped responding: ${detail}`
                 : 'The adapter stopped responding. Press Reconnect.';
-            enableAppControls(false);
             break;
         case 'ERROR':
             state.currentCanDeviceName = null;
@@ -887,7 +889,6 @@ export function updateCanInterfaceDisplay(statusType, deviceName = null, detail 
             connectCanButton.textContent = 'Connect';
             connectCanButton.disabled = true;
             canDeviceNameElement.textContent = 'Check connection or logs.';
-            enableAppControls(false);
             break;
         default:
             state.currentCanDeviceName = null;
@@ -896,8 +897,11 @@ export function updateCanInterfaceDisplay(statusType, deviceName = null, detail 
             connectCanButton.textContent = 'Connect';
             connectCanButton.disabled = true;
             canDeviceNameElement.textContent = '';
-            enableAppControls(false);
     }
+    // Each branch above used to call enableAppControls(false) first, and this line undid it
+    // one statement later — so every status message disabled every control in every tab and
+    // immediately re-enabled them. That round trip was the interface visibly flashing on
+    // connect. They are gone; this stays (see the note on offline browsing).
     enableAppControls(true); //for testing, remove later
     updateWriteControlsGating();
 }

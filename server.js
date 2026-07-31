@@ -225,8 +225,20 @@ function broadcastCanDeviceStatus() {
             messageToSend = 'CAN_DEVICE_STATUS:NOT_FOUND';
         }
     }
-    console.log(`Broadcasting: ${messageToSend}`); 
+    // Only when something actually changed. Bringing a link up produces a burst of these
+    // (NOT_FOUND, FOUND, CONNECTING, FOUND, ...), and each one makes the browser walk every
+    // control in every tab twice — which is the whole interface visibly flashing.
+    if (messageToSend === lastBroadcastStatus) return;
+    lastBroadcastStatus = messageToSend;
+    console.log(`Broadcasting: ${messageToSend}`);
     broadcastToClients(messageToSend);
+}
+let lastBroadcastStatus = null;
+
+// A newly connected browser has seen nothing yet, so the next broadcast must reach it
+// even if the status has not changed since the last client connected.
+function forgetLastBroadcastStatus() {
+    lastBroadcastStatus = null;
 }
 
 // --- WebSocket Server ---
@@ -930,6 +942,7 @@ const wss = new WebSocket.Server({ server });
 		console.log('New WebSocket client connected');
 		if (!isCheckingPresence) { await checkCanDevicePresenceAndUpdateGlobal(); }
 		else { await new Promise(resolve => setTimeout(resolve, 200)); }
+		forgetLastBroadcastStatus(); // this browser has seen nothing yet
 		broadcastCanDeviceStatus();
 
 		ws.on('message', async (message) => {
