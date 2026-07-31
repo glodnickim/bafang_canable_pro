@@ -1,4 +1,4 @@
-﻿// FW-027/FW-028 diag: standalone logger for the TSDZ-runaway debug frames.
+﻿// FW-027/FW-028 diag: standalone logger for the ride-core runaway debug frames.
 // Logs the original gate/request frame (CAN ID 0x00010203) plus the optional
 // FOC/PWM extension frame (CAN ID 0x00010204) into one CSV row.
 //

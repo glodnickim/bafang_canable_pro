@@ -8,7 +8,7 @@ import { el, setText, socketReady } from './common.js';
 
 const DIAG_POLL_INTERVAL_MS = 100; // 10 Hz
 
-// FW-015/017: TSDZ diagnostics card (peak + live)
+// FW-015/017: ride-core diagnostics card (peak + live)
 export function updateDiagUI(d) {
     if (!d) return;
     // peak

@@ -414,7 +414,7 @@ const wss = new WebSocket.Server({ server });
 			} catch (e) { ws.send(`ERROR: READ_DIAG failed: ${e.message}`); }
 			return true;
 		}
-		// FW-030: SET_ENGINE removed (single TSDZ engine).
+		// FW-030: SET_ENGINE removed (single ride-core engine).
 		if (messageString.startsWith('SET_SOC_FULL:')) { // FW-018: full-charge pack voltage; arg = pack10mv (10 mV units)
 			try {
 				const pack10mv = parseInt(messageString.substring('SET_SOC_FULL:'.length), 10);

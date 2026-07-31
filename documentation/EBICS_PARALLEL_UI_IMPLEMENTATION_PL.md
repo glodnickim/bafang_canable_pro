@@ -35,8 +35,8 @@ Karty EBICS są niewidoczne do chwili potwierdzenia sygnatury Ride Core:
 2. `EBICS Profiles` — osobny edytor banku i poziomu. Pokazuje tylko pola właściwe dla wybranego silnika:
    - Power Linear: wsparcie mocy rowerzysty w `%`;
    - Power Progressive: minimum, maksimum, moc odniesienia i progresja;
-   - Torque TSDZ: `Torque gain`, gdzie 120 oznacza 1,0×;
-   - eMTB TSDZ: czułość, zależność od kadencji i napięcie odniesienia.
+   - Torque: `Torque gain`, gdzie 120 oznacza 1,0×;
+   - eMTB: czułość, zależność od kadencji i napięcie odniesienia.
 3. `EBICS Torque` — odczyt nacisku 0–60 kg, wskaźnik oraz jawny kontrakt autokalibracji.
 4. `EBICS Dynamics` — oddzielne rampy narastania/opadania dla niskiej i wysokiej prędkości/kadencji oraz wykres zaniku startup boost.
 5. `EBICS Limits` — limity prądu, mocy i Iq, pełna edycja elektryki/baterii, Legal Flag oraz bloku prędkości i koła.

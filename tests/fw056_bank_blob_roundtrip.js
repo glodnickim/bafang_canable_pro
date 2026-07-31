@@ -57,6 +57,27 @@ const curveLevels = [
     level({ mode_type: 2, progression_pct: 40 }),
     level({ mode_type: 1, support_ratio_pct: 320 }),
 ];
+
+// --- FW-073: every mode number must survive a round trip UNCHANGED -------------------
+// A stored bank carries the NUMBER, not the name. FW-073 renamed ASSIST_MODE_EMTB_TSDZ to
+// ASSIST_MODE_EMTB; had that rename taken the value with it, a bank saved as eMTB would come
+// back as a different mode after the update, silently and with no error. Modes 1, 2 and 6
+// were already covered above — 3, 4 and 5 were not, which is exactly where the risk sat.
+[1, 2, 3, 4, 5, 6].forEach((modeType) => {
+    const trip = roundTrip(bank(5, [
+        level({ mode_type: modeType }), level({}), level({}), level({}), level({}),
+    ]));
+    check(!trip.parsed.parseError, `mode ${modeType}: blob failed to parse`);
+    check(trip.bytes[13] === modeType,
+        `mode ${modeType} must be written as ${modeType} in record byte 0, got ${trip.bytes[13]}`);
+    check(trip.parsed.levels[0].mode_type === modeType,
+        `mode ${modeType} must read back as ${modeType}, got ${trip.parsed.levels[0].mode_type}`);
+});
+// eMTB in particular, spelled out: this is the value FW-073 could have moved.
+const emtb = roundTrip(bank(5, [level({ mode_type: 3, emtb_parameter: 140 }),
+    level({}), level({}), level({}), level({})]));
+check(emtb.parsed.levels[0].mode_type === 3, 'eMTB must stay wire value 3');
+check(emtb.parsed.levels[0].emtb_parameter === 140, 'eMTB parameter must survive with it');
 const v4 = roundTrip(bank(4, curveLevels));
 check(v4.bytes.length === 189, `v4 blob must stay 189 B, got ${v4.bytes.length}`);
 check(v4.bytes[2] === 4, `v4 blob must carry version 4, got ${v4.bytes[2]}`);
