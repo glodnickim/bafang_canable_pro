@@ -20,7 +20,11 @@ const HUMAN_POWER_CENTIKG_RPM_DENOMINATOR = 1000;
 
 function tintProfileCards(levelIndex) {
     const tint = hexToRgba(LEVEL_COLORS[levelIndex] || '#475569', 0.16);
-    ['ebicsProfileModeCard', 'ebicsProfileSharedCard', 'ebicsProfileChartCard'].forEach((id) => {
+    // FW-069/071: the ramp charts belong to the edited LEVEL, exactly like the engine preview,
+    // so they carry the level colour too. Without it they were the only per-level cards on the
+    // page left white, which read as "these are global" — the opposite of what they are.
+    ['ebicsProfileModeCard', 'ebicsProfileSharedCard', 'ebicsProfileChartCard',
+        'ebicsProfileAccelerationCard', 'ebicsProfileDecelerationCard'].forEach((id) => {
         const node = el(id);
         if (node) node.style.backgroundColor = tint;
     });
@@ -30,11 +34,11 @@ function modeFields(mode) {
     if (mode === 2) {
         return [
             { key: 'support_min_pct', label: 'Minimum support', unit: '%', min: 0, max: 1000, step: 10,
-                help: 'Support percentage used at very low pedal power, before "Reference rider power" is reached.' },
+                help: 'Support percentage used at very low pedal power, before "Reference rider power" is reached. Lower values make genuinely light assistance easier; higher values make the motor contribute more even on a gentle pedal input.' },
             { key: 'support_max_pct', label: 'Maximum support', unit: '%', min: 0, max: 1000, step: 10,
-                help: 'Support percentage used once your pedal power reaches "Reference rider power" (or goes above it).' },
+                help: 'Support percentage used once your pedal power reaches "Reference rider power" (or goes above it). Higher values give a stronger top end; lower values keep hard pedalling more natural.' },
             { key: 'reference_power_w', label: 'Reference rider power', unit: 'W', min: 20, max: 1000, step: 10,
-                help: 'Rider power at which support ramps from Minimum to Maximum. Below this you get closer to Minimum support; at or above it you get Maximum support.' },
+                help: 'Rider power at which support ramps from Minimum to Maximum. Lower values reach Maximum support sooner; higher values require more rider effort before the full support ratio is used.' },
             { key: 'progression_pct', label: 'Progression', unit: '%', min: 0, max: 100, step: 5,
                 help: 'Shapes the ramp from Minimum to Maximum support between 0 W and Reference rider power: 0% = straight line, higher curves it so support builds up faster as you approach Reference rider power.' },
         ];
@@ -44,11 +48,11 @@ function modeFields(mode) {
         // exponent instead of a blend of a straight and a squared curve.
         return [
             { key: 'support_min_pct', label: 'Minimum support', unit: '%', min: 0, max: 1000, step: 10,
-                help: 'Support percentage used at very low pedal power, before "Reference rider power" is reached.' },
+                help: 'Support percentage used at very low pedal power, before "Reference rider power" is reached. Lower values make genuinely light assistance easier; higher values make the motor contribute more even on a gentle pedal input.' },
             { key: 'support_max_pct', label: 'Maximum support', unit: '%', min: 0, max: 1000, step: 10,
-                help: 'Support percentage used once your pedal power reaches "Reference rider power" (or goes above it).' },
+                help: 'Support percentage used once your pedal power reaches "Reference rider power" (or goes above it). Higher values give a stronger top end; lower values keep hard pedalling more natural.' },
             { key: 'reference_power_w', label: 'Reference rider power', unit: 'W', min: 20, max: 1000, step: 10,
-                help: 'Rider power at which support reaches Maximum. The curve below shapes everything between 0 W and this value.' },
+                help: 'Rider power at which support reaches Maximum. Lower values reach Maximum support sooner; higher values reserve it for harder rider effort. The curve below shapes everything between 0 W and this value.' },
             {
                 key: 'curve_exponent_x10', label: 'Curve shape — lower half (gamma)', min: 0.3, max: 2.5, step: 0.1,
                 fromNative: (value) => (value ?? 15) / 10,
@@ -66,13 +70,13 @@ function modeFields(mode) {
     if (mode === 3) {
         return [
             { key: 'emtb_parameter', label: 'eMTB sensitivity', min: 0, max: 250, step: 5,
-                help: 'How aggressively motor power reacts to pedal load: pedal load is squared internally, so a firm push gives noticeably more than proportionally more assist than a light one. 0 disables eMTB assist for this level.' },
+                help: 'How aggressively motor power reacts to pedal load: pedal load is squared internally, so a firm push gives noticeably more than proportionally more assist than a light one. Higher values are stronger and more sensitive; 0 disables eMTB assist for this level.' },
             { key: 'emtb_based_on_power', label: 'Cadence-dependent response', type: 'checkbox',
                 help: 'On: higher cadence reduces the eMTB response for the same pedal load, pairing load with effort. Off: only pedal load matters, cadence is ignored.' },
             {
                 key: 'emtb_reference_voltage_mv', label: 'Reference voltage', unit: 'V', min: 12, max: 84, step: 1,
                 fromNative: (value) => Math.round(value / 1000), toNative: (value) => Math.round(value * 1000),
-                help: 'Battery voltage used only to convert the internal current target into the watts shown on the display/diagnostics — it does NOT change how hard the motor actually pushes. Set close to your pack’s real voltage so displayed watts are meaningful. Exception: if "Maximum motor power" below is set (non-zero), that power limit IS computed using this value, so setting it too low makes the power limit trigger earlier than intended.',
+                help: 'Battery voltage used only to convert the internal current target into the watts shown on the display/diagnostics — it does NOT change how hard the motor actually pushes. Set close to your pack’s real voltage so displayed watts are meaningful. Exception: if "Maximum motor power" below is set (non-zero), that power limit IS computed using this value, so setting it too low makes the power limit trigger earlier than intended. Set it to your pack\'s nominal voltage; a wrong value only makes the displayed watts wrong.',
             },
         ];
     }
@@ -80,44 +84,105 @@ function modeFields(mode) {
         return [
             {
                 key: 'torque_assist_factor', label: 'Torque gain — 120 = 1.0×', min: 0, max: 254, step: 5,
-                help: 'Scales the torque-derived target. Unlike Support %, it does not multiply estimated rider power.',
+                help: 'Scales the torque-derived target. Higher values give more motor current for the same pedal load; lower values make light assistance easier. Unlike Support %, it does not multiply estimated rider power.',
             },
         ];
     }
     return [{ key: 'support_ratio_pct', label: 'Rider power support', unit: '%', min: 0, max: 1000, step: 10,
-        help: 'Motor power as a percentage of your estimated pedal power — e.g. 100% ≈ motor roughly matches your effort, 200% ≈ motor gives roughly double. Main strength knob for Power Linear levels.' }];
+        help: 'Motor power as a percentage of your estimated pedal power — e.g. 100% ≈ motor roughly matches your effort, 200% ≈ motor gives roughly double. Higher values are stronger; lower values make fine, low assistance easier. Main strength knob for Power Linear levels.' }];
 }
 
-function sharedFields() {
+/*
+ * FW-071: the shared settings are grouped, and each group is a copy unit.
+ *
+ * The grouping is not decoration. "Copy to…" works per section, so a section that lumped
+ * everything together would force an all-or-nothing copy and be useless for the case riders
+ * actually have — identical ramps everywhere, different strength per level. Each group is
+ * therefore something a rider would sensibly want to make uniform on its own.
+ */
+function sharedFieldGroups() {
+    const all = sharedFieldList();
+    const pick = (...keys) => keys.map((key) => all.find((field) => field.key === key));
+    return [
+        {
+            id: 'limits',
+            title: 'Power and current ceiling',
+            fields: pick('max_motor_power_w', 'max_iq_pct'),
+        },
+        {
+            id: 'start',
+            title: 'Start condition',
+            note: 'When assist is allowed to begin. The crank-movement half of the condition is global — see the band at the bottom of this tab.',
+            fields: pick('assist_without_rotation', 'without_rotation_threshold_mv',
+                'start_load_reduction_mv', 'start_rise_mv', 'start_rise_window_ms'),
+        },
+        {
+            id: 'launch',
+            title: 'Launch feel — boost and smooth start',
+            fields: pick('startup_boost_enabled', 'startup_boost_strength_pct',
+                'startup_boost_end_rpm', 'smooth_start_enabled', 'smooth_start_ms'),
+        },
+        {
+            id: 'ramps',
+            title: 'Current ramps — acceleration and deceleration',
+            note: 'Drawn in the two charts below.',
+            fields: pick('iq_rise_slow_ms', 'iq_rise_fast_ms', 'iq_fall_slow_ms', 'iq_fall_fast_ms'),
+        },
+        {
+            id: 'smoothing',
+            title: 'Power smoothing and release',
+            fields: pick('release_ms', 'power_rise_filter_ms', 'power_fall_filter_ms'),
+        },
+    ];
+}
+
+function sharedFieldList() {
     return [
         { key: 'max_motor_power_w', label: 'Maximum motor power — 0 disables', unit: 'W', min: 0, max: 1500, step: 25,
-            help: 'Hard ceiling on requested motor power for this level, converted to a current limit using the Reference voltage field (eMTB mode) or nominal voltage. 0 = no power ceiling (Maximum motor current below still applies).' },
+            help: 'Hard ceiling on requested motor power for this level, converted to a current limit using the Reference voltage field (eMTB mode) or nominal voltage. Lower values restrain the high-speed/top-power response. 0 = no power ceiling (Maximum motor current below still applies).' },
         { key: 'max_iq_pct', label: 'Maximum motor current', unit: '%', min: 0, max: 100, step: 5,
-            help: 'Hard ceiling on motor current for this level, as a percentage of the controller\'s overall phase-current limit. This is the final cap — startup boost, latch floor and everything else are still clipped by it.' },
+            help: 'Hard ceiling on motor current for this level, as a percentage of the controller\'s overall phase-current limit. Lower values reduce maximum low-speed torque; higher values allow a stronger push. This is the final cap — startup boost, latch floor and everything else are still clipped by it.' },
         { key: 'assist_without_rotation', label: 'Assist without crank rotation', type: 'checkbox',
             help: 'Allow the motor to push from a dead stop, before the cranks are turning — useful for pulling away on a steep start. Still needs a clear push on the pedal (see Minimum pedal load) to trigger, so it can\'t be set off by an idle foot resting on the pedal.' },
         {
             key: 'without_rotation_threshold_mv', label: 'Minimum pedal load', unit: 'kg', min: 0, max: 11, step: 0.1,
             fromNative: (value) => Math.round((value / EBICS_MV_PER_KG) * 10) / 10,
             toNative: (value) => Math.round(value * EBICS_MV_PER_KG),
-            help: 'Relative load above the automatically calibrated zero point. Firmware accepts 0-300 mV native, which is ~0-11 kg on the measured sensor characteristic.',
+            help: 'Relative load above the automatically calibrated zero point. Lower values engage assist with a lighter touch; higher values require a firmer push and resist accidental activation. Firmware accepts 0-300 mV native, which is ~0-11 kg on the measured sensor characteristic.',
         },
+        // FW-068: the two extra ways into "assist may start". Both 0 = exactly the old behaviour.
+        { key: 'start_load_reduction_mv', label: 'Pedal load reduction while pedalling — 0 = off', unit: 'mV', min: 0, max: 100, step: 1,
+            help: 'How much lower "Minimum pedal load" gets while the cranks are actually turning. Higher values make re-catching assist easier after a coast, gear change or pause, but can react to a lighter accidental load. Pulling away from standstill still needs the full threshold. 0 = one threshold for both.' },
+        { key: 'start_rise_mv', label: 'Engage on pressure rise — 0 = off', unit: 'mV', min: 0, max: 100, step: 1,
+            help: 'A second way to start assist: instead of crossing "Minimum pedal load", it is enough that pedal load RISES by this much after the cranks have moved forward. Because it measures a change, it does not care where the automatic zero point currently sits. Set too low it can pick up bumps on rough descents — test it there before trusting it. 0 = off. Higher = a firmer push is needed, safer on rough ground; lower = catches sooner but can pick up bumps.' },
+        { key: 'start_rise_window_ms', label: 'Pressure rise window', unit: 'ms', min: 0, max: 2000, step: 10,
+            help: 'How long after the cranks start moving the firmware keeps watching for that rise. Longer values give more time to trigger the rise detector; shorter values return sooner to the plain threshold. Only used when "Engage on pressure rise" is above 0.' },
+        // FW-069: Iq ramps, moved here from the global Dynamics card so each level (and each
+        // bank) can have its own character of power build-up.
+        { key: 'iq_rise_slow_ms', label: 'Acceleration — low speed/cadence', unit: 'ms', min: 20, max: 5000, step: 10,
+            help: 'Time for motor current to ramp from 0% to 100% while pedalling slowly or riding slowly. This is the SLOW end of an adaptive ramp — firmware blends toward the fast value as your speed/cadence rises. Example presets (Aggressive / Normal / Smooth): 250 / 500 / 800 ms. Higher = softer, more gradual pull-away; lower = the motor comes in faster but can feel abrupt at low speed.' },
+        { key: 'iq_rise_fast_ms', label: 'Acceleration — high speed/cadence', unit: 'ms', min: 20, max: 5000, step: 10,
+            help: 'Time for motor current to ramp from 0% to 100% once you are already riding at speed/cadence. Shorter than the slow value — quicker response once you are moving. Example presets (Aggressive / Normal / Smooth): 100 / 250 / 400 ms.' },
+        { key: 'iq_fall_slow_ms', label: 'Deceleration — low speed/cadence', unit: 'ms', min: 20, max: 5000, step: 10,
+            help: 'Time for motor current to ramp down to 0% while pedalling slowly or riding slowly. Example presets (Aggressive / Normal / Smooth): 300 / 500 / 800 ms. Higher = power lingers longer as you ease off; lower = it drops away promptly.' },
+        { key: 'iq_fall_fast_ms', label: 'Deceleration — high speed/cadence', unit: 'ms', min: 20, max: 5000, step: 10,
+            help: 'Time for motor current to ramp down to 0% while riding at speed/cadence — shorter than the slow value. Example presets (Aggressive / Normal / Smooth): 100 / 180 / 300 ms.' },
         { key: 'startup_boost_enabled', label: 'Startup boost', type: 'checkbox',
-            help: 'Give a temporary power boost right when you start pedalling from a stop, fading out as cadence rises (see Startup boost strength/end cadence, and the global "Startup boost fade per cadence step" in Dynamics).' },
+            help: 'Give a temporary power boost right when you start pedalling from a stop, fading out as cadence rises (see Startup boost strength/end cadence here, and the global "Startup boost fade per cadence step" in the whole-bike band at the bottom of this tab).' },
         { key: 'startup_boost_strength_pct', label: 'Startup boost strength', unit: '%', min: 0, max: 300, step: 10,
-            help: 'How much extra power the startup boost adds at cadence 0, as a percentage on top of the normal request. Fades out by the time cadence reaches Startup boost end cadence.' },
+            help: 'How much extra power the startup boost adds at cadence 0, as a percentage on top of the normal request. Higher values give a harder launch. Fades out by the time cadence reaches Startup boost end cadence.' },
         { key: 'startup_boost_end_rpm', label: 'Startup boost end cadence', unit: 'rpm', min: 0, max: 120, step: 5,
-            help: 'Cadence at which the startup boost has fully faded away. Above this cadence you get the normal, un-boosted assist.' },
+            help: 'Cadence at which the startup boost has fully faded away. Higher values let boost remain for longer into the pedal stroke; lower values end it sooner.' },
         { key: 'smooth_start_enabled', label: 'Smooth start', type: 'checkbox',
             help: 'Ease the very first moment of assist in gradually over Smooth start duration, on top of the normal acceleration ramp — softer than the ramp alone for a very gentle launch.' },
         { key: 'smooth_start_ms', label: 'Smooth start duration', unit: 'ms', min: 0, max: 5000, step: 50,
-            help: 'How long the smooth-start easing takes, if Smooth start is enabled.' },
+            help: 'How long the smooth-start easing takes, if Smooth start is enabled. Higher values make launch softer but slower; lower values make it more immediate.' },
         { key: 'release_ms', label: 'Release duration — 0 = automatic', unit: 'ms', min: 0, max: 3000, step: 50,
-            help: 'How long assist takes to fade to zero once you stop pedalling. 0 = let the adaptive Acceleration/Deceleration ramps in Dynamics decide (their timing depends on your speed and cadence at the moment you stop).' },
+            help: 'Total time of the straight-line fade from whatever assist current is flowing at the moment you stop pedalling down to zero. 650 ms means about 650 ms to zero, whether you were pushing hard or barely at all — there is no extra tail after it. 0 = let this level\'s adaptive Deceleration ramps decide instead (their timing depends on your speed and cadence at the moment you stop). Example presets (Aggressive / Normal / Smooth): 250 / 450 / 650 ms. Higher = a longer, gentler hand-off; lower = assist disappears sooner after you stop.' },
         { key: 'power_rise_filter_ms', label: 'Power rise filter', unit: 'ms', min: 0, max: 5000, step: 50,
-            help: 'Smooths sudden increases in requested motor power over this many milliseconds, before the current ramp in Dynamics even sees it. 0 = no smoothing (react immediately).' },
+            help: 'Smooths sudden increases in requested motor power over this many milliseconds, before this level\'s current ramp even sees it. 0 = no smoothing (react immediately). Example presets (Aggressive / Normal / Smooth): 50 / 150 / 300 ms. Higher = calmer, less jumpy response to a hard push; lower = more immediate but can feel twitchy.' },
         { key: 'power_fall_filter_ms', label: 'Power fall filter', unit: 'ms', min: 0, max: 5000, step: 50,
-            help: 'Smooths sudden drops in requested motor power over this many milliseconds — helps assist not visibly dip in the dead spots of each pedal stroke. 0 = no smoothing.' },
+            help: 'Smooths sudden drops in requested motor power over this many milliseconds — helps assist not visibly dip in the dead spots of each pedal stroke. This is an exponential time constant, not time-to-zero: after one interval about 37% of the previous step remains. Example presets (Aggressive / Normal / Smooth): 100 / 200 / 400 ms. Higher = steadier through the dead spots; lower = assist follows every dip in your pedal stroke.' },
     ];
 }
 
@@ -139,6 +204,10 @@ function buildProfilePlaceholderBank(modeType) {
         torque_assist_factor: PROFILE_LEVEL_TORQUE[index],
         max_motor_power_w: 0, max_iq_pct: 100,
         assist_without_rotation: false, without_rotation_threshold_mv: 18,
+        // FW-068 off by default, FW-069 ramps match the firmware boot values.
+        start_load_reduction_mv: 0, start_rise_mv: 0, start_rise_window_ms: 400,
+        iq_rise_slow_ms: 600, iq_rise_fast_ms: 300,
+        iq_fall_slow_ms: 1000, iq_fall_fast_ms: 140,
         startup_boost_enabled: true, startup_boost_strength_pct: 100, startup_boost_end_rpm: 27,
         smooth_start_enabled: false, smooth_start_ms: 300,
         release_ms: 650, power_rise_filter_ms: 150, power_fall_filter_ms: 375,
@@ -146,7 +215,7 @@ function buildProfilePlaceholderBank(modeType) {
 }
 const PROFILE_LEVEL_PLACEHOLDER_BANKS = [
     buildProfilePlaceholderBank(1), // Bank 1 default: Power Linear (ASSIST_MODE_POWER_LINEAR)
-    buildProfilePlaceholderBank(3), // Bank 2 default: eMTB (ASSIST_MODE_EMTB_TSDZ)
+    buildProfilePlaceholderBank(3), // Bank 2 default: eMTB (ASSIST_MODE_EMTB)
 ];
 // The offline editing surface. Handing out the objects from PROFILE_LEVEL_PLACEHOLDER_BANKS
 // directly meant that editing a field with no bike attached permanently overwrote the
@@ -183,6 +252,59 @@ function resetPlaceholderBank(bankIndex) {
     banks[bankIndex] = JSON.parse(JSON.stringify(source));
 }
 
+// Every level object of ONE bank — read from the controller if we have it, the offline
+// working copy otherwise. This is what "Copy to…" writes into.
+function bankWorkingLevels(bankIndex) {
+    const read = state.lastBanks?.[bankIndex]?.levels;
+    if (Array.isArray(read) && read.length) return read;
+    const banks = placeholderBanks();
+    return banks[bankIndex] || banks[0];
+}
+
+/*
+ * FW-071: section copy, replacing the two "apply to all levels" checkboxes.
+ *
+ * The checkboxes were a MODE: left on and forgotten, one edit silently rewrote four other
+ * levels with no confirmation and nothing to undo. This is a one-shot action instead — the
+ * targets are chosen at the moment of copying, the number of values about to be overwritten
+ * is shown before it happens, and the previous values are kept for a single undo.
+ *
+ * Because the scope is now deliberate rather than ambient, copying across BOTH banks is safe
+ * to offer; as a mode it would have been the fastest way to wipe a tune by accident.
+ */
+let lastCopyUndo = null; // { label, entries: [{ bankIndex, levelIndex, values }] }
+
+function copySectionValues(sourceBankIndex, sourceLevelIndex, keys, targets) {
+    const source = bankWorkingLevels(sourceBankIndex)[sourceLevelIndex];
+    if (!source) return 0;
+    const entries = [];
+    let written = 0;
+    targets.forEach(({ bankIndex, levelIndex }) => {
+        if (bankIndex === sourceBankIndex && levelIndex === sourceLevelIndex) return;
+        const target = bankWorkingLevels(bankIndex)[levelIndex];
+        if (!target) return;
+        const previous = {};
+        keys.forEach((key) => {
+            previous[key] = target[key];
+            target[key] = source[key];
+            written++;
+        });
+        entries.push({ bankIndex, levelIndex, values: previous });
+    });
+    return { written, entries };
+}
+
+function undoLastCopy() {
+    if (!lastCopyUndo) return false;
+    lastCopyUndo.entries.forEach(({ bankIndex, levelIndex, values }) => {
+        const target = bankWorkingLevels(bankIndex)[levelIndex];
+        if (!target) return;
+        Object.keys(values).forEach((key) => { target[key] = values[key]; });
+    });
+    lastCopyUndo = null;
+    return true;
+}
+
 // CB-012: what a Restore should put back for one level — the values as read from the
 // controller when there are any, otherwise the firmware defaults. Always a fresh copy, so
 // the caller cannot write back through it into the source.
@@ -200,7 +322,8 @@ const CADENCE_COMP_DESCRIPTION =
     'Scales the assist request with cadence — 100% up to 70 rpm, 82% at 80, 93% at 100, '
     + '106% at 110, 132% at 120 and above — so assist does not fade away when you spin fast. '
     + 'Applies to every level and every pedalling mode in this bank. Power, current, temperature '
-    + 'and voltage limits still apply; the throttle and Walk Assist are not affected.';
+    + 'and voltage limits still apply; the throttle and Walk Assist are not affected. '
+    + 'Factory default: Off.';
 
 function renderCadenceComp(selected) {
     const box = el('ebicsCadenceCompEnabled');
@@ -283,16 +406,198 @@ export function renderProfileEditor() {
     }
     // CB-012: each field learns where its own "put it back" value comes from, so Shift+click
     // on one field restores only that one.
+    const factoryLevel = PROFILE_LEVEL_PLACEHOLDER_BANKS[selected.bankIndex]
+        || PROFILE_LEVEL_PLACEHOLDER_BANKS[0];
+    const factoryDefaults = factoryLevel[selected.levelIndex] || factoryLevel[0];
     const withRestore = (field) => ({
         ...field,
+        factoryDefault: factoryDefaults[field.key],
+        factoryDefaultLabel:
+            `Factory default for Bank ${selected.bankIndex + 1} / ${LEVEL_NAMES[selected.levelIndex]}`,
         restoreValue: () => {
             const { source, level: original } = restoreSourceLevel(selected.bankIndex, selected.levelIndex);
             return { value: original[field.key], source };
         },
     });
-    modeFields(mode).forEach((field) => fieldInput(modeContainer, level, withRestore(field), refresh));
-    sharedFields().forEach((field) => fieldInput(sharedContainer, level, withRestore(field), refresh));
+    modeFields(mode).forEach((field) =>
+        fieldInput(modeContainer, level, withRestore(field), refresh));
+    // FW-071: shared settings render as sections, each with its own "Copy to…" button.
+    if (sharedContainer) {
+        sharedFieldGroups().forEach((group) => {
+            const block = document.createElement('section');
+            block.className = 'ebics-field-group';
+            block.appendChild(buildSectionHead(group, selected, refresh));
+            if (group.note) {
+                const note = document.createElement('p');
+                note.className = 'form-hint ebics-field-group-note';
+                note.textContent = group.note;
+                block.appendChild(note);
+            }
+            const grid = document.createElement('div');
+            grid.className = 'ebics-field-grid';
+            block.appendChild(grid);
+            group.fields.filter(Boolean).forEach((field) =>
+                fieldInput(grid, level, withRestore(field), refresh));
+            sharedContainer.appendChild(block);
+        });
+    }
     renderProfileChart();
+}
+
+// FW-071: header of one shared section — title plus the copy affordance.
+function buildSectionHead(group, selected, refresh) {
+    const head = document.createElement('div');
+    head.className = 'ebics-field-group-head';
+
+    const title = document.createElement('div');
+    title.className = 'ebics-card-title ebics-field-group-title';
+    title.textContent = group.title;
+    head.appendChild(title);
+
+    const actions = document.createElement('div');
+    actions.className = 'ebics-field-group-actions';
+
+    const copyButton = document.createElement('button');
+    copyButton.type = 'button';
+    copyButton.className = 'btn btn-secondary ebics-copy-button';
+    copyButton.textContent = '⧉ Copy to…';
+    copyButton.title = `Copy every value of "${group.title}" from ${LEVEL_NAMES[selected.levelIndex]} to other levels or the other bank.`;
+    actions.appendChild(copyButton);
+
+    const status = document.createElement('span');
+    status.className = 'ebics-copy-status';
+    actions.appendChild(status);
+    head.appendChild(actions);
+
+    copyButton.addEventListener('click', () => {
+        const open = head.querySelector('.ebics-copy-panel');
+        if (open) { open.remove(); return; }
+        head.appendChild(buildCopyPanel(group, selected, refresh, status));
+    });
+    return head;
+}
+
+// The target picker. Deliberately shows the number of values it is about to overwrite:
+// the whole point of replacing the checkboxes was to make the scope visible BEFORE the act.
+function buildCopyPanel(group, selected, refresh, status) {
+    const keys = group.fields.filter(Boolean).map((field) => field.key);
+    const panel = document.createElement('div');
+    panel.className = 'ebics-copy-panel';
+
+    const heading = document.createElement('div');
+    heading.className = 'ebics-copy-panel-title';
+    heading.textContent = `Copy "${group.title}" (${keys.length} values) from ${LEVEL_NAMES[selected.levelIndex]}`;
+    panel.appendChild(heading);
+
+    const levelRow = document.createElement('div');
+    levelRow.className = 'ebics-copy-row';
+    const levelBoxes = LEVEL_NAMES.map((name, index) => {
+        const label = document.createElement('label');
+        const box = document.createElement('input');
+        box.type = 'checkbox';
+        box.dataset.levelIndex = String(index);
+        const isSourceLevel = index === selected.levelIndex;
+        // The source LEVEL stays selectable: with "also the other bank" ticked it is a real
+        // target there (SPORT+ of bank 1 -> SPORT+ of bank 2). Only the exact source SLOT is
+        // skipped, in collectTargets — disabling the box here would quietly make that
+        // perfectly reasonable copy impossible.
+        box.checked = !isSourceLevel;
+        label.appendChild(box);
+        label.appendChild(document.createTextNode(isSourceLevel ? `${name} (source)` : name));
+        levelRow.appendChild(label);
+        return box;
+    });
+    panel.appendChild(levelRow);
+
+    const bankRow = document.createElement('div');
+    bankRow.className = 'ebics-copy-row';
+    const bankChoice = document.createElement('label');
+    const bankBox = document.createElement('input');
+    bankBox.type = 'checkbox';
+    bankChoice.appendChild(bankBox);
+    bankChoice.appendChild(document.createTextNode('Also the other bank (same levels)'));
+    bankRow.appendChild(bankChoice);
+    panel.appendChild(bankRow);
+
+    const footer = document.createElement('div');
+    footer.className = 'ebics-copy-footer';
+    const count = document.createElement('span');
+    count.className = 'ebics-copy-count';
+    footer.appendChild(count);
+    const confirm = document.createElement('button');
+    confirm.type = 'button';
+    confirm.className = 'btn btn-orange';
+    confirm.textContent = 'Copy';
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'btn btn-secondary';
+    cancel.textContent = 'Cancel';
+    footer.appendChild(confirm);
+    footer.appendChild(cancel);
+    panel.appendChild(footer);
+
+    const collectTargets = () => {
+        const banks = [selected.bankIndex];
+        if (bankBox.checked) banks.push(selected.bankIndex === 0 ? 1 : 0);
+        const targets = [];
+        banks.forEach((bankIndex) => {
+            levelBoxes.forEach((box, levelIndex) => {
+                if (!box.checked) return;
+                // Only the exact source slot is skipped; the same level number on the other
+                // bank is a different slot and a legitimate target.
+                const isSourceSlot = bankIndex === selected.bankIndex
+                    && levelIndex === selected.levelIndex;
+                if (isSourceSlot) return;
+                targets.push({ bankIndex, levelIndex });
+            });
+        });
+        return targets;
+    };
+    const updateCount = () => {
+        const targets = collectTargets();
+        count.textContent = targets.length === 0
+            ? 'Nothing selected'
+            : `Overwrites ${targets.length * keys.length} values in ${targets.length} level(s)`;
+        confirm.disabled = targets.length === 0;
+    };
+    levelBoxes.forEach((box) => box.addEventListener('change', updateCount));
+    bankBox.addEventListener('change', updateCount);
+    updateCount();
+
+    cancel.addEventListener('click', () => panel.remove());
+    confirm.addEventListener('click', () => {
+        const targets = collectTargets();
+        const result = copySectionValues(selected.bankIndex, selected.levelIndex, keys, targets);
+        lastCopyUndo = { label: group.title, entries: result.entries };
+        panel.remove();
+        showCopyStatus(status, result, refresh);
+        markUnsavedInRam();
+        addLog('DATA', `Copied "${group.title}" to ${result.entries.length} level(s) — not written to the controller yet.`);
+        refresh();
+    });
+    return panel;
+}
+
+// Confirmation plus the single-step undo. Copying is destructive and silent by nature, so
+// the way back has to be within reach, not buried in a log line.
+function showCopyStatus(status, result, refresh) {
+    status.innerHTML = '';
+    const text = document.createElement('span');
+    text.textContent = `Copied to ${result.entries.length} level(s) · `;
+    status.appendChild(text);
+    const undo = document.createElement('button');
+    undo.type = 'button';
+    undo.className = 'ebics-copy-undo';
+    undo.textContent = 'Undo';
+    undo.addEventListener('click', () => {
+        if (undoLastCopy()) {
+            status.textContent = 'Undone';
+            addLog('DATA', 'Copy undone — previous values restored.');
+            refresh();
+            renderProfileEditor();
+        }
+    });
+    status.appendChild(undo);
 }
 
 function profilePlotLayout(titleX, titleY) {
@@ -396,7 +701,63 @@ function supportRatioForChart(level, xValue, chartMode) {
     return requestedPowerForLevel(level, xValue, chartMode, false) / humanPower * 100;
 }
 
+// FW-069: the Iq ramp charts, moved here from the Dynamics card because the values they
+// draw are per level now. Same shape and colours as before so the picture stays familiar.
+const RAMP_CHART_HEIGHT = 380;
+
+function renderRampCharts() {
+    if (typeof Plotly === 'undefined') return;
+    if (!tabIsVisible('tab-ebics-profiles')) return;
+    const accelerationChart = el('ebicsProfileAccelerationChart');
+    const decelerationChart = el('ebicsProfileDecelerationChart');
+    if (!accelerationChart && !decelerationChart) return;
+    const selected = selectedLevel();
+    const level = selected.level || placeholderLevel(selected.bankIndex, selected.levelIndex);
+    const riseSlow = level.iq_rise_slow_ms ?? 600;
+    const riseFast = level.iq_rise_fast_ms ?? 300;
+    const fallSlow = level.iq_fall_slow_ms ?? 1000;
+    const fallFast = level.iq_fall_fast_ms ?? 140;
+
+    const rampTrace = (duration, falling, name, color, chartEnd) => ({
+        x: [0, duration, chartEnd],
+        y: falling ? [100, 0, 0] : [0, 100, 100],
+        name,
+        type: 'scatter',
+        mode: 'lines+markers',
+        line: { width: 3, color },
+        marker: { size: [10, 10, 5], color, line: { width: 2, color: '#ffffff' } },
+        hovertemplate: '%{x:.0f} ms<br>%{y:.0f}%<extra>%{fullData.name}</extra>',
+    });
+    const rampLayout = (chartEnd, startText, endText) => {
+        const layout = plotLayout('Time from target change (ms)', 'Current command (%)');
+        // Declare the height. Without it Plotly uses its own 450px default while .ebics-chart
+        // only reserves min-height, and the plot paints over the card below it.
+        layout.height = RAMP_CHART_HEIGHT;
+        layout.xaxis.range = [0, chartEnd];
+        layout.yaxis.range = [-5, 105];
+        layout.hovermode = 'closest';
+        layout.annotations = [
+            { x: 0, y: startText === '0%' ? 0 : 100, text: `Start ${startText}`, showarrow: true, arrowhead: 2, ax: 42, ay: startText === '0%' ? -28 : 28 },
+            { x: chartEnd, y: endText === '100%' ? 100 : 0, text: `Settled ${endText}`, showarrow: false, xanchor: 'right', yshift: endText === '100%' ? -16 : 16 },
+        ];
+        return layout;
+    };
+
+    const riseEnd = Math.max(riseSlow, riseFast, 100) * 1.15;
+    if (accelerationChart) Plotly.react(accelerationChart, [
+        rampTrace(riseSlow, false, `Low speed — ${riseSlow} ms`, '#2563eb', riseEnd),
+        rampTrace(riseFast, false, `High speed — ${riseFast} ms`, '#16a34a', riseEnd),
+    ], rampLayout(riseEnd, '0%', '100%'), { responsive: true, displaylogo: false });
+
+    const fallEnd = Math.max(fallSlow, fallFast, 100) * 1.15;
+    if (decelerationChart) Plotly.react(decelerationChart, [
+        rampTrace(fallSlow, true, `Low speed — ${fallSlow} ms`, '#ea580c', fallEnd),
+        rampTrace(fallFast, true, `High speed — ${fallFast} ms`, '#9333ea', fallEnd),
+    ], rampLayout(fallEnd, '100%', '0%'), { responsive: true, displaylogo: false });
+}
+
 export function renderProfileChart() {
+    renderRampCharts(); // FW-069
     const powerChart = el('ebicsProfileChart');
     const supportChart = el('ebicsProfileChartSupport');
     const selected = selectedLevel();

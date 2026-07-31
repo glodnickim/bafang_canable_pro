@@ -58,7 +58,7 @@ function bindControls() {
     bindDeviceInfoControls();
     bindGlobalActions(); // CB-017: Read all / Save to Flash in the top bar
 
-    // FW-030/043: the "Ride engine (developer)" card is gone (single TSDZ engine).
+    // FW-030/043: the "Ride engine (developer)" card is gone (single ride-core engine).
     // READ_SYSTEM survives because the FW-018 full-charge threshold shares 0x6028.
     window.addEventListener('app-tab-changed', (event) => {
         const tab = String(event.detail?.tab || '');

@@ -146,9 +146,83 @@
     background: #ffffff;
     box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
 }
+/* FW-070: the bike-wide settings folded into the Profiles tab. Everything above them is
+   per bank and per level, so the boundary must be impossible to skim past: its own slab,
+   a heavy top rule and a different background, not just another card in the stack. */
+.ebics-global-band {
+    padding: 18px;
+    border: 2px solid #cbd5e1;
+    border-top: 6px solid #64748b;
+    border-radius: 12px;
+    background: #f1f5f9;
+}
+.ebics-global-band-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: flex-start;
+    justify-content: space-between;
+}
+.ebics-global-band-head > div:first-child { min-width: 0; flex: 1 1 320px; }
+.ebics-global-band .ebics-kicker { color: #475569; }
 .ebics-card-title { margin-bottom: 12px; color: var(--ebics-dark); font-size: 13px; font-weight: 800; }
 summary.ebics-card-title { cursor: pointer; margin-bottom: 0; }
 details[open] > summary.ebics-card-title { margin-bottom: 12px; }
+/* FW-071: shared settings split into sections, each its own copy unit. */
+.ebics-field-group { position: relative; padding-top: 4px; }
+.ebics-field-group + .ebics-field-group {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid rgba(15, 23, 42, .10);
+}
+.ebics-field-group-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: baseline;
+    justify-content: space-between;
+}
+.ebics-field-group-title { margin-bottom: 6px; }
+.ebics-field-group-actions { display: inline-flex; align-items: center; gap: 8px; }
+.ebics-field-group-note { margin: 0 0 8px; }
+.ebics-copy-button { padding: 2px 9px; font-size: 11px; line-height: 1.7; }
+.ebics-copy-status { color: #15803d; font-size: 11px; font-weight: 700; }
+.ebics-copy-undo {
+    border: 0;
+    background: none;
+    padding: 0;
+    color: #1d4ed8;
+    font: inherit;
+    text-decoration: underline;
+    cursor: pointer;
+}
+/* Anchored to the section head so it cannot be mistaken for a different section's control. */
+.ebics-copy-panel {
+    position: absolute;
+    right: 0;
+    z-index: 20;
+    width: min(360px, 92vw);
+    margin-top: 6px;
+    padding: 12px;
+    border: 1px solid #94a3b8;
+    border-radius: 10px;
+    background: #ffffff;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, .18);
+}
+.ebics-copy-panel-title { margin-bottom: 8px; color: var(--ebics-dark); font-size: 12px; font-weight: 800; }
+.ebics-copy-row { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-bottom: 8px; }
+.ebics-copy-row label {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    color: #475569;
+    font-size: 11px;
+    font-weight: 700;
+}
+.ebics-copy-row input { width: 14px; height: 14px; }
+.ebics-copy-footer { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end; }
+.ebics-copy-count { margin-right: auto; color: #b45309; font-size: 11px; font-weight: 700; }
+.ebics-copy-footer .btn { padding: 3px 12px; font-size: 11px; }
 .ebics-field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 14px; }
 .ebics-dynamics-field-grid { grid-template-columns: 1fr; margin-bottom: 12px; }
 .ebics-field {
@@ -172,8 +246,13 @@ details[open] > summary.ebics-card-title { margin-bottom: 12px; }
     flex: none; width: 15px; height: 15px; border-radius: 50%;
     background: #cbd5e1; color: #1e293b; font-size: 10px; font-weight: 700; line-height: 1;
     cursor: help; position: relative;
+    /* It is a <button> now (touch support) — strip the UA button chrome so it keeps
+       looking like the small round badge it always was. */
+    padding: 0; border: 0; font-family: inherit; -webkit-appearance: none; appearance: none;
 }
-.ebics-help:hover, .ebics-help:focus { background: #94a3b8; outline: none; }
+.ebics-help:hover, .ebics-help:focus, .ebics-help.is-open { background: #94a3b8; outline: none; }
+/* Keyboard users still need to see where they are; the mouse path stays outline-free. */
+.ebics-help:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
 /* position: fixed, not absolute, and placed by helpBadge() in shared.js.
  *
  * Two separate things used to cut these bubbles off. An absolutely positioned bubble is
@@ -192,7 +271,9 @@ details[open] > summary.ebics-card-title { margin-bottom: 12px; }
     font-size: 11px; font-weight: 400; line-height: 1.4;
     pointer-events: none; box-shadow: 0 4px 12px rgba(0,0,0,0.35); white-space: normal;
 }
-.ebics-help:hover .tooltiptext, .ebics-help:focus .tooltiptext {
+.ebics-help:hover .tooltiptext,
+.ebics-help:focus .tooltiptext,
+.ebics-help.is-open .tooltiptext {
     visibility: visible; opacity: 1; transition-delay: 0s, 0s;
 }
 /* --arrow-x is set by the positioning code so the pointer keeps aiming at the badge even

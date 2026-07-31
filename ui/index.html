@@ -75,10 +75,11 @@
             <button class="tab-button ebics-tab-button" data-tab="ebics-live" data-ebics-only="true" style="display:none">eVistDrive Live</button>
             <button class="tab-button ebics-tab-button" data-tab="ebics-profiles" data-ebics-only="true" style="display:none">eVistDrive Profiles</button>
             <button class="tab-button ebics-tab-button" data-tab="ebics-torque" data-ebics-only="true" style="display:none">eVistDrive Torque</button>
-            <button class="tab-button ebics-tab-button" data-tab="ebics-dynamics" data-ebics-only="true" style="display:none">eVistDrive Dynamics</button>
+<!-- FW-070: "eVistDrive Dynamics" tab removed; its settings live in the "Global — whole bike"
+     band at the bottom of eVistDrive Profiles. -->
             <button class="tab-button ebics-tab-button" data-tab="ebics-limits" data-ebics-only="true" style="display:none">eVistDrive Limits</button>
             <button class="tab-button ebics-tab-button" data-tab="ebics-walk" data-ebics-only="true" style="display:none">eVistDrive Walk</button>
-<!-- FW-030: "eVistDrive Legacy" tab removed (single TSDZ engine) -->
+<!-- FW-030: "eVistDrive Legacy" tab removed (single ride-core engine) -->
             <button class="tab-button ebics-tab-button" data-tab="ebics-system" data-ebics-only="true" style="display:none">eVistDrive System</button>
             <button class="tab-button" data-tab="gearsM820" data-factory-tab="true">Assist (Ltd)</button>
             <!-- Marked as a factory tab so "show only eVistDrive tabs" hides it: its device
@@ -864,8 +865,8 @@
             </div>
 
             <!-- FW-055: #tab-banks removed — Profile Banks + Global Ride-Feel Tuning are fully
-                 covered by #tab-ebics-profiles (bank/level editing) and the Dynamics section of
-                 #tab-ebics-live's sibling tabs (tuning), which already had their own independent
+                 covered by #tab-ebics-profiles, which since FW-070 holds both the bank/level
+                 editor and the "Global — whole bike" tuning band, each with its own independent
                  Read/Write(RAM)/Save(Flash) controls. Active-bank display lives in eVistDrive Live
                  (ebicsLiveBank below). See documentation/FW-055_REMOVE_BANKS_TAB.md. -->
 
@@ -946,8 +947,27 @@
                     </section>
                     <section id="ebicsProfileSharedCard" class="ebics-card ebics-level-tinted">
                         <div class="ebics-card-title">Shared safety and ride settings</div>
-                        <div id="ebicsProfileSharedFields" class="ebics-field-grid"></div>
+                        <!-- FW-071: the two "apply to all levels" checkboxes are gone. They were a
+                             MODE you could leave on and forget, so one edit silently rewrote four
+                             other levels with no confirmation and no way back. Each section below
+                             now carries its own explicit "Copy to…" button instead. -->
+                        <div id="ebicsProfileSharedFields"></div>
                     </section>
+                </div>
+                <!-- FW-069: per-level Iq ramps (were global before). Low and high
+                     speed/cadence are separate because the controller blends between the two
+                     response times as riding speed and cadence rise. -->
+                <div class="ebics-two-column mt-4">
+                    <div id="ebicsProfileAccelerationCard" class="ebics-chart-card ebics-level-tinted">
+                        <div class="ebics-card-title">Acceleration — current rise</div>
+                        <div id="ebicsProfileAccelerationChart" class="ebics-chart"></div>
+                        <small class="form-hint">Start point: 0 ms / 0%. The marked endpoint is the configured time to reach 100%. Set the two values in "Shared safety and ride settings" above.</small>
+                    </div>
+                    <div id="ebicsProfileDecelerationCard" class="ebics-chart-card ebics-level-tinted">
+                        <div class="ebics-card-title">Deceleration — current fall</div>
+                        <div id="ebicsProfileDecelerationChart" class="ebics-chart"></div>
+                        <small class="form-hint">Start point: 0 ms / 100%. The marked endpoint is the configured time to reach 0%.</small>
+                    </div>
                 </div>
                 <div id="ebicsProfileChartCard" class="ebics-chart-card ebics-level-tinted mt-5">
                     <div class="ebics-card-title">Selected engine preview</div>
@@ -965,6 +985,44 @@
                         </div>
                     </div>
                     <small class="form-hint">Shows all five levels from the selected bank; the edited level is drawn thicker. Power is capped by nominal battery voltage × configured battery current, and by per-level Maximum motor power when it is set. The support view shows the raw ratio before those caps.</small>
+                </div>
+
+                <!-- FW-070: the former Dynamics tab, folded in here. Everything above this line
+                     belongs to the SELECTED BANK AND LEVEL; everything below is one setting for
+                     the whole bike. Mixing the two in one tab is only safe if the boundary is
+                     impossible to miss — hence the separate band, the wording, and its own
+                     Read/Write/Restore buttons (a different CAN block, 0x6023/0x6024). -->
+                <div class="ebics-global-band mt-5">
+                    <div class="ebics-global-band-head">
+                        <div>
+                            <div class="ebics-kicker">Global — whole bike</div>
+                            <h3 class="section-title text-base">Ride core tuning</h3>
+                            <p class="text-sm mt-1 mb-0">These are <strong>not</strong> bank or level settings. One set of values applies to <strong>both banks and all five assist levels</strong>. Changing the bank or level selector above has no effect on anything in this section, and it has its own Read/Write buttons.</p>
+                        </div>
+                        <div class="flex gap-2 flex-wrap">
+                            <button id="ebicsDynamicsReadButton" class="btn btn-blue">Read global tuning</button>
+                            <button id="ebicsDynamicsApplyButton" data-requires-link class="btn btn-orange" title="Sent to the controller's working memory. It is lost when the bike is switched off until you press Save to Flash in the top bar.">Write global (RAM)</button>
+                            <!-- CB-012. No data-requires-link: undoing your own clicking must work
+                                 offline too, and it writes nothing to the controller. -->
+                            <button id="ebicsDynamicsRestoreButton" class="btn btn-secondary">Restore global</button>
+                        </div>
+                    </div>
+                    <div class="ebics-chart-card mt-4">
+                        <div class="ebics-card-title">Startup boost decay</div>
+                        <p class="text-sm mb-3">How fast the per-level "Startup boost" fades as cadence rises. The strength and end cadence are per level (above); this decay shape is shared.</p>
+                        <div id="ebicsDynamicsBoostFields" class="ebics-field-grid ebics-dynamics-field-grid"></div>
+                        <div id="ebicsDynamicsBoostChart" class="ebics-chart"></div>
+                    </div>
+                    <div class="ebics-chart-card mt-4">
+                        <div class="ebics-card-title">Start condition and ride latch</div>
+                        <p class="text-sm mb-3">"Crank movement to start" is the second half of the start condition — the first half is the per-level "Minimum pedal load" above, and both must be met. The latch then keeps assist alive after a legal start, so very light pedalling and the crank dead-spots don't cut power. Braking, backpedalling, a fault, or stopping the cranks still cut instantly.</p>
+                        <div id="ebicsDynamicsLatchFields" class="ebics-field-grid ebics-dynamics-field-grid"></div>
+                    </div>
+                    <div class="ebics-chart-card mt-4">
+                        <div class="ebics-card-title">RUN torque smoothing — anti-pulse "left leg / right leg"</div>
+                        <p class="text-sm mb-3">A slower estimate of pedal effort used to compute power/eMTB while riding, so the motor follows your average effort instead of each individual leg push. Start, boost and the safety cut stay on the fast signal. 0 ms = off (old behaviour). Higher = smoother but more rubbery.</p>
+                        <div id="ebicsDynamicsTorqueRunFields" class="ebics-field-grid ebics-dynamics-field-grid"></div>
+                    </div>
                 </div>
             </div>
 
@@ -1045,49 +1103,10 @@
                 </section>
             </div>
 
-            <!-- #tab-ebics-dynamics ======================================= -->
-            <div class="tab-content ebics-tab" id="tab-ebics-dynamics">
-                <div class="ebics-heading">
-                    <div><div class="ebics-kicker">eVistDrive Ride Core</div><h2 class="section-title text-lg">Dynamics</h2></div>
-                    <div class="flex gap-2 flex-wrap">
-                        <button id="ebicsDynamicsReadButton" class="btn btn-blue">Read tuning</button>
-                        <button id="ebicsDynamicsApplyButton" data-requires-link class="btn btn-orange" title="Sent to the controller's working memory. It is lost when the bike is switched off until you press Save to Flash in the top bar.">Write (RAM)</button>
-                        <!-- CB-012. No data-requires-link: undoing your own clicking must work
-                             offline too, and it writes nothing to the controller. -->
-                        <button id="ebicsDynamicsRestoreButton" class="btn btn-secondary">Restore</button>
-                    </div>
-                </div>
-                <p class="text-sm mb-3">Low and high speed/cadence ramps are separate because the controller blends between two response times as riding speed and cadence rise.</p>
-                <div class="ebics-two-column mt-5">
-                    <div class="ebics-chart-card">
-                        <div class="ebics-card-title">Acceleration — current rise</div>
-                        <div id="ebicsDynamicsAccelerationFields" class="ebics-field-grid ebics-dynamics-field-grid"></div>
-                        <div id="ebicsDynamicsAccelerationChart" class="ebics-chart"></div>
-                        <small class="form-hint">Start point: 0 ms / 0%. The marked endpoint is the configured time to reach 100%.</small>
-                    </div>
-                    <div class="ebics-chart-card">
-                        <div class="ebics-card-title">Deceleration — current fall</div>
-                        <div id="ebicsDynamicsDecelerationFields" class="ebics-field-grid ebics-dynamics-field-grid"></div>
-                        <div id="ebicsDynamicsDecelerationChart" class="ebics-chart"></div>
-                        <small class="form-hint">Start point: 0 ms / 100%. The marked endpoint is the configured time to reach 0%.</small>
-                    </div>
-                </div>
-                <div class="ebics-chart-card mt-5">
-                    <div class="ebics-card-title">Startup boost decay</div>
-                    <div id="ebicsDynamicsBoostFields" class="ebics-field-grid ebics-dynamics-field-grid"></div>
-                    <div id="ebicsDynamicsBoostChart" class="ebics-chart"></div>
-                </div>
-                <div class="ebics-chart-card mt-5">
-                    <div class="ebics-card-title">Ride latch — anti-dropout between pedal strokes</div>
-                    <p class="text-sm mb-3">After a legal start (forward pedalling above the level's "Minimum pedal load"), assist stays latched so very light pedalling and the crank dead-spots don't cut power. Braking, backpedalling, a fault, or stopping the cranks still cut instantly.</p>
-                    <div id="ebicsDynamicsLatchFields" class="ebics-field-grid ebics-dynamics-field-grid"></div>
-                </div>
-                <div class="ebics-chart-card mt-5">
-                    <div class="ebics-card-title">RUN torque smoothing — anti-pulse "left leg / right leg"</div>
-                    <p class="text-sm mb-3">A slower estimate of pedal effort used to compute power/eMTB while riding, so the motor follows your average effort instead of each individual leg push. Start, boost and the safety cut stay on the fast signal. 0 ms = off (old behaviour). Higher = smoother but more rubbery.</p>
-                    <div id="ebicsDynamicsTorqueRunFields" class="ebics-field-grid ebics-dynamics-field-grid"></div>
-                </div>
-            </div>
+<!-- FW-070: the eVistDrive Dynamics tab was removed. Its contents are now the "Global —
+     whole bike" band at the bottom of #tab-ebics-profiles, so the per-bank/per-level
+     settings and the bike-wide ones are visible together instead of being split across
+     two tabs with no hint that they belong to different scopes. -->
 
             <!-- #tab-ebics-limits ========================================= -->
             <div class="tab-content ebics-tab" id="tab-ebics-limits">
@@ -1173,7 +1192,7 @@
                 <div class="info-message mt-4"><span>Walk Assist holds <b>motor speed</b>, so the target is set as <b>chainring RPM</b> — the gear you select decides how fast the bike walks. "Walk motor current" is the strength ceiling, not a speed. All Walk settings are banked. Timed run is off by default and stops on another button, brake, error, wheel-speed cut-off or timeout.</span></div>
             </div>
 
-            <!-- FW-030: eVistDrive Legacy tab content removed (single TSDZ engine) -->
+            <!-- FW-030: eVistDrive Legacy tab content removed (single ride-core engine) -->
 
             <!-- #tab-ebics-system ========================================= -->
             <div class="tab-content ebics-tab" id="tab-ebics-system">
@@ -1223,7 +1242,7 @@
                     </div>
                 </details>
                 <div class="overflow-x-auto"><table class="description-table w-full border-collapse text-sm"><thead><tr><th>Code</th><th>Description</th><th>Recommendation</th></tr></thead><tbody id="ebicsControllerErrorsTableBody"></tbody></table></div>
-                <!-- FW-030/043: "Ride engine (developer)" section removed. TSDZ is the only engine;
+                <!-- FW-030/043: "Ride engine (developer)" section removed. the ride core is the only engine;
                      the 0x6027 switch command no longer exists in firmware, so those buttons were dead. -->
                 <details class="ebics-card mt-4">
                     <summary class="ebics-card-title">eVistDrive diagnostics (live + peak-hold)</summary>
@@ -1271,9 +1290,9 @@
                 <div class="overflow-x-auto"><table class="description-table w-full border-collapse text-sm"><thead><tr><th>CAN block</th><th>Operation</th><th>UI use</th></tr></thead><tbody>
                     <tr><td>0x6020</td><td>Read profile bank</td><td>Detection, Profiles, Limits</td></tr>
                     <tr><td>0x6021</td><td>Apply profile bank to RAM</td><td>Profiles</td></tr>
-                    <tr><td>0x6022</td><td>Persist banks and tuning at standstill</td><td>Profiles, Dynamics</td></tr>
-                    <tr><td>0x6023</td><td>Read global tuning</td><td>Dynamics</td></tr>
-                    <tr><td>0x6024</td><td>Apply global tuning to RAM</td><td>Dynamics</td></tr>
+                    <tr><td>0x6022</td><td>Persist banks and tuning at standstill</td><td>Profiles</td></tr>
+                    <tr><td>0x6023</td><td>Read global tuning</td><td>Profiles (global band)</td></tr>
+                    <tr><td>0x6024</td><td>Apply global tuning to RAM</td><td>Profiles (global band)</td></tr>
                     <tr><td>0x6101</td><td>Restore controller defaults in eVistDrive firmware</td><td>System</td></tr>
                 </tbody></table></div>
                 <div class="warning-message mt-4"><span>Saved-vs-runtime comparison, revert, torque calibration endpoints, active owner/limiter and dedicated walk ERPS are intentionally marked unavailable until firmware exposes them.</span></div>

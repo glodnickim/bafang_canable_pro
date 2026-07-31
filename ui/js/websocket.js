@@ -258,7 +258,9 @@ socket.onmessage = (event) => {
                         // card edits state.lastTuning in place.
                         state.lastTuningAsRead = JSON.parse(JSON.stringify(parsedEvent.data));
                         state.tuningSynced = true;
-                        updateDiagTuning(parsedEvent.data); // FW-017: show stored fall ramps in the diag panel
+                        // FW-017/FW-069: fall ramps in the diag panel. They are per level now,
+                        // so the function reads them from the selected profile level itself.
+                        updateDiagTuning();
                         addLog('DATA', 'Tuning received');
                     } else {
                         addLog('ERR', `Tuning read failed: ${parsedEvent.data?.error}`);
@@ -307,7 +309,7 @@ socket.onmessage = (event) => {
                     addLog('ACK', `Full-charge voltage: ${parsedEvent.data?.success ? 'OK (saved at standstill)' : 'FAILED'}${parsedEvent.data?.timedOut ? ' (timeout)' : ''}`);
                     setTimeout(() => { if (socket.readyState === WebSocket.OPEN) socket.send('READ_SYSTEM'); }, 400);
                     break;
-                case 'controller_diag': //FW-015: TSDZ ride-core diagnostics
+                case 'controller_diag': //FW-015: ride-core diagnostics
                     if (parsedEvent.data && !parsedEvent.data.parseError) {
                         state.lastDiag = parsedEvent.data;
                         updateDiagUI(parsedEvent.data);
