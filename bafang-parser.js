@@ -352,18 +352,22 @@ class BafangCanControllerParser {
 
     // FW-006: profile bank blob (0x6020) — 8B header + 5x35B level records + CRC16-CCITT
     static bankBlob(packet) {
-        const RECORD = 35, LEVELS = 5;
+        const LEVELS = 5;
         const d = packet?.data;
         if (!Array.isArray(d) || d.length < 185) {
             return { parseError: true, error: `Invalid bank blob length ${d?.length}` };
         }
-        if (d[0] !== 0x45 || d[1] !== 0x42 || d[2] < 1 || d[2] > 5) {
+        if (d[0] !== 0x45 || d[1] !== 0x42 || d[2] < 1 || d[2] > 6) {
             return { parseError: true, error: 'Bad bank blob magic/version' };
         }
         // FW-056: v4 has the same layout and length as v3; the version byte only
         // tells us the controller understands Power Curve (mode 6).
         // FW-057: v5 adds header byte 12 = cadence compensation on/off for this bank.
+        // FW-068/069: v6 is the first version with a longer record. Byte 5 is the record
+        // STRIDE — read it instead of assuming a constant, so this parser keeps working
+        // the next time the record grows.
         const version = d[2];
+        const RECORD = d[5] >= 35 ? d[5] : 35;
         const HEADER = version >= 5 ? 13 : (version >= 3 ? 12 : (version === 2 ? 10 : 8));
         const BLOB_LEN = HEADER + LEVELS * RECORD + 2;
         if (d.length < BLOB_LEN) {
@@ -403,6 +407,15 @@ class BafangCanControllerParser {
                 smooth_start_enabled: d[r + 26] !== 0, smooth_start_ms: u16(r + 27),
                 release_ms: u16(r + 29), power_rise_filter_ms: u16(r + 31),
                 power_fall_filter_ms: u16(r + 33),
+                // FW-068/069: only present from record length 46 on. Older controllers get the
+                // firmware defaults so the card shows something meaningful either way.
+                start_load_reduction_mv: RECORD >= 46 ? d[r + 35] : 0,
+                start_rise_mv: RECORD >= 46 ? d[r + 36] : 0,
+                start_rise_window_ms: RECORD >= 46 ? d[r + 37] * 10 : 400,
+                iq_rise_slow_ms: RECORD >= 46 ? u16(r + 38) : 600,
+                iq_rise_fast_ms: RECORD >= 46 ? u16(r + 40) : 300,
+                iq_fall_slow_ms: RECORD >= 46 ? u16(r + 42) : 1000,
+                iq_fall_fast_ms: RECORD >= 46 ? u16(r + 44) : 140,
             });
         }
         // FW-043: header byte 7 = this bank's Walk Assist cut-off wheel speed in 0.1 km/h units.
@@ -424,17 +437,19 @@ class BafangCanControllerParser {
 
     // FW-010: global ride-feel tuning blob (0x6023) — 4B header + 5 u16 fields + CRC16-CCITT
     static tuningBlob(packet) {
-        // v1 16 B (ramps only), v2 22 B (+latch), v3/v4/v5 24 B (+torque-run filter). All read.
+        // v1 16 B (ramps only), v2 22 B (+latch), v3/v4/v5 24 B (+torque-run filter),
+        // v6 32 B (+start steps, FW-068). All read.
         const d = packet?.data;
         if (!Array.isArray(d) || d.length < 16) {
             return { parseError: true, error: `Invalid tuning blob length ${d?.length}` };
         }
-        if (d[0] !== 0x54 || d[1] !== 0x55 || (d[2] !== 1 && d[2] !== 2 && d[2] !== 3 && d[2] !== 4 && d[2] !== 5)) {
+        if (d[0] !== 0x54 || d[1] !== 0x55 || d[2] < 1 || d[2] > 6) {
             return { parseError: true, error: 'Bad tuning blob magic/version' };
         }
         const version = d[2];
-        const bodyLen = version >= 3 ? 22 : (version === 2 ? 20 : 14); // bytes before the 2-byte CRC
-        const minLen = version >= 3 ? 24 : (version === 2 ? 22 : 16);
+        // bytes before the 2-byte CRC / minimum total length, per version
+        const bodyLen = version >= 6 ? 30 : (version >= 3 ? 22 : (version === 2 ? 20 : 14));
+        const minLen = version >= 6 ? 32 : (version >= 3 ? 24 : (version === 2 ? 22 : 16));
         if (d.length < minLen) {
             return { parseError: true, error: `Invalid v${version} tuning blob length ${d.length}` };
         }
@@ -448,6 +463,10 @@ class BafangCanControllerParser {
         }
         const u16 = (o) => d[o] | (d[o + 1] << 8);
         const out = {
+            // FW-068: the writer must never send a version the controller cannot parse —
+            // an unknown version byte makes the firmware reject the whole blob, so the
+            // serializer negotiates down to whatever the controller reported here.
+            tuning_schema_version: version,
             iq_rise_slow_ms: u16(4), iq_rise_fast_ms: u16(6),
             iq_fall_slow_ms: u16(8), iq_fall_fast_ms: u16(10),
             startup_boost_cadence_step: u16(12),
@@ -463,10 +482,13 @@ class BafangCanControllerParser {
         }
         // FW-033: torque-run filter; older controllers backfill the firmware default.
         out.assist_torque_run_filter_ms = version >= 3 ? u16(20) : 300;
+        // FW-068: crank movement required before assist may start. 0 = written by tooling
+        // that predates the field, so show the firmware default rather than "no condition".
+        out.assist_start_steps = (version >= 6 && u16(22) >= 1) ? u16(22) : 4;
         return out;
     }
 
-    // FW-015/017: TSDZ ride-core diagnostics (0x6029) — v1 24 B (peak only) or v2 32 B
+    // FW-015/017: ride-core diagnostics (0x6029) — v1 24 B (peak only) or v2 32 B
     // (peak + flags byte + current pas_idle_ms/pressure/iq_request/iq_setpoint), CRC16-CCITT.
     static rideDiagnostics(packet) {
         const d = packet?.data;
@@ -552,7 +574,7 @@ class BafangCanControllerParser {
             return { parseError: true, error: 'System status CRC mismatch' };
         }
         const out = {
-            ride_engine: d[3],                                  // 0 Legacy, 1 TSDZ
+            ride_engine: d[3],                                  // 0 Legacy, 1 ride core
             ride_engine_pending: d[4] === 0xFF ? null : d[4],   // null = none
         };
         if (d[2] >= 2) {                                        // FW-018: full-charge pack-voltage threshold

@@ -495,7 +495,7 @@ class CanBusService extends EventEmitter {
                 dataType = 'controller_system';
                 if (!parsedData.parseError) { parsedData._rawBytes = [...frame.data]; }
             }
-            else if (subCode === 0x29) { //FW-015: TSDZ ride-core diagnostics
+            else if (subCode === 0x29) { //FW-015: ride-core diagnostics
                 parsedData = BafangCanControllerParser.rideDiagnostics(frame);
                 dataType = 'controller_diag';
                 if (!parsedData.parseError) { parsedData._rawBytes = [...frame.data]; }
@@ -878,10 +878,14 @@ class CanBusService extends EventEmitter {
         // understands Power Curve) — same layout and length as v3 either way.
         // FW-057: v5 adds header byte 12, so the blob grows to 190 B. Never send a
         // version the controller did not report itself.
-        const version = bankObj.bank_schema_version >= 5 ? 5
-            : (bankObj.bank_schema_version >= 4 ? 4 : 3);
+        // FW-068/069: v6 is the first version with a LONGER record (46 B): the per-level start
+        // condition and the four Iq ramps. 13 + 5*46 + 2 = 245 B, which has to stay under the
+        // 255 B ceiling of the multiframe protocol (the length travels in a single byte).
+        const version = bankObj.bank_schema_version >= 6 ? 6
+            : (bankObj.bank_schema_version >= 5 ? 5
+                : (bankObj.bank_schema_version >= 4 ? 4 : 3));
         const HEADER = version >= 5 ? 13 : 12;
-        const RECORD = 35, LEVELS = 5;
+        const RECORD = version >= 6 ? 46 : 35, LEVELS = 5;
         const BLOB_LEN = HEADER + LEVELS * RECORD + 2;
         const d = new Array(BLOB_LEN).fill(0);
         d[0] = 0x45; d[1] = 0x42; d[2] = version;
@@ -919,6 +923,23 @@ class CanBusService extends EventEmitter {
             d[r + 26] = lv.smooth_start_enabled ? 1 : 0; u16(r + 27, lv.smooth_start_ms);
             u16(r + 29, lv.release_ms); u16(r + 31, lv.power_rise_filter_ms);
             u16(r + 33, lv.power_fall_filter_ms);
+            if (version >= 6) {
+                // FW-068: u8 on the wire (0..100 mV); the rise window travels in 10 ms units.
+                const clamp8 = (v, max) => Math.round(Math.max(0, Math.min(max, v ?? 0)));
+                d[r + 35] = clamp8(lv.start_load_reduction_mv, 100);
+                d[r + 36] = clamp8(lv.start_rise_mv, 100);
+                // floor, not round: the firmware serializer truncates (integer /10), so
+                // rounding here would disagree with it, and a rounded-up window would make
+                // the rise detector watch LONGER than the value the user typed.
+                d[r + 37] = Math.floor(Math.max(0, Math.min(200, (lv.start_rise_window_ms ?? 400) / 10)));
+                // FW-069: Iq ramps, per level (they used to be global in the tuning blob).
+                const ramp = (v, fallback) =>
+                    Math.round(Math.max(20, Math.min(5000, v ?? fallback)));
+                u16(r + 38, ramp(lv.iq_rise_slow_ms, 600));
+                u16(r + 40, ramp(lv.iq_rise_fast_ms, 300));
+                u16(r + 42, ramp(lv.iq_fall_slow_ms, 1000));
+                u16(r + 44, ramp(lv.iq_fall_fast_ms, 140));
+            }
         });
         let crc = 0xFFFF;
         const crcAt = HEADER + LEVELS * RECORD;
@@ -948,23 +969,36 @@ class CanBusService extends EventEmitter {
 
     // --- FW-010: global ride-feel tuning (0x6023 read / 0x6024 RAM write; persisted by saveBanks() 0x6022) ---
     static serializeTuningBlob(t) {
-        // FW-053: v5 = 24 B, same layout as v3/v4; default latch hold is now 1400 ms.
-        const d = new Array(24).fill(0);
-        d[0] = 0x54; d[1] = 0x55; d[2] = 5; d[3] = 0;
+        // FW-068: v6 = 32 B. Adds start_steps at offset 22 and leaves three reserved u16.
+        // Offsets 4..11 still carry the four Iq ramps for wire compatibility, but FW-069
+        // moved those per level into the bank blob and the firmware ignores them here.
+        //
+        // The version is NEGOTIATED, like the bank blob: firmware rejects a blob whose
+        // version byte it does not know, so sending v6 to a pre-FW-068 controller would
+        // make the whole Dynamics write fail. Fall back to the v5 layout in that case —
+        // "Crank movement to start" simply has nowhere to go on that firmware.
+        const version = t.tuning_schema_version >= 6 ? 6 : 5;
+        const BLOB_LEN = version >= 6 ? 32 : 24;
+        const bodyLen = BLOB_LEN - 2;
+        const d = new Array(BLOB_LEN).fill(0);
+        d[0] = 0x54; d[1] = 0x55; d[2] = version; d[3] = 0;
         const u16 = (o, v) => { d[o] = v & 0xFF; d[o + 1] = (v >> 8) & 0xFF; };
-        u16(4, t.iq_rise_slow_ms); u16(6, t.iq_rise_fast_ms);
-        u16(8, t.iq_fall_slow_ms); u16(10, t.iq_fall_fast_ms);
+        u16(4, t.iq_rise_slow_ms ?? 600); u16(6, t.iq_rise_fast_ms ?? 300);
+        u16(8, t.iq_fall_slow_ms ?? 1000); u16(10, t.iq_fall_fast_ms ?? 140);
         u16(12, t.startup_boost_cadence_step);
         u16(14, t.assist_run_deadband_mv);
         u16(16, t.assist_hold_ms);
         u16(18, t.assist_min_iq_pct);
         u16(20, t.assist_torque_run_filter_ms);
+        if (version >= 6) {
+            u16(22, Math.round(Math.max(1, Math.min(20, t.assist_start_steps ?? 4))));
+        }
         let crc = 0xFFFF;
-        for (let i = 0; i < 22; i++) {
+        for (let i = 0; i < bodyLen; i++) {
             crc ^= d[i] << 8;
             for (let b = 0; b < 8; b++) crc = ((crc & 0x8000) ? (crc << 1) ^ 0x1021 : crc << 1) & 0xFFFF;
         }
-        u16(22, crc);
+        u16(bodyLen, crc);
         return d;
     }
 
@@ -992,7 +1026,7 @@ class CanBusService extends EventEmitter {
         return this.writeShortParameterWithAck(DeviceNetworkId.DRIVE_UNIT, cmd, data);
     }
 
-    // FW-030: single engine (TSDZ). setEngine (0x6027) removed. readSystem (0x6028)
+    // FW-030: single engine (ride core). setEngine (0x6027) removed. readSystem (0x6028)
     // kept for the FW-018 full-charge SOC threshold.
     async readSystem() {
         const cmd = { canCommandCode: 0x60, canCommandSubCode: 0x28 };

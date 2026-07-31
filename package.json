@@ -40,7 +40,7 @@
     "build:css": "tailwindcss -i ui/tailwind.src.css -o ui/tailwind.built.css --minify",
     "lint": "eslint .",
     "sniff": "node can-listener.js",
-    "test": "node tests/fw056_bank_blob_roundtrip.js && node tests/cb018_placeholder_defaults.js"
+    "test": "node tests/fw056_bank_blob_roundtrip.js && node tests/cb018_placeholder_defaults.js && node tests/fw068_start_condition_roundtrip.js && node tests/cb019_help_bubble_content.js"
   },
   "comments": {
     "build": "Builds every target in pkg.targets using @yao-pkg/pkg (Vercel's pkg is archived).",
