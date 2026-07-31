@@ -61,10 +61,15 @@ function previewP1() {
         undervoltage_under_load: 39000,
         battery_capacity: 15000,
         max_current_on_low_charge: 25,
-        limp_mode_soc_limit: 10,
-        limp_mode_soc_limit_stage2: 5,
+        // CB-018: these three must match what a controller actually leaves the factory with
+        // — InitEEPROM() in the firmware's src/parser.c. They were invented instead, and the
+        // card shows them in ordinary-looking fields, so "Legal speed-limit flag: Enabled"
+        // was read as the bike's own setting when the bike in fact had the limit OFF. That
+        // is a rider believing the bike limits their speed when it does not.
+        limp_mode_soc_limit: LIMP_DISABLED,        // firmware: LIMP_DISABLED
+        limp_mode_soc_limit_stage2: LIMP_DISABLED, // firmware: LIMP_DISABLED
         full_capacity_range: 10,
-        coaster_brake: true,
+        coaster_brake: false,                      // firmware: LEGALFLAG 0 — the speed limit is off
         motor_type: 1,
         motor_pole_pair_number: 22,
         speedmeter_magnets_number: 1,
@@ -188,6 +193,47 @@ function updateSourceLabels() {
     });
 }
 
+// CB-018: which read does this field's data come from, and has that read happened?
+//
+// Until now an unread block was announced by one line of text above the card while the
+// fields below it looked like ordinary values. Nobody reads the line — they read the field.
+// That is how "Legal speed-limit flag: Enabled" was taken for the bike's own setting while
+// the bike had the limit switched off.
+function fieldIsUnread(target) {
+    const draft = state.ebicsCompatibilityDraft;
+    const received = state.ebicsCompatibilityReceived || {};
+    if (draft) {
+        if (target === draft.p0) return !received.p0;
+        if (target === draft.p1) return !received.p1;
+        if (target === draft.p2) return !received.p2;
+        if (target === draft.speed) return !received.speed;
+        // The startup angle sits on the draft root rather than in a sub-block, so it needs
+        // its own case — without it, that one field kept showing a value nobody read.
+        if (target === draft) return !received.startup;
+    }
+    // Walk fields are handed a bank object; the placeholders are a separate array, so an
+    // object from it is by definition not something the controller sent.
+    if (WALK_FIELD_PLACEHOLDERS.includes(target)) return true;
+    return false;
+}
+
+const NOT_READ_TEXT = 'not read';
+
+// Blank and lock the control, so a placeholder can never be mistaken for a measurement.
+// Greying alone is not enough — a disabled select still shows "Enabled".
+function markFieldUnread(control, isSelect) {
+    control.disabled = true;
+    control.title = 'Not read from the controller yet — press Read on this card. Nothing here is your bike\'s setting until you do.';
+    if (isSelect) {
+        control.innerHTML = '';
+        control.add(new Option(`— ${NOT_READ_TEXT} —`, ''));
+        control.value = '';
+    } else {
+        control.value = '';
+        control.placeholder = NOT_READ_TEXT;
+    }
+}
+
 function createField(container, target, descriptor) {
     if (!container || !target) return;
     const wrapper = document.createElement('div');
@@ -197,6 +243,8 @@ function createField(container, target, descriptor) {
     if (descriptor.help) label.appendChild(helpBadge(descriptor.help));
     wrapper.appendChild(label);
 
+    const unread = fieldIsUnread(target);
+
     if (descriptor.options) {
         const select = document.createElement('select');
         select.className = 'form-select';
@@ -204,6 +252,7 @@ function createField(container, target, descriptor) {
         descriptor.options.forEach((option) => select.add(new Option(option.label, String(option.value))));
         const fromNative = descriptor.fromNative || ((value) => value);
         select.value = String(fromNative(target[descriptor.key]));
+        if (unread) markFieldUnread(select, true);
         select.addEventListener('change', () => {
             const raw = select.value;
             const parsed = descriptor.boolean ? raw === 'true' : parseFloat(raw);
@@ -268,6 +317,9 @@ function createField(container, target, descriptor) {
         };
         input.addEventListener('change', () => updateValue(true));
         if (descriptor.liveUpdate) input.addEventListener('input', () => updateValue(false));
+        // Last, so it wins over the CB-015 on/off state above: an unread field must not
+        // present any value at all, on or off.
+        if (unread) markFieldUnread(input, false);
         wrapper.appendChild(input);
     }
     container.appendChild(wrapper);
@@ -483,6 +535,29 @@ function renderLimitsFields() {
     createWheelField(speed, draft.speed);
     createField(speed, draft.speed, { key: 'circumference', label: 'Wheel circumference', unit: 'mm', min: 400, max: 3000, step: 1,
         help: 'Wheel circumference in millimetres, used together with the speed sensor to compute speed and distance. Overrides the rough estimate from Wheel diameter above if you\'ve measured your actual tyre. Typical values: 20″=1590, 24″=1905, 26″=2050, 27.5″(650B)=2145, 28″/700C=2224, 29″=2326 — exact figure depends on tyre width, so measure yours (roll the wheel one full turn, marked point to marked point) if you want it precise.' });
+
+    renderLegalLimitState(speed, draft);
+}
+
+// CB-018: whether the bike limits your speed is worth more than one entry in a dropdown
+// nobody opens. Say it, in the card, in words — and only once it is known, so an unread
+// block never claims either way.
+function renderLegalLimitState(container, draft) {
+    if (!container) return;
+    const note = document.createElement('div');
+    note.className = 'ebics-source-note';
+    note.style.gridColumn = '1 / -1';
+
+    if (!state.ebicsCompatibilityReceived?.p1) {
+        note.textContent = 'Speed limit: not read from the controller yet — press "Read" to see whether this bike limits assist.';
+    } else if (draft.p1.coaster_brake) {
+        const limit = isNumber(draft.speed?.speed_limit) ? `${draft.speed.speed_limit} km/h` : 'the speed set below';
+        note.textContent = `Speed limit ACTIVE — assist fades out from ${limit}. It can still be lifted on the bike with the Eco→0→Eco handlebar gesture until the next power-off, which Canable cannot see.`;
+    } else {
+        note.classList.add('ebics-stale-warning');
+        note.textContent = '⚠ Speed limit OFF — this bike does not limit assist at any speed. Set the flag above to Enabled and write it if you want the limit.';
+    }
+    container.appendChild(note);
 }
 
 function createWheelField(container, speedDraft) {
@@ -501,6 +576,9 @@ function createWheelField(container, speedDraft) {
     select.addEventListener('change', () => {
         speedDraft.wheel_diameter = clone(wheelDiameterTable[parseInt(select.value, 10)]);
     });
+    // CB-018: builds its own select rather than going through createField, so it needs the
+    // same treatment — otherwise it alone would still show a wheel size nobody read.
+    if (fieldIsUnread(speedDraft)) markFieldUnread(select, true);
     wrapper.append(label, select);
     container.appendChild(wrapper);
 }
