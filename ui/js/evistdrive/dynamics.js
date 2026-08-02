@@ -30,6 +30,12 @@ const TUNING_FIELDS = [
         help: 'Smooths the pedal-load signal used for RUN power/eMTB/torque calculations (not for starting or stopping). Higher values reduce per-leg pulsing but react more slowly to effort changes; lower values feel more immediate. 0 = raw signal. Example presets (Aggressive / Normal / Smooth): 100 / 200 / 350 ms.' },
 ];
 
+// CB-020: the global block's fields, for the preset importer to clamp with. Same list the
+// card renders from, so the two cannot drift apart.
+export function tuningFieldDescriptors() {
+    return TUNING_FIELDS;
+}
+
 // Must match .ebics-chart min-height in style.css, so the reserved space and the drawn chart
 // agree — otherwise the plot either overlaps the next card or leaves a gap.
 const DYNAMICS_CHART_HEIGHT = 380;

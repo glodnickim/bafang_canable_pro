@@ -1,0 +1,315 @@
+// evistdrive/presets.js — CB-020: share a ride tuning as a small, readable file.
+//
+// This is NOT the Data Backup tab. That one dumps every CAN event the app has seen —
+// display, battery, sensor, serial numbers — and restores the lot. Useful for putting one
+// bike back the way it was, useless for sending someone "how my bike rides".
+//
+// A preset carries ONLY the ride tuning: both profile banks and the global ride-core block.
+// Everything that belongs to one physical bike is deliberately left out, because sending it
+// to somebody else would break their bike rather than tune it:
+//
+//   * torque sensor span calibration — measured on one sensor, meaningless on another
+//   * full-charge pack voltage and battery capacity — depends on the pack
+//   * wheel circumference, serial numbers, display and battery blocks
+//
+// None of those live in state.lastBanks / state.lastTuning, so exporting exactly those two
+// objects is what keeps the file safe by construction rather than by a filter someone has
+// to remember to update.
+import { state, addLog } from '../shared.js';
+import { markUnsavedInRam } from './global-actions.js';
+import { el, LEVEL_NAMES, MODES, bankSchemaVersion } from './common.js';
+import { renderProfileEditor } from './profiles.js';
+import { renderDynamics } from './dynamics.js';
+
+const PRESET_FORMAT = 'evistdrive-preset';
+const PRESET_VERSION = 1;
+
+// Runtime state, not tuning: which bank the HMI currently has selected. Copying it from a
+// file would silently switch the rider's active bank on import.
+const BANK_RUNTIME_KEYS = ['active_bank'];
+
+/* ── Export ─────────────────────────────────────────────────────────────────────── */
+
+function controllerVersionForMetadata() {
+    const info = state.controllerOtherInfo || {};
+    return info.controller_sw_version || info.sw_version || null;
+}
+
+export function buildPreset(name, note) {
+    const banks = [0, 1].map((index) => {
+        const bank = state.lastBanks?.[index];
+        if (!bank) return null;
+        const copy = JSON.parse(JSON.stringify(bank));
+        BANK_RUNTIME_KEYS.forEach((key) => { delete copy[key]; });
+        return copy;
+    });
+    return {
+        format: PRESET_FORMAT,
+        version: PRESET_VERSION,
+        created: new Date().toISOString(),
+        name: name || '',
+        note: note || '',
+        source: {
+            controller_sw_version: controllerVersionForMetadata(),
+            bank_schema_version: bankSchemaVersion() || null,
+        },
+        banks,
+        tuning: state.lastTuning ? JSON.parse(JSON.stringify(state.lastTuning)) : null,
+    };
+}
+
+export function exportPreset() {
+    if (!state.lastBanks?.[0] && !state.lastBanks?.[1] && !state.lastTuning) {
+        addLog('ERR', 'Nothing to export yet — press "Read all" first so the file holds your bike\'s real settings.');
+        return;
+    }
+    const name = (el('ebicsPresetName')?.value || '').trim();
+    const note = (el('ebicsPresetNote')?.value || '').trim();
+    const preset = buildPreset(name, note);
+    const blob = new Blob([JSON.stringify(preset, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const stamp = preset.created.slice(0, 19).replace(/:/g, '-');
+    const slug = name ? `_${name.replace(/[^a-zA-Z0-9._-]+/g, '-').slice(0, 40)}` : '';
+    link.download = `evistdrive-preset_${stamp}${slug}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    addLog('DATA', `Preset exported${name ? ` ("${name}")` : ''}. It holds ride tuning only — no sensor calibration, battery or wheel settings.`);
+}
+
+/* ── Import: validation ─────────────────────────────────────────────────────────── */
+
+export function validatePreset(parsed) {
+    if (!parsed || typeof parsed !== 'object') return { error: 'That file is not a preset.' };
+    if (parsed.format !== PRESET_FORMAT) {
+        return { error: 'That file is not an eVistDrive preset. The Data Backup tab reads whole-device backups; this reads ride tuning presets.' };
+    }
+    if (!Number.isFinite(parsed.version) || parsed.version > PRESET_VERSION) {
+        return { error: `Preset format v${parsed.version} is newer than this app understands (v${PRESET_VERSION}). Update the app.` };
+    }
+    const banks = Array.isArray(parsed.banks) ? parsed.banks : [];
+    const hasBank = banks.some((bank) => Array.isArray(bank?.levels) && bank.levels.length);
+    if (!hasBank && !parsed.tuning) return { error: 'The preset holds neither banks nor global tuning.' };
+    return { preset: parsed };
+}
+
+// Modes the connected controller cannot store. Writing a bank that contains one makes the
+// firmware reject the WHOLE blob, so it has to be caught before the values reach the editor.
+export function unsupportedModesIn(preset) {
+    const schema = bankSchemaVersion();
+    if (!schema) return []; // nothing read yet — the write path blocks separately
+    const found = new Set();
+    (preset.banks || []).forEach((bank) => {
+        (bank?.levels || []).forEach((level) => {
+            const mode = MODES.find((entry) => entry.value === level?.mode_type);
+            if (mode?.minBankSchema && schema < mode.minBankSchema) found.add(mode.label);
+        });
+    });
+    return [...found];
+}
+
+/* ── Import: clamping ───────────────────────────────────────────────────────────── */
+
+// Ranges come from the field descriptors the editor already uses, so a value can never be
+// loaded outside what the UI itself would allow. Reported rather than applied silently:
+// a preset quietly reshaped on import is a preset that no longer matches its author's bike.
+function clampInto(target, source, descriptors, label, adjusted) {
+    descriptors.filter(Boolean).forEach((field) => {
+        if (!Object.prototype.hasOwnProperty.call(source, field.key)) return;
+        let value = source[field.key];
+        if (field.type === 'checkbox') { target[field.key] = !!value; return; }
+        if (!Number.isFinite(value)) return;
+        if (Number.isFinite(field.min) && value < field.min) {
+            adjusted.push(`${label} · ${field.label}: ${value} → ${field.min}`);
+            value = field.min;
+        } else if (Number.isFinite(field.max) && value > field.max) {
+            adjusted.push(`${label} · ${field.label}: ${value} → ${field.max}`);
+            value = field.max;
+        }
+        target[field.key] = value;
+    });
+}
+
+/* ── Import: applying ───────────────────────────────────────────────────────────── */
+
+// selection: { levels: Set("bankIndex:levelIndex"), tuning: bool }
+export function applyPreset(preset, selection, descriptors) {
+    const adjusted = [];
+    let levelCount = 0;
+
+    (preset.banks || []).forEach((bank, bankIndex) => {
+        const targetBank = state.lastBanks?.[bankIndex];
+        if (!targetBank || !Array.isArray(bank?.levels)) return;
+        bank.levels.forEach((sourceLevel, levelIndex) => {
+            if (!selection.levels.has(`${bankIndex}:${levelIndex}`)) return;
+            const targetLevel = targetBank.levels?.[levelIndex];
+            if (!targetLevel || !sourceLevel) return;
+            // mode_type first: it decides which mode-specific fields even apply.
+            if (Number.isFinite(sourceLevel.mode_type)) targetLevel.mode_type = sourceLevel.mode_type;
+            const label = `Bank ${bankIndex + 1} / ${LEVEL_NAMES[levelIndex]}`;
+            clampInto(targetLevel, sourceLevel, descriptors.levelFields(sourceLevel.mode_type), label, adjusted);
+            levelCount++;
+        });
+    });
+
+    if (selection.tuning && preset.tuning && state.lastTuning) {
+        clampInto(state.lastTuning, preset.tuning, descriptors.tuningFields(), 'Global', adjusted);
+    }
+    return { levelCount, tuningApplied: !!(selection.tuning && preset.tuning), adjusted };
+}
+
+/* ── Import: the picker ─────────────────────────────────────────────────────────── */
+
+function buildImportPanel(preset, descriptors, container) {
+    container.innerHTML = '';
+    const panel = document.createElement('div');
+    panel.className = 'ebics-preset-panel';
+
+    const title = document.createElement('div');
+    title.className = 'ebics-preset-panel-title';
+    const when = (preset.created || '').slice(0, 10);
+    title.textContent = preset.name
+        ? `“${preset.name}” — pick what to load`
+        : `Preset${when ? ` from ${when}` : ''} — pick what to load`;
+    panel.appendChild(title);
+
+    if (preset.note) {
+        const note = document.createElement('p');
+        note.className = 'form-hint';
+        note.textContent = preset.note;
+        panel.appendChild(note);
+    }
+
+    const blocked = unsupportedModesIn(preset);
+    if (blocked.length) {
+        const warn = document.createElement('p');
+        warn.className = 'form-hint ebics-stale-warning';
+        warn.textContent = `⚠ This preset uses ${blocked.join(', ')}, which your controller's firmware cannot store. Loading those levels would make the controller reject the whole bank on write. Flash newer firmware first.`;
+        panel.appendChild(warn);
+    }
+
+    const boxes = [];
+    (preset.banks || []).forEach((bank, bankIndex) => {
+        if (!Array.isArray(bank?.levels) || !bank.levels.length) return;
+        const row = document.createElement('div');
+        row.className = 'ebics-preset-row';
+        const heading = document.createElement('strong');
+        heading.textContent = `Bank ${bankIndex + 1}`;
+        row.appendChild(heading);
+        bank.levels.forEach((level, levelIndex) => {
+            const label = document.createElement('label');
+            const box = document.createElement('input');
+            box.type = 'checkbox';
+            box.checked = true;
+            box.dataset.slot = `${bankIndex}:${levelIndex}`;
+            const mode = MODES.find((entry) => entry.value === level?.mode_type);
+            const unsupported = mode?.minBankSchema && bankSchemaVersion()
+                && bankSchemaVersion() < mode.minBankSchema;
+            if (unsupported) { box.checked = false; box.disabled = true; }
+            label.appendChild(box);
+            label.appendChild(document.createTextNode(
+                LEVEL_NAMES[levelIndex] + (mode ? ` (${mode.label})` : '')));
+            row.appendChild(label);
+            boxes.push(box);
+        });
+        panel.appendChild(row);
+    });
+
+    let tuningBox = null;
+    if (preset.tuning) {
+        const row = document.createElement('div');
+        row.className = 'ebics-preset-row';
+        const label = document.createElement('label');
+        tuningBox = document.createElement('input');
+        tuningBox.type = 'checkbox';
+        tuningBox.checked = true;
+        label.appendChild(tuningBox);
+        label.appendChild(document.createTextNode('Global — whole bike (start condition, latch, RUN smoothing, boost decay)'));
+        row.appendChild(label);
+        panel.appendChild(row);
+    }
+
+    const footer = document.createElement('div');
+    footer.className = 'ebics-preset-footer';
+    const count = document.createElement('span');
+    count.className = 'ebics-preset-count';
+    footer.appendChild(count);
+    const load = document.createElement('button');
+    load.type = 'button';
+    load.className = 'btn btn-orange';
+    load.textContent = 'Load into editor';
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'btn btn-secondary';
+    cancel.textContent = 'Cancel';
+    footer.appendChild(load);
+    footer.appendChild(cancel);
+    panel.appendChild(footer);
+
+    const refreshCount = () => {
+        const levels = boxes.filter((box) => box.checked).length;
+        const tuning = !!tuningBox?.checked;
+        count.textContent = (levels || tuning)
+            ? `Loads ${levels} level(s)${tuning ? ' + global' : ''} into the editor. Nothing is written to the controller.`
+            : 'Nothing selected';
+        load.disabled = !levels && !tuning;
+    };
+    boxes.forEach((box) => box.addEventListener('change', refreshCount));
+    tuningBox?.addEventListener('change', refreshCount);
+    refreshCount();
+
+    cancel.addEventListener('click', () => { container.innerHTML = ''; });
+    load.addEventListener('click', () => {
+        const selection = {
+            levels: new Set(boxes.filter((box) => box.checked).map((box) => box.dataset.slot)),
+            tuning: !!tuningBox?.checked,
+        };
+        const result = applyPreset(preset, selection, descriptors);
+        container.innerHTML = '';
+        renderProfileEditor();
+        renderDynamics();
+        markUnsavedInRam();
+        addLog('DATA', `Preset loaded: ${result.levelCount} level(s)${result.tuningApplied ? ' + global' : ''}. Nothing written yet — press Write, then Save to Flash.`);
+        if (result.adjusted.length) {
+            addLog('ERR', `${result.adjusted.length} value(s) were outside this app's allowed range and were clamped: ${result.adjusted.slice(0, 6).join('; ')}${result.adjusted.length > 6 ? ' …' : ''}`);
+        }
+    });
+
+    container.appendChild(panel);
+}
+
+/* ── Wiring ─────────────────────────────────────────────────────────────────────── */
+
+export function bindPresetControls(descriptors) {
+    el('ebicsPresetExportButton')?.addEventListener('click', exportPreset);
+
+    const input = el('ebicsPresetImportInput');
+    el('ebicsPresetImportButton')?.addEventListener('click', () => input?.click());
+    input?.addEventListener('change', () => {
+        const file = input.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            let parsed = null;
+            try {
+                parsed = JSON.parse(event.target.result);
+            } catch {
+                addLog('ERR', 'That file is not valid JSON.');
+                input.value = '';
+                return;
+            }
+            const { preset, error } = validatePreset(parsed);
+            input.value = ''; // so picking the same file twice fires change again
+            if (error) { addLog('ERR', error); return; }
+            if (!state.lastBanks?.[0] && !state.lastBanks?.[1]) {
+                addLog('ERR', 'Read the bike first ("Read all"), so the preset is loaded on top of your real settings rather than placeholders.');
+                return;
+            }
+            buildImportPanel(preset, descriptors, el('ebicsPresetPanel'));
+        };
+        reader.readAsText(file);
+    });
+}

@@ -168,6 +168,38 @@
 .ebics-card-title { margin-bottom: 12px; color: var(--ebics-dark); font-size: 13px; font-weight: 800; }
 summary.ebics-card-title { cursor: pointer; margin-bottom: 0; }
 details[open] > summary.ebics-card-title { margin-bottom: 12px; }
+/* CB-020: preset export/import strip. */
+.ebics-preset-strip {
+    padding: 12px 14px;
+    border: 1px dashed #94a3b8;
+    border-radius: 10px;
+    background: #f8fafc;
+}
+.ebics-preset-controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+.ebics-preset-controls label {
+    display: grid; gap: 4px; min-width: 0; flex: 1 1 200px;
+    color: #475569; font-size: 11px; font-weight: 700;
+}
+.ebics-preset-controls .btn { flex: none; }
+.ebics-preset-panel {
+    margin-top: 12px;
+    padding: 12px;
+    border: 1px solid #94a3b8;
+    border-radius: 10px;
+    background: #ffffff;
+    box-shadow: 0 6px 18px rgba(15, 23, 42, .12);
+}
+.ebics-preset-panel-title { margin-bottom: 8px; color: var(--ebics-dark); font-size: 12px; font-weight: 800; }
+.ebics-preset-row { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; margin-bottom: 8px; }
+.ebics-preset-row label {
+    display: inline-flex; align-items: center; gap: 5px;
+    color: #475569; font-size: 11px; font-weight: 700;
+}
+.ebics-preset-row input { width: 14px; height: 14px; }
+.ebics-preset-footer { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end; }
+.ebics-preset-count { margin-right: auto; color: #b45309; font-size: 11px; font-weight: 700; }
+.ebics-preset-footer .btn { padding: 3px 12px; font-size: 11px; }
+
 /* FW-071: shared settings split into sections, each its own copy unit. */
 .ebics-field-group { position: relative; padding-top: 4px; }
 .ebics-field-group + .ebics-field-group {
@@ -923,3 +955,14 @@ h3.section-subtitle:first-of-type { margin-top: 0; }
 .ebics-feature-toggle.is-blocked .ebics-feature-state { background: #dc2626; color: #ffffff; }
 .ebics-feature-note { margin-top: 4px; color: #475569; font-size: 11px; line-height: 1.5; }
 .ebics-feature-toggle.is-blocked .ebics-feature-note { color: #b91c1c; font-weight: 700; }
+
+/* CB-021: application build number next to the title. Quiet by design — it matters only
+   when something looks wrong and you need to know which build you are looking at. */
+.ebics-app-version {
+    margin-left: 8px;
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0;
+    vertical-align: middle;
+}

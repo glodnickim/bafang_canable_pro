@@ -136,6 +136,13 @@ function sharedFieldGroups() {
     ];
 }
 
+// CB-020: every field a level owns, for the mode it is in. The preset importer clamps with
+// these, so a loaded file can never put a value outside what the editor itself allows —
+// and the ranges cannot drift apart, because there is only one set of them.
+export function levelFieldDescriptors(modeType) {
+    return [...modeFields(modeType || 1), ...sharedFieldList()];
+}
+
 function sharedFieldList() {
     return [
         { key: 'max_motor_power_w', label: 'Maximum motor power — 0 disables', unit: 'W', min: 0, max: 1500, step: 25,

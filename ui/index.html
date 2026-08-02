@@ -27,7 +27,10 @@
             </div>
             <h1 class="text-xl font-bold text-olive tracking-tight">
                 <span style="color: black;">Bafang</span> / <span style="color: blue;">EBiCS</span> / <span style="color: #556B2F;">eVistDrive</span> CANable Pro
-
+                <!-- CB-021: which build this is. Without it a fresh firmware paired with a
+                     stale app looks identical to a matched pair, which is exactly how a
+                     missing field gets blamed on the controller. -->
+                <span id="appVersionBadge" class="ebics-app-version" title="Application build. Firmware version is shown in the eVistDrive System tab."></span>
             </h1>
             <label class="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer select-none"
                 title="Leaves only the eVistDrive tabs on screen and hides the legacy Bafang factory ones: Controller, Display, Sensor, Battery, Assist (Full/Ltd), Banks. Untick to bring them back.">
@@ -917,6 +920,25 @@
                         <button id="ebicsProfilesRestoreButton" class="btn btn-secondary">Restore</button>
                     </div>
                 </div>
+                <!-- CB-020: share a tuning as a file. Deliberately NOT the Data Backup tab:
+                     that one dumps the whole device (battery, sensor, serials) and restores
+                     the lot. A preset carries ride tuning only, so it is safe to send to
+                     somebody with a different bike. -->
+                <section class="ebics-preset-strip mt-4">
+                    <div class="ebics-preset-controls">
+                        <label>Preset name
+                            <input id="ebicsPresetName" class="form-input" type="text" maxlength="60" placeholder="e.g. mountains, soft start">
+                        </label>
+                        <label>Note
+                            <input id="ebicsPresetNote" class="form-input" type="text" maxlength="160" placeholder="optional — what it is for">
+                        </label>
+                        <button id="ebicsPresetExportButton" class="btn btn-secondary">⤓ Export preset</button>
+                        <button id="ebicsPresetImportButton" class="btn btn-secondary">⤒ Import preset</button>
+                        <input id="ebicsPresetImportInput" type="file" accept="application/json" style="display:none">
+                    </div>
+                    <small class="form-hint">Both banks and the whole-bike block. Sensor calibration, battery and wheel settings are never included — they belong to one bike and would break another. Importing only fills the editor; nothing reaches the controller until you press Write.</small>
+                    <div id="ebicsPresetPanel"></div>
+                </section>
                 <div class="ebics-toolbar">
                     <label>Bank <select id="ebicsProfileBankSelect" class="form-select"><option value="0">Bank 1</option><option value="1">Bank 2</option></select></label>
                     <label>Assist level <select id="ebicsProfileLevelSelect" class="form-select"></select></label>
@@ -1717,6 +1739,7 @@
      scatter or a bar, both included, as are the layout features used: annotations,
      shapes, a second y axis, fills and hovertemplates. -->
 <script src="plotly-basic-2.24.1.min.js"></script>
+<script type="module" src="js/app-version.js"></script>
 <script type="module" src="js/init.js"></script>
 </body>
 </html>

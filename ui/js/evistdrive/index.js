@@ -18,6 +18,11 @@ import { renderDynamics, bindDynamicsControls } from './dynamics.js';
 import { bindSystemControls, stopDiagPoll } from './system.js';
 import { updateDeviceInfoUI, bindDeviceInfoControls } from './device-info.js';
 import { bindGlobalActions } from './global-actions.js';
+// CB-020: preset export/import lives in its own module; it needs the editor's field
+// descriptors so an imported value is clamped by the same ranges the UI enforces.
+import { bindPresetControls } from './presets.js';
+import { levelFieldDescriptors } from './profiles.js';
+import { tuningFieldDescriptors } from './dynamics.js';
 
 // Re-exported for websocket.js, which pushes freshly parsed frames straight at the
 // card that displays them.
@@ -57,6 +62,7 @@ function bindControls() {
     bindSystemControls();
     bindDeviceInfoControls();
     bindGlobalActions(); // CB-017: Read all / Save to Flash in the top bar
+    bindPresetControls({ levelFields: levelFieldDescriptors, tuningFields: tuningFieldDescriptors });
 
     // FW-030/043: the "Ride engine (developer)" card is gone (single ride-core engine).
     // READ_SYSTEM survives because the FW-018 full-charge threshold shares 0x6028.
