@@ -69,7 +69,7 @@ function previewP1() {
         limp_mode_soc_limit: LIMP_DISABLED,        // firmware: LIMP_DISABLED
         limp_mode_soc_limit_stage2: LIMP_DISABLED, // firmware: LIMP_DISABLED
         full_capacity_range: 10,
-        coaster_brake: false,                      // firmware: LEGALFLAG 0 — the speed limit is off
+        coaster_brake: true,                       // firmware: LEGALFLAG 1 — the 25 km/h legal limit is on by default
         motor_type: 1,
         motor_pole_pair_number: 22,
         speedmeter_magnets_number: 1,

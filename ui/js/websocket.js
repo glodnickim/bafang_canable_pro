@@ -413,6 +413,30 @@ socket.onmessage = (event) => {
                     } else {
                         state.controllerSpeedParams = parsedEvent.data;
                     }
+                    // CB-022: confirm a write against what actually came back, field by field.
+                    if (state.pendingSpeedWrite) {
+                        const want = state.pendingSpeedWrite;
+                        state.pendingSpeedWrite = null;
+                        const got = state.controllerSpeedParams || {};
+                        const gotCode = got.wheel_diameter?.code || [];
+                        const mismatch = [];
+                        // Speed limit travels as km/h and comes back divided by 100, so
+                        // compare at the resolution the wire actually carries.
+                        if (Math.round((got.speed_limit ?? -1) * 100) !== Math.round(want.speed_limit * 100)) {
+                            mismatch.push(`speed limit: asked ${want.speed_limit}, controller has ${got.speed_limit}`);
+                        }
+                        if (got.circumference !== want.circumference) {
+                            mismatch.push(`circumference: asked ${want.circumference}, controller has ${got.circumference}`);
+                        }
+                        if (gotCode[0] !== want.code[0] || gotCode[1] !== want.code[1]) {
+                            mismatch.push(`wheel code: asked ${want.code.join('/')}, controller has ${gotCode.join('/') || 'none'}`);
+                        }
+                        if (mismatch.length) {
+                            addLog('ERROR', `Speed parameters were NOT stored as sent — ${mismatch.join('; ')}. The controller kept its own values.`);
+                        } else {
+                            addLog('SAVE_REQ', 'Speed parameters confirmed by read-back: speed limit, wheel code and circumference all match.');
+                        }
+                    }
                     if (parsedEvent.data && parsedEvent.data._rawBytes && Array.isArray(parsedEvent.data._rawBytes)) {
                         state.rawParamData[parsedEvent.type] = [...parsedEvent.data._rawBytes];
                         needsHexEditorUpdate = true;

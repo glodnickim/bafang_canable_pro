@@ -266,8 +266,20 @@ controllerElements.saveButton.onclick = () => {
             }
 
             if (speedToSend.wheel_diameter && typeof speedToSend.circumference === 'number' && typeof speedToSend.speed_limit === 'number') {
+                // CB-022: sending the frame is not evidence that the controller took it.
+                // Remember what we asked for and read 0x3203 straight back; websocket.js
+                // compares all three values and only then reports the write as done. The
+                // wheel diameter in particular used to be dropped by the firmware, and the
+                // app said "saved" every time.
+                state.pendingSpeedWrite = {
+                    speed_limit: speedToSend.speed_limit,
+                    circumference: speedToSend.circumference,
+                    code: [...speedToSend.wheel_diameter.code],
+                };
                 socket.send(`WRITE_LONG_SPEED:${JSON.stringify(speedToSend)}`);
-                addLog('SAVE_REQ', 'Controller Speed Params (via WRITE_LONG_SPEED)');
+                addLog('SAVE_REQ', 'Controller Speed Params — verifying by read-back…');
+                // Give the controller time to apply and commit to flash before asking.
+                setTimeout(() => socket.send('READ:2:50:3'), 400);
                 changesMade = true;
             } else {
                 addLog('ERROR', 'Cannot save speed params: Missing speed limit, wheel diameter, or circumference.');

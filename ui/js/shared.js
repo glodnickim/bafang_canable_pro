@@ -91,6 +91,9 @@ export const state = {
     controllerParams1: null,
     controllerParams2: null,
     controllerSpeedParams: null,
+    // CB-022: what the last speed-parameter write asked for, held until the read-back
+    // arrives so the two can be compared. Null whenever no write is awaiting confirmation.
+    pendingSpeedWrite: null,
     controllerOtherInfo: { hwVersion: null, swVersion: null, modelNumber: null, serialNumber: null, productionDate: null, manufacturer: null },
     lastControllerP0: null,
     lastControllerP1: null,

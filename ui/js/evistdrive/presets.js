@@ -135,14 +135,35 @@ function clampInto(target, source, descriptors, label, adjusted) {
 
 /* ── Import: applying ───────────────────────────────────────────────────────────── */
 
-// selection: { levels: Set("bankIndex:levelIndex"), tuning: bool }
+/*
+ * Settings that belong to a BANK rather than to one of its levels: cadence compensation
+ * and the walk-assist block. The export has always carried them — they are part of how a
+ * bank rides — so the import has to be able to apply them, otherwise the file promises
+ * something loading it does not deliver. They get their own checkbox per bank, because
+ * wanting somebody's level tuning without their walk-assist speed is entirely reasonable.
+ */
+const BANK_SETTING_FIELDS = [
+    { key: 'cadence_comp_enabled', label: 'Cadence compensation', type: 'checkbox' },
+    { key: 'wa_cutoff_kmh', label: 'Walk Assist cut-off speed', min: 1, max: 25.5 },
+    { key: 'wa_current_pct', label: 'Walk Assist current', min: 1, max: 100 },
+    { key: 'wa_target_rpm', label: 'Walk Assist target rpm', min: 20, max: 60 },
+    { key: 'wa_latch_after_release', label: 'Walk Assist latch', type: 'checkbox' },
+    { key: 'wa_latch_timeout_s', label: 'Walk Assist latch timeout', min: 1, max: 120 },
+];
+
+// selection: { levels: Set("bankIndex:levelIndex"), bankSettings: Set(bankIndex), tuning: bool }
 export function applyPreset(preset, selection, descriptors) {
     const adjusted = [];
     let levelCount = 0;
+    let bankSettingCount = 0;
 
     (preset.banks || []).forEach((bank, bankIndex) => {
         const targetBank = state.lastBanks?.[bankIndex];
         if (!targetBank || !Array.isArray(bank?.levels)) return;
+        if (selection.bankSettings?.has(bankIndex)) {
+            clampInto(targetBank, bank, BANK_SETTING_FIELDS, `Bank ${bankIndex + 1}`, adjusted);
+            bankSettingCount++;
+        }
         bank.levels.forEach((sourceLevel, levelIndex) => {
             if (!selection.levels.has(`${bankIndex}:${levelIndex}`)) return;
             const targetLevel = targetBank.levels?.[levelIndex];
@@ -158,7 +179,12 @@ export function applyPreset(preset, selection, descriptors) {
     if (selection.tuning && preset.tuning && state.lastTuning) {
         clampInto(state.lastTuning, preset.tuning, descriptors.tuningFields(), 'Global', adjusted);
     }
-    return { levelCount, tuningApplied: !!(selection.tuning && preset.tuning), adjusted };
+    return {
+        levelCount,
+        bankSettingCount,
+        tuningApplied: !!(selection.tuning && preset.tuning),
+        adjusted,
+    };
 }
 
 /* ── Import: the picker ─────────────────────────────────────────────────────────── */
@@ -192,6 +218,7 @@ function buildImportPanel(preset, descriptors, container) {
     }
 
     const boxes = [];
+    const bankSettingBoxes = [];
     (preset.banks || []).forEach((bank, bankIndex) => {
         if (!Array.isArray(bank?.levels) || !bank.levels.length) return;
         const row = document.createElement('div');
@@ -199,6 +226,20 @@ function buildImportPanel(preset, descriptors, container) {
         const heading = document.createElement('strong');
         heading.textContent = `Bank ${bankIndex + 1}`;
         row.appendChild(heading);
+        {
+            // Separate from the levels on purpose: taking somebody's level tuning without
+            // their walk-assist speed is a perfectly ordinary thing to want.
+            const label = document.createElement('label');
+            const box = document.createElement('input');
+            box.type = 'checkbox';
+            box.checked = true;
+            box.dataset.bank = String(bankIndex);
+            label.appendChild(box);
+            label.appendChild(document.createTextNode('bank settings'));
+            label.title = 'Cadence compensation and the Walk Assist block for this bank.';
+            row.appendChild(label);
+            bankSettingBoxes.push(box);
+        }
         bank.levels.forEach((level, levelIndex) => {
             const label = document.createElement('label');
             const box = document.createElement('input');
@@ -251,13 +292,19 @@ function buildImportPanel(preset, descriptors, container) {
 
     const refreshCount = () => {
         const levels = boxes.filter((box) => box.checked).length;
+        const bankSettings = bankSettingBoxes.filter((box) => box.checked).length;
         const tuning = !!tuningBox?.checked;
-        count.textContent = (levels || tuning)
-            ? `Loads ${levels} level(s)${tuning ? ' + global' : ''} into the editor. Nothing is written to the controller.`
+        const parts = [];
+        if (levels) parts.push(`${levels} level(s)`);
+        if (bankSettings) parts.push(`${bankSettings} bank setting block(s)`);
+        if (tuning) parts.push('the global block');
+        count.textContent = parts.length
+            ? `Loads ${parts.join(' + ')} into the editor. Nothing is written to the controller.`
             : 'Nothing selected';
-        load.disabled = !levels && !tuning;
+        load.disabled = !parts.length;
     };
     boxes.forEach((box) => box.addEventListener('change', refreshCount));
+    bankSettingBoxes.forEach((box) => box.addEventListener('change', refreshCount));
     tuningBox?.addEventListener('change', refreshCount);
     refreshCount();
 
@@ -265,6 +312,8 @@ function buildImportPanel(preset, descriptors, container) {
     load.addEventListener('click', () => {
         const selection = {
             levels: new Set(boxes.filter((box) => box.checked).map((box) => box.dataset.slot)),
+            bankSettings: new Set(bankSettingBoxes.filter((box) => box.checked)
+                .map((box) => Number(box.dataset.bank))),
             tuning: !!tuningBox?.checked,
         };
         const result = applyPreset(preset, selection, descriptors);
@@ -272,7 +321,7 @@ function buildImportPanel(preset, descriptors, container) {
         renderProfileEditor();
         renderDynamics();
         markUnsavedInRam();
-        addLog('DATA', `Preset loaded: ${result.levelCount} level(s)${result.tuningApplied ? ' + global' : ''}. Nothing written yet — press Write, then Save to Flash.`);
+        addLog('DATA', `Preset loaded: ${result.levelCount} level(s), ${result.bankSettingCount} bank setting block(s)${result.tuningApplied ? ' + global' : ''}. Nothing written yet — press Write, then Save to Flash.`);
         if (result.adjusted.length) {
             addLog('ERR', `${result.adjusted.length} value(s) were outside this app's allowed range and were clamped: ${result.adjusted.slice(0, 6).join('; ')}${result.adjusted.length > 6 ? ' …' : ''}`);
         }
