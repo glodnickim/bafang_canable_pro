@@ -1,6 +1,6 @@
 {
   "name": "openbafang-cannable",
-  "version": "1.0.3",
+  "version": "1.0.5",
   "description": "CAN bus interface for Bafang motor controllers",
   "main": "server.js",
   "bin": "app.js",

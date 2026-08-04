@@ -608,8 +608,8 @@ function setWalkStatus(text, isError = false) {
 // Firmware boot defaults (assist_modes.c BANK_WA_*_DEFAULT) — matches what a fresh bank ships
 // with. One independent object PER bank so editing bank 1's placeholder never bleeds into bank 2.
 const WALK_FIELD_PLACEHOLDERS = [
-    { wa_current_pct: 30, wa_target_rpm: 50, wa_latch_after_release: false, wa_latch_timeout_s: 30, wa_cutoff_kmh: 7 },
-    { wa_current_pct: 30, wa_target_rpm: 50, wa_latch_after_release: false, wa_latch_timeout_s: 30, wa_cutoff_kmh: 7 },
+    { wa_current_pct: 30, wa_target_rpm: 18, wa_latch_after_release: false, wa_latch_timeout_s: 30, wa_cutoff_kmh: 7 },
+    { wa_current_pct: 30, wa_target_rpm: 18, wa_latch_after_release: false, wa_latch_timeout_s: 30, wa_cutoff_kmh: 7 },
 ];
 
 function renderWalkActiveSummary() {
@@ -658,9 +658,9 @@ function renderWalkFields() {
         // layout and invalidate every bank already stored in a controller. Whatever was
         // read is written back unchanged.
         createField(container, bank, {
-            key: 'wa_target_rpm', label: 'Walk chainring speed', unit: 'RPM', min: 20, max: 60, step: 1,
+            key: 'wa_target_rpm', label: 'Walk chainring speed', unit: 'RPM', min: 18, max: 60, step: 1,
             onChange: renderWalkActiveSummary,
-            help: 'Target CHAINRING speed Walk Assist tries to hold (the crank/chainring shaft, not the wheel) — bike walking speed then depends on the gear you\'re in, same as normal pedalling. Range is deliberately narrow (20-60 RPM) to keep this at a safe walking pace.',
+            help: 'Target CHAINRING speed Walk Assist tries to hold (the crank/chainring shaft, not the wheel) — bike walking speed then depends on the gear you\'re in, same as normal pedalling. Range is deliberately narrow (18-60 RPM) to keep this at a safe walking pace.',
         });
         createField(container, bank, {
             key: 'wa_cutoff_kmh', label: 'Cut-off speed', unit: 'km/h', min: 1, max: 25.5, step: 0.1,

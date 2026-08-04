@@ -357,7 +357,7 @@ class BafangCanControllerParser {
         if (!Array.isArray(d) || d.length < 185) {
             return { parseError: true, error: `Invalid bank blob length ${d?.length}` };
         }
-        if (d[0] !== 0x45 || d[1] !== 0x42 || d[2] < 1 || d[2] > 6) {
+        if (d[0] !== 0x45 || d[1] !== 0x42 || d[2] < 1 || d[2] > 7) {
             return { parseError: true, error: 'Bad bank blob magic/version' };
         }
         // FW-056: v4 has the same layout and length as v3; the version byte only
@@ -369,6 +369,9 @@ class BafangCanControllerParser {
         const version = d[2];
         const RECORD = d[5] >= 35 ? d[5] : 35;
         const HEADER = version >= 5 ? 13 : (version >= 3 ? 12 : (version === 2 ? 10 : 8));
+        if (version === 7 && RECORD !== 46) {
+            return { parseError: true, error: `Invalid v7 bank record length ${RECORD}` };
+        }
         const BLOB_LEN = HEADER + LEVELS * RECORD + 2;
         if (d.length < BLOB_LEN) {
             return { parseError: true, error: `Invalid v${version} bank blob length ${d.length}` };
@@ -383,9 +386,19 @@ class BafangCanControllerParser {
             return { parseError: true, error: 'Bank blob CRC mismatch' };
         }
         const u16 = (o) => d[o] | (d[o + 1] << 8);
+        const LEGACY_START_MV_PER_KG = 27;
+        const kgWithOneDecimal = (value) => Math.round(value * 10) / 10;
         const levels = [];
         for (let l = 0; l < LEVELS; l++) {
             const r = HEADER + l * RECORD;
+            const legacyMinimumMv = version < 7 ? u16(r + 19) : 0;
+            const minimumLoadKg = kgWithOneDecimal(version >= 7
+                ? u16(r + 19) / 100
+                : legacyMinimumMv / LEGACY_START_MV_PER_KG);
+            const legacyReductionMv = version < 7 && RECORD >= 46 ? d[r + 35] : 0;
+            const ridingLoadKg = kgWithOneDecimal(version >= 7
+                ? d[r + 35] / 10
+                : Math.max(0, legacyMinimumMv - legacyReductionMv) / LEGACY_START_MV_PER_KG);
             levels.push({
                 mode_type: d[r],
                 // FW-056: in Power Curve the support_ratio bytes carry the upper-half exponent.
@@ -401,7 +414,7 @@ class BafangCanControllerParser {
                 emtb_reference_voltage_mv: u16(r + 12), torque_assist_factor: d[r + 14],
                 max_motor_power_w: u16(r + 15), max_iq_pct: d[r + 17],
                 assist_without_rotation: d[r + 18] !== 0,
-                without_rotation_threshold_mv: u16(r + 19),
+                minimum_pedal_load_kg: minimumLoadKg,
                 startup_boost_enabled: d[r + 21] !== 0, startup_boost_mode: d[r + 22],
                 startup_boost_strength_pct: u16(r + 23), startup_boost_end_rpm: d[r + 25],
                 smooth_start_enabled: d[r + 26] !== 0, smooth_start_ms: u16(r + 27),
@@ -409,9 +422,7 @@ class BafangCanControllerParser {
                 power_fall_filter_ms: u16(r + 33),
                 // FW-068/069: only present from record length 46 on. Older controllers get the
                 // firmware defaults so the card shows something meaningful either way.
-                start_load_reduction_mv: RECORD >= 46 ? d[r + 35] : 0,
-                start_rise_mv: RECORD >= 46 ? d[r + 36] : 0,
-                start_rise_window_ms: RECORD >= 46 ? d[r + 37] * 10 : 400,
+                riding_minimum_pedal_load_kg: ridingLoadKg,
                 iq_rise_slow_ms: RECORD >= 46 ? u16(r + 38) : 600,
                 iq_rise_fast_ms: RECORD >= 46 ? u16(r + 40) : 300,
                 iq_fall_slow_ms: RECORD >= 46 ? u16(r + 42) : 1000,
@@ -427,7 +438,7 @@ class BafangCanControllerParser {
             bank_schema_version: version,
             wa_cutoff_kmh: waCutoffRaw >= 10 ? waCutoffRaw / 10 : 7,
             wa_current_pct: version >= 2 && d[8] >= 1 && d[8] <= 100 ? d[8] : 30,
-            wa_target_rpm: version >= 2 && d[9] >= 20 && d[9] <= 60 ? d[9] : 50,
+            wa_target_rpm: version >= 2 && d[9] >= 18 && d[9] <= 60 ? d[9] : 18,
             wa_latch_after_release: version >= 3 && d[10] !== 0,
             wa_latch_timeout_s: version >= 3 && d[11] >= 1 && d[11] <= 120 ? d[11] : 30,
             cadence_comp_enabled: version >= 5 && d[12] !== 0, // FW-057, off on older firmware

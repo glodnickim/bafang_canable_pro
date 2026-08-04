@@ -2,7 +2,7 @@
 import { state, socket, addLog, torqueModel } from '../shared.js';
 import {
     el, isNumber, displayNumber, clamp, setText, socketReady,
-    selectedLevel, activeBankIndex, currentLevelIndex, getPedalLoadKg, EBICS_MV_PER_KG,
+    selectedLevel, activeBankIndex, currentLevelIndex, getPedalLoadKg,
 } from './common.js';
 
 // The gauge is drawn against the sensor's full range, not the rider's own maximum.
@@ -18,7 +18,7 @@ export function updateTorqueSummary() {
     const width = `${Math.round(safeLoad / GAUGE_FULL_SCALE_KG * 100)}%`;
     if (fill && fill.style.width !== width) fill.style.width = width;
     const level = selectedLevel().level || state.lastBanks?.[activeBankIndex()]?.levels?.[currentLevelIndex()];
-    const minLoad = isNumber(level?.without_rotation_threshold_mv) ? level.without_rotation_threshold_mv / EBICS_MV_PER_KG : null;
+    const minLoad = isNumber(level?.minimum_pedal_load_kg) ? level.minimum_pedal_load_kg : null;
     setText('ebicsTorqueMinLoadKg', displayNumber(minLoad, 1));
 }
 

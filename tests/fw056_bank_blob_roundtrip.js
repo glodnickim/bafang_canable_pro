@@ -28,7 +28,8 @@ function level(overrides) {
         curve_exponent_x10: 15, curve_exponent_high_x10: 15,
         emtb_parameter: 100, emtb_based_on_power: true, emtb_reference_voltage_mv: 36000,
         torque_assist_factor: 80, max_motor_power_w: 0, max_iq_pct: 100,
-        assist_without_rotation: false, without_rotation_threshold_mv: 18,
+        assist_without_rotation: false, minimum_pedal_load_kg: 0.7,
+        riding_minimum_pedal_load_kg: 0.7,
         startup_boost_enabled: true, startup_boost_mode: 0, startup_boost_strength_pct: 100,
         startup_boost_end_rpm: 27, smooth_start_enabled: false, smooth_start_ms: 300,
         release_ms: 650, power_rise_filter_ms: 150, power_fall_filter_ms: 375,
@@ -156,7 +157,7 @@ const reference = level({ mode_type: 2, progression_pct: 40, max_motor_power_w: 
 const other = roundTrip(bank(4, [reference, level({}), level({}), level({}), level({})]));
 ['mode_type', 'support_ratio_pct', 'support_min_pct', 'support_max_pct', 'reference_power_w',
     'emtb_parameter', 'emtb_reference_voltage_mv', 'torque_assist_factor', 'max_motor_power_w',
-    'max_iq_pct', 'without_rotation_threshold_mv', 'startup_boost_strength_pct',
+    'max_iq_pct', 'minimum_pedal_load_kg', 'startup_boost_strength_pct',
     'startup_boost_end_rpm', 'smooth_start_ms', 'release_ms', 'power_rise_filter_ms',
     'power_fall_filter_ms'].forEach((key) => {
     check(other.parsed.levels[0][key] === reference[key],

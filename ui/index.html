@@ -92,7 +92,7 @@
             <button class="tab-button" data-tab="fwUpdate">Firmware</button>
             <button class="tab-button" data-tab="sniffer">Sniffer</button>
             <button class="tab-button" data-tab="ride-logger">Ride Logger</button>
-            <button class="tab-button" data-tab="data-backup">Data Backup</button>
+            <button class="tab-button" data-tab="data-backup" data-factory-tab="true">Data Backup</button>
         </div>
 
         <!-- Tab Contents -->
@@ -963,33 +963,26 @@
                     </div>
                 </section>
                 <div class="ebics-two-column mt-4">
-                    <section id="ebicsProfileModeCard" class="ebics-card ebics-level-tinted">
-                        <div class="ebics-card-title">Engine-specific settings</div>
-                        <div id="ebicsProfileModeFields" class="ebics-field-grid"></div>
-                    </section>
+                    <div class="ebics-profile-left-column">
+                        <section id="ebicsProfileModeCard" class="ebics-card ebics-level-tinted">
+                            <div class="ebics-card-title">Engine-specific settings</div>
+                            <div id="ebicsProfileModeFields" class="ebics-field-grid"></div>
+                        </section>
+                        <!-- Current ramps and Power smoothing/release render here — kept on the
+                             left, next to the (usually shorter) mode fields, so the two columns
+                             stay roughly balanced instead of piling everything on the right. -->
+                        <section id="ebicsProfileSharedCardLeft" class="ebics-card ebics-level-tinted">
+                            <div id="ebicsProfileSharedFieldsLeft"></div>
+                        </section>
+                    </div>
                     <section id="ebicsProfileSharedCard" class="ebics-card ebics-level-tinted">
                         <div class="ebics-card-title">Shared safety and ride settings</div>
                         <!-- FW-071: the two "apply to all levels" checkboxes are gone. They were a
                              MODE you could leave on and forget, so one edit silently rewrote four
                              other levels with no confirmation and no way back. Each section below
                              now carries its own explicit "Copy to…" button instead. -->
-                        <div id="ebicsProfileSharedFields"></div>
+                        <div id="ebicsProfileSharedFieldsRight"></div>
                     </section>
-                </div>
-                <!-- FW-069: per-level Iq ramps (were global before). Low and high
-                     speed/cadence are separate because the controller blends between the two
-                     response times as riding speed and cadence rise. -->
-                <div class="ebics-two-column mt-4">
-                    <div id="ebicsProfileAccelerationCard" class="ebics-chart-card ebics-level-tinted">
-                        <div class="ebics-card-title">Acceleration — current rise</div>
-                        <div id="ebicsProfileAccelerationChart" class="ebics-chart"></div>
-                        <small class="form-hint">Start point: 0 ms / 0%. The marked endpoint is the configured time to reach 100%. Set the two values in "Shared safety and ride settings" above.</small>
-                    </div>
-                    <div id="ebicsProfileDecelerationCard" class="ebics-chart-card ebics-level-tinted">
-                        <div class="ebics-card-title">Deceleration — current fall</div>
-                        <div id="ebicsProfileDecelerationChart" class="ebics-chart"></div>
-                        <small class="form-hint">Start point: 0 ms / 100%. The marked endpoint is the configured time to reach 0%.</small>
-                    </div>
                 </div>
                 <div id="ebicsProfileChartCard" class="ebics-chart-card ebics-level-tinted mt-5">
                     <div class="ebics-card-title">Selected engine preview</div>
@@ -1029,21 +1022,23 @@
                             <button id="ebicsDynamicsRestoreButton" class="btn btn-secondary">Restore global</button>
                         </div>
                     </div>
-                    <div class="ebics-chart-card mt-4">
-                        <div class="ebics-card-title">Startup boost decay</div>
-                        <p class="text-sm mb-3">How fast the per-level "Startup boost" fades as cadence rises. The strength and end cadence are per level (above); this decay shape is shared.</p>
-                        <div id="ebicsDynamicsBoostFields" class="ebics-field-grid ebics-dynamics-field-grid"></div>
-                        <div id="ebicsDynamicsBoostChart" class="ebics-chart"></div>
-                    </div>
-                    <div class="ebics-chart-card mt-4">
-                        <div class="ebics-card-title">Start condition and ride latch</div>
-                        <p class="text-sm mb-3">"Crank movement to start" is the second half of the start condition — the first half is the per-level "Minimum pedal load" above, and both must be met. The latch then keeps assist alive after a legal start, so very light pedalling and the crank dead-spots don't cut power. Braking, backpedalling, a fault, or stopping the cranks still cut instantly.</p>
-                        <div id="ebicsDynamicsLatchFields" class="ebics-field-grid ebics-dynamics-field-grid"></div>
-                    </div>
-                    <div class="ebics-chart-card mt-4">
-                        <div class="ebics-card-title">RUN torque smoothing — anti-pulse "left leg / right leg"</div>
-                        <p class="text-sm mb-3">A slower estimate of pedal effort used to compute power/eMTB while riding, so the motor follows your average effort instead of each individual leg push. Start, boost and the safety cut stay on the fast signal. 0 ms = off (old behaviour). Higher = smoother but more rubbery.</p>
-                        <div id="ebicsDynamicsTorqueRunFields" class="ebics-field-grid ebics-dynamics-field-grid"></div>
+                    <div class="ebics-global-charts-grid mt-4">
+                        <div class="ebics-chart-card">
+                            <div class="ebics-card-title">Startup boost decay</div>
+                            <p class="text-sm mb-3">How fast the per-level "Startup boost" fades as cadence rises. The strength and end cadence are per level (above); this decay shape is shared.</p>
+                            <div id="ebicsDynamicsBoostFields" class="ebics-field-grid ebics-dynamics-field-grid"></div>
+                            <div id="ebicsDynamicsBoostChart" class="ebics-chart"></div>
+                        </div>
+                        <div class="ebics-chart-card">
+                            <div class="ebics-card-title">Start condition and ride latch</div>
+                            <p class="text-sm mb-3">"Crank movement to start" is the second half of the start condition — the first half is the per-level "Minimum pedal load" above, and both must be met. The latch then keeps assist alive after a legal start, so very light pedalling and the crank dead-spots don't cut power. Braking, backpedalling, a fault, or stopping the cranks still cut instantly.</p>
+                            <div id="ebicsDynamicsLatchFields" class="ebics-field-grid ebics-dynamics-field-grid"></div>
+                        </div>
+                        <div class="ebics-chart-card">
+                            <div class="ebics-card-title">RUN torque smoothing — anti-pulse "left leg / right leg"</div>
+                            <p class="text-sm mb-3">A slower estimate of pedal effort used to compute power/eMTB while riding, so the motor follows your average effort instead of each individual leg push. Start, boost and the safety cut stay on the fast signal. 0 ms = off (old behaviour). Higher = smoother but more rubbery.</p>
+                            <div id="ebicsDynamicsTorqueRunFields" class="ebics-field-grid ebics-dynamics-field-grid"></div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1139,19 +1134,7 @@
                         <button id="ebicsLimitsApplyButton" data-requires-link class="btn btn-orange" title="Written straight to permanent storage: the controller commits these legacy parameter blocks as soon as it receives them, so there is no separate flash step.">Write (permanent)</button>
                     </div>
                 </div>
-                <div class="ebics-toolbar">
-                    <label>Bank <select id="ebicsLimitsBankSelect" class="form-select"><option value="0">Bank 1</option><option value="1">Bank 2</option></select></label>
-                    <label>Assist level <select id="ebicsLimitsLevelSelect" class="form-select"></select></label>
-                </div>
-                <div class="ebics-metric-grid mt-4">
-                    <div class="ebics-metric"><span>Battery current limit</span><b><span id="ebicsLimitBatteryCurrent">N/A</span> A</b></div>
-                    <div class="ebics-metric"><span>Stored low-charge current</span><b><span id="ebicsLimitMotorCurrent">N/A</span> A</b></div>
-                    <div class="ebics-metric"><span>Level max power</span><b><span id="ebicsLimitPower">N/A</span> W</b></div>
-                    <div class="ebics-metric"><span>Level max Iq</span><b><span id="ebicsLimitIq">N/A</span> %</b></div>
-                    <div class="ebics-metric"><span>Live current</span><b><span id="ebicsLimitLiveCurrent">N/A</span> A</b></div>
-                    <div class="ebics-metric"><span>Live electrical power</span><b><span id="ebicsLimitLivePower">N/A</span> W</b></div>
-                </div>
-                <div class="ebics-toolbar mt-5"><span id="ebicsCompatibilitySourceLimits" class="ebics-source-note">Preview values — read before writing</span></div>
+                <div class="ebics-toolbar"><span id="ebicsCompatibilitySourceLimits" class="ebics-source-note">Preview values — read before writing</span></div>
                 <div class="ebics-two-column mt-4">
                     <section class="ebics-card">
                         <div class="ebics-card-title">Electrical and battery limits (0x6011)</div>

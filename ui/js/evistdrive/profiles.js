@@ -6,25 +6,26 @@ import { markUnsavedInRam } from './global-actions.js';
 // firmware generator, so the preview draws the real curve and not a lookalike.
 import { evalPowerCurvePermille } from './power-curve-lut.js';
 import {
-    LEVEL_NAMES, LEVEL_COLORS, MODE_LABELS, PREVIEW_CADENCE_RPM, EBICS_MV_PER_KG,
+    LEVEL_NAMES, LEVEL_COLORS, MODE_LABELS, PREVIEW_CADENCE_RPM,
     el, isNumber, clamp, hexToRgba, socketReady, selectedLevel, tabIsVisible,
     writeBankAndWait,
     bankSchemaVersion, modeUnsupportedReason, populateSelects, fieldInput, plotLayout,
 } from './common.js';
 import { updateTorqueSummary } from './torque.js';
-import { updateLimitsSummary } from './limits.js';
 import { updateLiveSummary } from './live.js';
+import { updateEnginePreviewUI } from './engine-preview-ui.js';
 
 const HUMAN_POWER_CENTIKG_RPM_NUMERATOR = 1694;
 const HUMAN_POWER_CENTIKG_RPM_DENOMINATOR = 1000;
+const kgWithOneDecimal = (value) => Math.round(value * 10) / 10;
+const displayKgWithOneDecimal = (value) => kgWithOneDecimal(value).toFixed(1);
 
 function tintProfileCards(levelIndex) {
     const tint = hexToRgba(LEVEL_COLORS[levelIndex] || '#475569', 0.16);
     // FW-069/071: the ramp charts belong to the edited LEVEL, exactly like the engine preview,
     // so they carry the level colour too. Without it they were the only per-level cards on the
     // page left white, which read as "these are global" — the opposite of what they are.
-    ['ebicsProfileModeCard', 'ebicsProfileSharedCard', 'ebicsProfileChartCard',
-        'ebicsProfileAccelerationCard', 'ebicsProfileDecelerationCard'].forEach((id) => {
+    ['ebicsProfileModeCard', 'ebicsProfileSharedCardLeft', 'ebicsProfileSharedCard', 'ebicsProfileChartCard'].forEach((id) => {
         const node = el(id);
         if (node) node.style.backgroundColor = tint;
     });
@@ -113,8 +114,8 @@ function sharedFieldGroups() {
             id: 'start',
             title: 'Start condition',
             note: 'When assist is allowed to begin. The crank-movement half of the condition is global — see the band at the bottom of this tab.',
-            fields: pick('assist_without_rotation', 'without_rotation_threshold_mv',
-                'start_load_reduction_mv', 'start_rise_mv', 'start_rise_window_ms'),
+            fields: pick('assist_without_rotation', 'minimum_pedal_load_kg',
+                'riding_minimum_pedal_load_kg'),
         },
         {
             id: 'launch',
@@ -125,7 +126,6 @@ function sharedFieldGroups() {
         {
             id: 'ramps',
             title: 'Current ramps — acceleration and deceleration',
-            note: 'Drawn in the two charts below.',
             fields: pick('iq_rise_slow_ms', 'iq_rise_fast_ms', 'iq_fall_slow_ms', 'iq_fall_fast_ms'),
         },
         {
@@ -136,6 +136,10 @@ function sharedFieldGroups() {
     ];
 }
 
+// These two groups render in the LEFT column of the Profiles tab (next to the mode-specific
+// card) instead of stacking under the other three on the right — see renderProfileEditor().
+const LEFT_COLUMN_GROUPS = new Set(['ramps', 'smoothing']);
+
 // CB-020: every field a level owns, for the mode it is in. The preset importer clamps with
 // these, so a loaded file can never put a value outside what the editor itself allows —
 // and the ranges cannot drift apart, because there is only one set of them.
@@ -143,27 +147,31 @@ export function levelFieldDescriptors(modeType) {
     return [...modeFields(modeType || 1), ...sharedFieldList()];
 }
 
+// A motor power ceiling above what the battery can actually deliver (current limit ×
+// overvoltage cutoff, i.e. worst-case pack voltage) can never be reached — it would just be
+// a number with no effect. Cap the field's allowed range at that product when both battery
+// values are known (read in the Limits tab); fall back to the hardware ceiling otherwise.
+function maxMotorPowerCeilingW() {
+    const currentLimitA = state.controllerParams1?.current_limit;
+    const overvoltageV = state.controllerParams1?.overvoltage;
+    if (!Number.isFinite(currentLimitA) || !Number.isFinite(overvoltageV)) return 1500;
+    return Math.min(1500, Math.round(currentLimitA * overvoltageV));
+}
+
 function sharedFieldList() {
     return [
-        { key: 'max_motor_power_w', label: 'Maximum motor power — 0 disables', unit: 'W', min: 0, max: 1500, step: 25,
-            help: 'Hard ceiling on requested motor power for this level, converted to a current limit using the Reference voltage field (eMTB mode) or nominal voltage. Lower values restrain the high-speed/top-power response. 0 = no power ceiling (Maximum motor current below still applies).' },
+        { key: 'max_motor_power_w', label: 'Maximum motor power — 0 disables', unit: 'W', min: 0, max: maxMotorPowerCeilingW(), step: 25,
+            help: 'Hard ceiling on requested motor power for this level, converted to a current limit using the Reference voltage field (eMTB mode) or nominal voltage. Lower values restrain the high-speed/top-power response. 0 = no power ceiling (Maximum motor current below still applies). The allowed range is also capped at Maximum battery current × Overvoltage cutoff (Limits tab) — the most power the battery could ever supply.' },
         { key: 'max_iq_pct', label: 'Maximum motor current', unit: '%', min: 0, max: 100, step: 5,
             help: 'Hard ceiling on motor current for this level, as a percentage of the controller\'s overall phase-current limit. Lower values reduce maximum low-speed torque; higher values allow a stronger push. This is the final cap — startup boost, latch floor and everything else are still clipped by it.' },
         { key: 'assist_without_rotation', label: 'Assist without crank rotation', type: 'checkbox',
             help: 'Allow the motor to push from a dead stop, before the cranks are turning — useful for pulling away on a steep start. Still needs a clear push on the pedal (see Minimum pedal load) to trigger, so it can\'t be set off by an idle foot resting on the pedal.' },
-        {
-            key: 'without_rotation_threshold_mv', label: 'Minimum pedal load', unit: 'kg', min: 0, max: 11, step: 0.1,
-            fromNative: (value) => Math.round((value / EBICS_MV_PER_KG) * 10) / 10,
-            toNative: (value) => Math.round(value * EBICS_MV_PER_KG),
-            help: 'Relative load above the automatically calibrated zero point. Lower values engage assist with a lighter touch; higher values require a firmer push and resist accidental activation. Firmware accepts 0-300 mV native, which is ~0-11 kg on the measured sensor characteristic.',
-        },
-        // FW-068: the two extra ways into "assist may start". Both 0 = exactly the old behaviour.
-        { key: 'start_load_reduction_mv', label: 'Pedal load reduction while pedalling — 0 = off', unit: 'mV', min: 0, max: 100, step: 1,
-            help: 'How much lower "Minimum pedal load" gets while the cranks are actually turning. Higher values make re-catching assist easier after a coast, gear change or pause, but can react to a lighter accidental load. Pulling away from standstill still needs the full threshold. 0 = one threshold for both.' },
-        { key: 'start_rise_mv', label: 'Engage on pressure rise — 0 = off', unit: 'mV', min: 0, max: 100, step: 1,
-            help: 'A second way to start assist: instead of crossing "Minimum pedal load", it is enough that pedal load RISES by this much after the cranks have moved forward. Because it measures a change, it does not care where the automatic zero point currently sits. Set too low it can pick up bumps on rough descents — test it there before trusting it. 0 = off. Higher = a firmer push is needed, safer on rough ground; lower = catches sooner but can pick up bumps.' },
-        { key: 'start_rise_window_ms', label: 'Pressure rise window', unit: 'ms', min: 0, max: 2000, step: 10,
-            help: 'How long after the cranks start moving the firmware keeps watching for that rise. Longer values give more time to trigger the rise detector; shorter values return sooner to the plain threshold. Only used when "Engage on pressure rise" is above 0.' },
+        { key: 'minimum_pedal_load_kg', label: 'Minimum pedal load', unit: 'kg', min: 0, max: 22.5, step: 0.1,
+            fromNative: displayKgWithOneDecimal, toNative: kgWithOneDecimal,
+            help: 'Minimum pedal load needed to start assist from standstill. It is also used by Assist without crank rotation. Lower values engage with a lighter touch; higher values require a firmer push and better resist accidental activation.' },
+        { key: 'riding_minimum_pedal_load_kg', label: 'Minimum pedal load while riding', unit: 'kg', min: 0, max: 22.5, step: 0.1,
+            fromNative: displayKgWithOneDecimal, toNative: kgWithOneDecimal,
+            help: 'Direct minimum load needed to re-engage assist while the bike is already moving (at least 1 km/h) and the cranks turn forward. This is an actual threshold, not a value subtracted from another field. It does not continuously limit assist after engagement.' },
         // FW-069: Iq ramps, moved here from the global Dynamics card so each level (and each
         // bank) can have its own character of power build-up.
         { key: 'iq_rise_slow_ms', label: 'Acceleration — low speed/cadence', unit: 'ms', min: 20, max: 5000, step: 10,
@@ -210,9 +218,9 @@ function buildProfilePlaceholderBank(modeType) {
         emtb_parameter: PROFILE_LEVEL_EMTB[index], emtb_based_on_power: true, emtb_reference_voltage_mv: 36000,
         torque_assist_factor: PROFILE_LEVEL_TORQUE[index],
         max_motor_power_w: 0, max_iq_pct: 100,
-        assist_without_rotation: false, without_rotation_threshold_mv: 18,
-        // FW-068 off by default, FW-069 ramps match the firmware boot values.
-        start_load_reduction_mv: 0, start_rise_mv: 0, start_rise_window_ms: 400,
+        assist_without_rotation: false, minimum_pedal_load_kg: 0.7,
+        // FW-077 uses direct kg thresholds; FW-069 ramps match firmware boot values.
+        riding_minimum_pedal_load_kg: 0.3,
         iq_rise_slow_ms: 600, iq_rise_fast_ms: 300,
         iq_fall_slow_ms: 1000, iq_fall_fast_ms: 140,
         startup_boost_enabled: true, startup_boost_strength_pct: 100, startup_boost_end_rpm: 27,
@@ -392,13 +400,15 @@ export function renderProfileEditor() {
     const level = selected.level || placeholderLevel(selected.bankIndex, selected.levelIndex);
     if (modeSelect) modeSelect.value = String(level.mode_type || 1);
     const modeContainer = el('ebicsProfileModeFields');
-    const sharedContainer = el('ebicsProfileSharedFields');
+    const sharedContainerLeft = el('ebicsProfileSharedFieldsLeft');
+    const sharedContainerRight = el('ebicsProfileSharedFieldsRight');
     if (modeContainer) modeContainer.innerHTML = '';
-    if (sharedContainer) sharedContainer.innerHTML = '';
+    if (sharedContainerLeft) sharedContainerLeft.innerHTML = '';
+    if (sharedContainerRight) sharedContainerRight.innerHTML = '';
     const refresh = () => {
         renderProfileChart();
         updateTorqueSummary();
-        updateLimitsSummary();
+        updateEnginePreviewUI(level, state.lastTuning);
     };
     const mode = level.mode_type || 1;
     const unsupported = modeUnsupportedReason(mode); // FW-056
@@ -429,8 +439,13 @@ export function renderProfileEditor() {
     modeFields(mode).forEach((field) =>
         fieldInput(modeContainer, level, withRestore(field), refresh));
     // FW-071: shared settings render as sections, each with its own "Copy to…" button.
-    if (sharedContainer) {
+    // "Current ramps" and "Power smoothing and release" (LEFT_COLUMN_GROUPS) render into
+    // the left column, next to the mode-specific card, so the two halves of the page stay
+    // roughly balanced instead of piling all five groups on the right.
+    if (sharedContainerLeft || sharedContainerRight) {
         sharedFieldGroups().forEach((group) => {
+            const sharedContainer = LEFT_COLUMN_GROUPS.has(group.id) ? sharedContainerLeft : sharedContainerRight;
+            if (!sharedContainer) return;
             const block = document.createElement('section');
             block.className = 'ebics-field-group';
             block.appendChild(buildSectionHead(group, selected, refresh));
@@ -445,10 +460,38 @@ export function renderProfileEditor() {
             block.appendChild(grid);
             group.fields.filter(Boolean).forEach((field) =>
                 fieldInput(grid, level, withRestore(field), refresh));
+
+            // Every group gets its own collapsible preview chart, including "ramps" — this
+            // replaces the old always-visible Acceleration/Deceleration cards, which took a
+            // lot of space for two curves most people only need to check occasionally.
+            const chartDetails = document.createElement('details');
+            chartDetails.style.marginTop = '12px';
+            const chartSummary = document.createElement('summary');
+            chartSummary.style.cursor = 'pointer';
+            chartSummary.style.fontWeight = '600';
+            chartSummary.style.color = '#4b5563';
+            chartSummary.style.padding = '8px 0';
+            chartSummary.textContent = '▶ Preview chart';
+            chartDetails.appendChild(chartSummary);
+
+            const chartContainer = document.createElement('div');
+            chartContainer.id = `ebicsEnginePreview${group.id.charAt(0).toUpperCase() + group.id.slice(1)}Chart`;
+            chartContainer.className = 'ebics-chart';
+            chartContainer.style.marginTop = '8px';
+            chartDetails.appendChild(chartContainer);
+            block.appendChild(chartDetails);
+
+            // Plotly can't size into a container hidden by a closed <details> — it draws
+            // blank and never recovers on its own. Redraw once the panel is actually visible.
+            chartDetails.addEventListener('toggle', () => {
+                if (chartDetails.open) updateEnginePreviewUI(level, state.lastTuning);
+            });
+
             sharedContainer.appendChild(block);
         });
     }
     renderProfileChart();
+    updateEnginePreviewUI(level, state.lastTuning);
 }
 
 // FW-071: header of one shared section — title plus the copy affordance.
@@ -708,63 +751,7 @@ function supportRatioForChart(level, xValue, chartMode) {
     return requestedPowerForLevel(level, xValue, chartMode, false) / humanPower * 100;
 }
 
-// FW-069: the Iq ramp charts, moved here from the Dynamics card because the values they
-// draw are per level now. Same shape and colours as before so the picture stays familiar.
-const RAMP_CHART_HEIGHT = 380;
-
-function renderRampCharts() {
-    if (typeof Plotly === 'undefined') return;
-    if (!tabIsVisible('tab-ebics-profiles')) return;
-    const accelerationChart = el('ebicsProfileAccelerationChart');
-    const decelerationChart = el('ebicsProfileDecelerationChart');
-    if (!accelerationChart && !decelerationChart) return;
-    const selected = selectedLevel();
-    const level = selected.level || placeholderLevel(selected.bankIndex, selected.levelIndex);
-    const riseSlow = level.iq_rise_slow_ms ?? 600;
-    const riseFast = level.iq_rise_fast_ms ?? 300;
-    const fallSlow = level.iq_fall_slow_ms ?? 1000;
-    const fallFast = level.iq_fall_fast_ms ?? 140;
-
-    const rampTrace = (duration, falling, name, color, chartEnd) => ({
-        x: [0, duration, chartEnd],
-        y: falling ? [100, 0, 0] : [0, 100, 100],
-        name,
-        type: 'scatter',
-        mode: 'lines+markers',
-        line: { width: 3, color },
-        marker: { size: [10, 10, 5], color, line: { width: 2, color: '#ffffff' } },
-        hovertemplate: '%{x:.0f} ms<br>%{y:.0f}%<extra>%{fullData.name}</extra>',
-    });
-    const rampLayout = (chartEnd, startText, endText) => {
-        const layout = plotLayout('Time from target change (ms)', 'Current command (%)');
-        // Declare the height. Without it Plotly uses its own 450px default while .ebics-chart
-        // only reserves min-height, and the plot paints over the card below it.
-        layout.height = RAMP_CHART_HEIGHT;
-        layout.xaxis.range = [0, chartEnd];
-        layout.yaxis.range = [-5, 105];
-        layout.hovermode = 'closest';
-        layout.annotations = [
-            { x: 0, y: startText === '0%' ? 0 : 100, text: `Start ${startText}`, showarrow: true, arrowhead: 2, ax: 42, ay: startText === '0%' ? -28 : 28 },
-            { x: chartEnd, y: endText === '100%' ? 100 : 0, text: `Settled ${endText}`, showarrow: false, xanchor: 'right', yshift: endText === '100%' ? -16 : 16 },
-        ];
-        return layout;
-    };
-
-    const riseEnd = Math.max(riseSlow, riseFast, 100) * 1.15;
-    if (accelerationChart) Plotly.react(accelerationChart, [
-        rampTrace(riseSlow, false, `Low speed — ${riseSlow} ms`, '#2563eb', riseEnd),
-        rampTrace(riseFast, false, `High speed — ${riseFast} ms`, '#16a34a', riseEnd),
-    ], rampLayout(riseEnd, '0%', '100%'), { responsive: true, displaylogo: false });
-
-    const fallEnd = Math.max(fallSlow, fallFast, 100) * 1.15;
-    if (decelerationChart) Plotly.react(decelerationChart, [
-        rampTrace(fallSlow, true, `Low speed — ${fallSlow} ms`, '#ea580c', fallEnd),
-        rampTrace(fallFast, true, `High speed — ${fallFast} ms`, '#9333ea', fallEnd),
-    ], rampLayout(fallEnd, '100%', '0%'), { responsive: true, displaylogo: false });
-}
-
 export function renderProfileChart() {
-    renderRampCharts(); // FW-069
     const powerChart = el('ebicsProfileChart');
     const supportChart = el('ebicsProfileChartSupport');
     const selected = selectedLevel();
@@ -915,7 +902,6 @@ export function bindProfileControls() {
             resetPlaceholderBank(selected.bankIndex);
         }
         renderProfileEditor();
-        updateLimitsSummary();
         addLog('INFO', `Bank ${selected.bankIndex + 1} put back to ${label}. Not written to the bike — press "Write (RAM)" to apply.`);
     });
 }

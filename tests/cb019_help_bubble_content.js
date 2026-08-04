@@ -1,6 +1,8 @@
 // CB-019 host test: the help bubble must state factory default and allowed range,
 // formatted the way the field is shown (not in raw native units).
 'use strict';
+const fs = require('fs');
+const path = require('path');
 let failures = 0;
 const check = (ok, label) => { if (!ok) { failures++; console.log(`  FAIL  ${label}`); } };
 
@@ -22,20 +24,25 @@ function tooltipDetails(descriptor) {
     return details.join(' ');
 }
 
-const MV_PER_KG = 27;
-
-// A native-unit field (mV stored, kg shown) must report BOTH numbers in kg.
+// FW-077: a start-load field is stored and shown in kg; there is no native mV
+// conversion left in the descriptor or its help text.
 const load = tooltipDetails({
-    key: 'without_rotation_threshold_mv', label: 'Minimum pedal load', unit: 'kg',
-    min: 0, max: 11, step: 0.1, help: 'Relative load above zero.',
-    fromNative: (v) => Math.round((v / MV_PER_KG) * 10) / 10,
-    factoryDefault: 18,
+    key: 'minimum_pedal_load_kg', label: 'Minimum pedal load', unit: 'kg',
+    min: 0, max: 22.5, step: 0.1, help: 'Relative load above zero.',
+    factoryDefault: 0.7,
     factoryDefaultLabel: 'Factory default for Bank 1 / ECO',
 });
 check(load.includes('Factory default for Bank 1 / ECO: 0.7 kg.'),
-    `native default must be shown in kg, got: ${load}`);
-check(load.includes('Allowed range: 0-11 kg.'), 'range must carry the unit');
-check(!load.includes('18'), 'the raw mV value must never leak into the bubble');
+    `default must be shown in kg, got: ${load}`);
+check(load.includes('Allowed range: 0-22.5 kg.'), 'range must carry the unit');
+check(!load.toLowerCase().includes('mv'), 'mV must never leak into a Start condition bubble');
+const profilesSource = fs.readFileSync(
+    path.join(__dirname, '..', 'ui', 'js', 'evistdrive', 'profiles.js'), 'utf8');
+check(profilesSource.includes('kgWithOneDecimal(value).toFixed(1)'),
+    'Start condition kg inputs must visibly keep exactly one decimal place');
+check(!profilesSource.includes('start_rise_kg') &&
+    !profilesSource.includes('start_rise_window_ms'),
+    'removed rise-detector fields must not be rendered');
 
 // A checkbox has no range and reads On/Off, not true/false.
 const box = tooltipDetails({

@@ -881,9 +881,12 @@ class CanBusService extends EventEmitter {
         // FW-068/069: v6 is the first version with a LONGER record (46 B): the per-level start
         // condition and the four Iq ramps. 13 + 5*46 + 2 = 245 B, which has to stay under the
         // 255 B ceiling of the multiframe protocol (the length travels in a single byte).
-        const version = bankObj.bank_schema_version >= 6 ? 6
+        // FW-077: v7 keeps the geometry and exposes only two kg thresholds;
+        // the removed rise-detector slots remain reserved.
+        const version = bankObj.bank_schema_version >= 7 ? 7
+            : (bankObj.bank_schema_version >= 6 ? 6
             : (bankObj.bank_schema_version >= 5 ? 5
-                : (bankObj.bank_schema_version >= 4 ? 4 : 3));
+                : (bankObj.bank_schema_version >= 4 ? 4 : 3)));
         const HEADER = version >= 5 ? 13 : 12;
         const RECORD = version >= 6 ? 46 : 35, LEVELS = 5;
         const BLOB_LEN = HEADER + LEVELS * RECORD + 2;
@@ -893,11 +896,13 @@ class CanBusService extends EventEmitter {
         d[6] = bankObj.active_bank ?? 0;
         d[7] = Math.round(Math.max(10, Math.min(255, (bankObj.wa_cutoff_kmh ?? 7) * 10)));
         d[8] = Math.round(Math.max(1, Math.min(100, bankObj.wa_current_pct ?? 30)));
-        d[9] = Math.round(Math.max(20, Math.min(60, bankObj.wa_target_rpm ?? 50)));
+        d[9] = Math.round(Math.max(18, Math.min(60, bankObj.wa_target_rpm ?? 18)));
         d[10] = bankObj.wa_latch_after_release ? 1 : 0;
         d[11] = Math.round(Math.max(1, Math.min(120, bankObj.wa_latch_timeout_s ?? 30)));
         if (version >= 5) d[12] = bankObj.cadence_comp_enabled ? 1 : 0; // FW-057
         const u16 = (o, v) => { d[o] = v & 0xFF; d[o + 1] = (v >> 8) & 0xFF; };
+        const kgWithOneDecimal = (value, maximum, fallback) =>
+            Math.round(Math.max(0, Math.min(maximum, value ?? fallback)) * 10) / 10;
         (bankObj.levels || []).slice(0, LEVELS).forEach((lv, i) => {
             const r = HEADER + i * RECORD;
             d[r] = lv.mode_type & 0xFF;
@@ -917,21 +922,39 @@ class CanBusService extends EventEmitter {
             u16(r + 12, lv.emtb_reference_voltage_mv); d[r + 14] = lv.torque_assist_factor & 0xFF;
             u16(r + 15, lv.max_motor_power_w); d[r + 17] = lv.max_iq_pct & 0xFF;
             d[r + 18] = lv.assist_without_rotation ? 1 : 0;
-            u16(r + 19, lv.without_rotation_threshold_mv);
+            const LEGACY_START_MV_PER_KG = 27;
+            const minimumLoadKg = kgWithOneDecimal(
+                lv.minimum_pedal_load_kg, 22.5, 0.7);
+            const legacyMinimumMv = Math.round(Math.min(300,
+                minimumLoadKg * LEGACY_START_MV_PER_KG));
+            if (version >= 7) {
+                u16(r + 19, Math.round(minimumLoadKg * 100)); // centikg
+            } else {
+                u16(r + 19, legacyMinimumMv);
+            }
             d[r + 21] = lv.startup_boost_enabled ? 1 : 0; d[r + 22] = lv.startup_boost_mode & 0xFF;
             u16(r + 23, lv.startup_boost_strength_pct); d[r + 25] = lv.startup_boost_end_rpm & 0xFF;
             d[r + 26] = lv.smooth_start_enabled ? 1 : 0; u16(r + 27, lv.smooth_start_ms);
             u16(r + 29, lv.release_ms); u16(r + 31, lv.power_rise_filter_ms);
             u16(r + 33, lv.power_fall_filter_ms);
             if (version >= 6) {
-                // FW-068: u8 on the wire (0..100 mV); the rise window travels in 10 ms units.
                 const clamp8 = (v, max) => Math.round(Math.max(0, Math.min(max, v ?? 0)));
-                d[r + 35] = clamp8(lv.start_load_reduction_mv, 100);
-                d[r + 36] = clamp8(lv.start_rise_mv, 100);
-                // floor, not round: the firmware serializer truncates (integer /10), so
-                // rounding here would disagree with it, and a rounded-up window would make
-                // the rise detector watch LONGER than the value the user typed.
-                d[r + 37] = Math.floor(Math.max(0, Math.min(200, (lv.start_rise_window_ms ?? 400) / 10)));
+                const ridingLoadKg = kgWithOneDecimal(
+                    lv.riding_minimum_pedal_load_kg, 22.5, minimumLoadKg);
+                if (version >= 7) {
+                    // FW-077: direct rolling threshold in 0.1 kg.
+                    d[r + 35] = clamp8(ridingLoadKg * 10, 225);
+                } else {
+                    // Negotiate down for v6: convert the kg UI back to the historical
+                    // minimum-minus-reduction representation in native mV.
+                    const ridingMv = Math.round(Math.min(legacyMinimumMv,
+                        ridingLoadKg * LEGACY_START_MV_PER_KG));
+                    d[r + 35] = clamp8(Math.max(0, legacyMinimumMv - ridingMv), 100);
+                }
+                // Removed rise-detector slots stay zero so v7 remains 46 B and
+                // the four Iq ramps keep their established offsets.
+                d[r + 36] = 0;
+                d[r + 37] = 0;
                 // FW-069: Iq ramps, per level (they used to be global in the tuning blob).
                 const ramp = (v, fallback) =>
                     Math.round(Math.max(20, Math.min(5000, v ?? fallback)));

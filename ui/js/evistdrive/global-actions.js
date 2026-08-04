@@ -8,8 +8,12 @@
 //
 // The legacy blocks (Limits, System) are not part of this: firmware writes those to
 // permanent storage the moment they are received, so they need no save step at all.
+// "Read all" does include reading them, though — the CB-024 fix below — because a value
+// shown on screen before it was actually read is a placeholder wearing a real value's
+// clothes, and every write button already checks for exactly that read.
 import { state, socket, addLog, syncAllDeviceInfo } from '../shared.js';
 import { el, socketReady, writeBankAndWait, writeTuningAndWait, saveToFlashAndWait } from './common.js';
+import { syncAllCompatibilityData } from './legacy-params.js';
 
 // Set when something reaches controller RAM, cleared once it has been made permanent.
 // This is the honest definition: RAM contents differ from what survives a power cycle.
@@ -40,8 +44,12 @@ export function bindGlobalActions() {
         socket.send('READ_SYSTEM');
         await new Promise((resolve) => setTimeout(resolve, 200));
         socket.send('READ_TORQUE');
-        // The legacy blocks have their own paced sequence — each read waits for the one
-        // before it, because the controller answers one request at a time.
+        // CB-024: this used to stop here. The legacy blocks (Limits/Walk/System — 0x6011
+        // and friends) were never actually read by this button, only by each tab's own
+        // "Read" — so switching tabs after "Read all" could show placeholders that looked
+        // like real values. syncAllCompatibilityData paces its own reads (each waits for
+        // the controller's answer before the next), so just await it here.
+        await syncAllCompatibilityData();
         syncAllDeviceInfo();
     });
 

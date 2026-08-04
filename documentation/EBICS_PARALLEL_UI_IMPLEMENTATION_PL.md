@@ -65,7 +65,7 @@ Bajty fabryczne, których EBICS nie używa, nie zostały pokazane jako pozornie 
 - Użytkownik widzi kg, nie mV.
 - Punkt zerowy nie ma ręcznego pola i ma pozostać automatycznie kalibrowany przez firmware przy uruchomieniu.
 - Skala użytkownika kończy się na 60 kg.
-- Dolny próg `without_rotation_threshold_mv` jest prezentowany i edytowany jako względny nacisk w kg, ale z realnym limitem firmware `0-7,5 kg` (`0-300 mV` przy `40 mV/kg`); na przewodzie nadal pozostaje natywna wartość firmware.
+- Od banku v7 cała sekcja Start condition używa kg także na przewodzie: `minimum_pedal_load_kg`, bezpośredni `riding_minimum_pedal_load_kg` i `start_rise_kg`. Konwersja do starego formatu mV występuje wyłącznie przy negocjacji zapisu do firmware v1–v6.
 - Legacy `Lower torque threshold` jest innym progiem: dla obecnego `TQ_FULL_SCALE_MV=2000` UI ogranicza go do `0,0-31,2 kg`, żeby próg nie wychodził poza liniową mapę `nacisk -> prąd`.
 - Interfejs nie udaje, że zna zapisany punkt górny kalibracji. Odczyt i zapis górnego punktu wymagają przyszłego, jednoznacznego bloku protokołu.
 

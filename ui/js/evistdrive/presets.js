@@ -27,6 +27,33 @@ const PRESET_VERSION = 1;
 // Runtime state, not tuning: which bank the HMI currently has selected. Copying it from a
 // file would silently switch the rider's active bank on import.
 const BANK_RUNTIME_KEYS = ['active_bank'];
+const LEGACY_START_MV_PER_KG = 27;
+const kgWithOneDecimal = (value) => Math.round(value * 10) / 10;
+
+// FW-077: presets written by older Canable versions used mV fields and
+// stored the rolling value as a reduction. Normalise them at the import edge so
+// the editor and newly exported presets contain kg only.
+function normaliseLegacyStartLoads(level) {
+    if (!level) return level;
+    const converted = { ...level };
+    if (Number.isFinite(level.minimum_pedal_load_kg)) {
+        converted.minimum_pedal_load_kg = kgWithOneDecimal(level.minimum_pedal_load_kg);
+        if (Number.isFinite(level.riding_minimum_pedal_load_kg)) {
+            converted.riding_minimum_pedal_load_kg =
+                kgWithOneDecimal(level.riding_minimum_pedal_load_kg);
+        }
+        return converted;
+    }
+    if (!Number.isFinite(level.without_rotation_threshold_mv)) return level;
+    const minimumMv = Math.max(0, level.without_rotation_threshold_mv);
+    const reductionMv = Number.isFinite(level.start_load_reduction_mv)
+        ? Math.max(0, level.start_load_reduction_mv) : 0;
+    converted.minimum_pedal_load_kg = kgWithOneDecimal(
+        minimumMv / LEGACY_START_MV_PER_KG);
+    converted.riding_minimum_pedal_load_kg = kgWithOneDecimal(
+        Math.max(0, minimumMv - reductionMv) / LEGACY_START_MV_PER_KG);
+    return converted;
+}
 
 /* ── Export ─────────────────────────────────────────────────────────────────────── */
 
@@ -146,7 +173,7 @@ const BANK_SETTING_FIELDS = [
     { key: 'cadence_comp_enabled', label: 'Cadence compensation', type: 'checkbox' },
     { key: 'wa_cutoff_kmh', label: 'Walk Assist cut-off speed', min: 1, max: 25.5 },
     { key: 'wa_current_pct', label: 'Walk Assist current', min: 1, max: 100 },
-    { key: 'wa_target_rpm', label: 'Walk Assist target rpm', min: 20, max: 60 },
+    { key: 'wa_target_rpm', label: 'Walk Assist target rpm', min: 18, max: 60 },
     { key: 'wa_latch_after_release', label: 'Walk Assist latch', type: 'checkbox' },
     { key: 'wa_latch_timeout_s', label: 'Walk Assist latch timeout', min: 1, max: 120 },
 ];
@@ -164,9 +191,10 @@ export function applyPreset(preset, selection, descriptors) {
             clampInto(targetBank, bank, BANK_SETTING_FIELDS, `Bank ${bankIndex + 1}`, adjusted);
             bankSettingCount++;
         }
-        bank.levels.forEach((sourceLevel, levelIndex) => {
+        bank.levels.forEach((legacySourceLevel, levelIndex) => {
             if (!selection.levels.has(`${bankIndex}:${levelIndex}`)) return;
             const targetLevel = targetBank.levels?.[levelIndex];
+            const sourceLevel = normaliseLegacyStartLoads(legacySourceLevel);
             if (!targetLevel || !sourceLevel) return;
             // mode_type first: it decides which mode-specific fields even apply.
             if (Number.isFinite(sourceLevel.mode_type)) targetLevel.mode_type = sourceLevel.mode_type;

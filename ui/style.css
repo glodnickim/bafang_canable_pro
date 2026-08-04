@@ -135,6 +135,7 @@
 .ebics-two-column {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
     gap: 16px;
 }
 .ebics-card,
@@ -165,6 +166,15 @@
 }
 .ebics-global-band-head > div:first-child { min-width: 0; flex: 1 1 320px; }
 .ebics-global-band .ebics-kicker { color: #475569; }
+/* The three cards here (boost decay, start/latch, RUN smoothing) each hold only a
+   handful of fields — full width per card was mostly empty space. Let them sit side by
+   side and wrap down on narrow screens instead. */
+.ebics-global-charts-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    align-items: start;
+    gap: 16px;
+}
 .ebics-card-title { margin-bottom: 12px; color: var(--ebics-dark); font-size: 13px; font-weight: 800; }
 summary.ebics-card-title { cursor: pointer; margin-bottom: 0; }
 details[open] > summary.ebics-card-title { margin-bottom: 12px; }
@@ -200,12 +210,30 @@ details[open] > summary.ebics-card-title { margin-bottom: 12px; }
 .ebics-preset-count { margin-right: auto; color: #b45309; font-size: 11px; font-weight: 700; }
 .ebics-preset-footer .btn { padding: 3px 12px; font-size: 11px; }
 
-/* FW-071: shared settings split into sections, each its own copy unit. */
-.ebics-field-group { position: relative; padding-top: 4px; }
-.ebics-field-group + .ebics-field-group {
-    margin-top: 14px;
-    padding-top: 14px;
-    border-top: 1px solid rgba(15, 23, 42, .10);
+/* FW-071: shared settings split into sections, each its own copy unit. "Current ramps" and
+   "Power smoothing and release" render into the LEFT column (next to the mode-specific
+   card) instead of stacking under the other three groups on the right — that keeps the two
+   halves of the page roughly balanced instead of one side running on far longer than the
+   other. Each group is a full-width, self-contained bordered box within whichever column
+   it lands in — a top-border separator only makes sense when items are guaranteed to stack
+   vertically, which used to not be guaranteed under the old auto-fit grid. */
+.ebics-profile-left-column {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+#ebicsProfileSharedFieldsLeft,
+#ebicsProfileSharedFieldsRight {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+.ebics-field-group {
+    position: relative;
+    padding: 12px 14px;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    background: #f8fafc;
 }
 .ebics-field-group-head {
     display: flex;

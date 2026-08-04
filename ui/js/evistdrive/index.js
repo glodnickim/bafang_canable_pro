@@ -11,11 +11,12 @@ import { socket } from '../shared.js';
 
 import { updateLiveSummary } from './live.js';
 import { updateTorqueSummary, bindTorqueControls } from './torque.js';
-import { updateLimitsSummary, bindLimitsControls } from './limits.js';
+import { bindLimitsControls } from './limits.js';
 import { updateWalkAndLegacy } from './walk.js';
 import { renderProfileEditor, bindProfileControls } from './profiles.js';
 import { renderDynamics, bindDynamicsControls } from './dynamics.js';
 import { bindSystemControls, stopDiagPoll } from './system.js';
+import { bindEnginePreviewControls } from './engine-preview-ui.js';
 import { updateDeviceInfoUI, bindDeviceInfoControls } from './device-info.js';
 import { bindGlobalActions } from './global-actions.js';
 // CB-020: preset export/import lives in its own module; it needs the editor's field
@@ -39,11 +40,10 @@ export function updateEbicsUI(eventType = '') {
         updateLiveSummary(eventType);
         updateTorqueSummary();
     }
-    if (fullUpdate || ['controller_realtime_1', 'controller_params_1', 'controller_bank'].includes(eventType)) {
-        updateLimitsSummary(fullUpdate);
-    }
     if (fullUpdate || ['controller_params_0', 'controller_params_1', 'controller_params_2'].includes(eventType)) updateWalkAndLegacy();
-    if (fullUpdate || eventType === 'controller_bank') renderProfileEditor();
+    // controller_tuning also re-renders the profile editor: the per-group preview charts
+    // in "Shared safety and ride settings" read tuning fields (e.g. boost fade speed) too.
+    if (fullUpdate || eventType === 'controller_bank' || eventType === 'controller_tuning') renderProfileEditor();
     if (fullUpdate || eventType === 'controller_tuning') renderDynamics();
     // Identification arrives one field per frame across four devices, so refresh on any of
     // them rather than trying to name every sub-code here.
@@ -63,6 +63,7 @@ function bindControls() {
     bindDeviceInfoControls();
     bindGlobalActions(); // CB-017: Read all / Save to Flash in the top bar
     bindPresetControls({ levelFields: levelFieldDescriptors, tuningFields: tuningFieldDescriptors });
+    bindEnginePreviewControls();
 
     // FW-030/043: the "Ride engine (developer)" card is gone (single ride-core engine).
     // READ_SYSTEM survives because the FW-018 full-charge threshold shares 0x6028.

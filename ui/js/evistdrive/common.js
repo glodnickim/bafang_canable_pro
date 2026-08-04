@@ -116,7 +116,7 @@ export function modeUnsupportedReason(modeType) {
 let modeSelectBuiltForSchema = null;
 
 export function populateSelects() {
-    ['ebicsProfileLevelSelect', 'ebicsLimitsLevelSelect'].forEach((id) => {
+    ['ebicsProfileLevelSelect'].forEach((id) => {
         const select = el(id);
         if (!select || select.options.length) return;
         LEVEL_NAMES.forEach((name, index) => select.add(new Option(name, String(index))));
@@ -213,8 +213,11 @@ export function fieldInput(container, target, descriptor, onChanged) {
             let value = parseFloat(input.value);
             if (!Number.isFinite(value)) value = descriptor.min;
             value = clamp(value, descriptor.min, descriptor.max);
-            input.value = value;
-            target[descriptor.key] = toNative(value);
+            const nativeValue = toNative(value);
+            target[descriptor.key] = nativeValue;
+            // Show the value that will actually be stored. This matters for
+            // quantized fields such as the 0.1 kg Start condition thresholds.
+            input.value = fromNative(nativeValue);
             onChanged?.();
         });
         attachShiftRestore(input, target, descriptor, onChanged, (value) => { input.value = fromNative(value); });
