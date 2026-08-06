@@ -883,12 +883,16 @@ class CanBusService extends EventEmitter {
         // 255 B ceiling of the multiframe protocol (the length travels in a single byte).
         // FW-077: v7 keeps the geometry and exposes only two kg thresholds;
         // the removed rise-detector slots remain reserved.
-        const version = bankObj.bank_schema_version >= 7 ? 7
+        // FW-084: v8 grows the record to 48 B for Extended Boost — 13 + 5*48 + 2 = 255 B,
+        // exactly the ceiling. A v7 controller must keep receiving its own 46 B/245 B
+        // format, or the write is rejected and the rider loses the whole bank.
+        const version = bankObj.bank_schema_version >= 8 ? 8
+            : (bankObj.bank_schema_version >= 7 ? 7
             : (bankObj.bank_schema_version >= 6 ? 6
             : (bankObj.bank_schema_version >= 5 ? 5
-                : (bankObj.bank_schema_version >= 4 ? 4 : 3)));
+                : (bankObj.bank_schema_version >= 4 ? 4 : 3))));
         const HEADER = version >= 5 ? 13 : 12;
-        const RECORD = version >= 6 ? 46 : 35, LEVELS = 5;
+        const RECORD = version >= 8 ? 48 : (version >= 6 ? 46 : 35), LEVELS = 5;
         const BLOB_LEN = HEADER + LEVELS * RECORD + 2;
         const d = new Array(BLOB_LEN).fill(0);
         d[0] = 0x45; d[1] = 0x42; d[2] = version;
@@ -951,10 +955,23 @@ class CanBusService extends EventEmitter {
                         ridingLoadKg * LEGACY_START_MV_PER_KG));
                     d[r + 35] = clamp8(Math.max(0, legacyMinimumMv - ridingMv), 100);
                 }
-                // Removed rise-detector slots stay zero so v7 remains 46 B and
-                // the four Iq ramps keep their established offsets.
-                d[r + 36] = 0;
-                d[r + 37] = 0;
+                // FW-084: from v8 these two bytes carry Extended Boost; for v6/v7 they stay
+                // the reserved zeros of the removed rise detector.
+                if (version >= 8) {
+                    // 0.5 kg per unit, NOT the 0.1 kg the other kg fields use: that step
+                    // is what fits the whole 60 kg sensor range into one byte at one exact decimal, and there
+                    // was no second byte to be had — the blob is at the 255 B ceiling.
+                    // 2 = 1.0 kg (the floor; 0 would arm on any touch), 120 = 60.0 kg.
+                    const triggerKg = Math.max(0, Math.min(60,
+                        lv.extended_boost_trigger_load_kg ?? 8));
+                    d[r + 36] = clamp8(Math.max(2, Math.round(triggerKg * 2)), 120);
+                    // 255 is a legal value here (2.55x), so it must never be treated as a
+                    // signed byte or clipped back to 0.
+                    d[r + 37] = clamp8(lv.extended_boost_strength_pct ?? 100, 255);
+                } else {
+                    d[r + 36] = 0;
+                    d[r + 37] = 0;
+                }
                 // FW-069: Iq ramps, per level (they used to be global in the tuning blob).
                 const ramp = (v, fallback) =>
                     Math.round(Math.max(20, Math.min(5000, v ?? fallback)));
@@ -962,6 +979,10 @@ class CanBusService extends EventEmitter {
                 u16(r + 40, ramp(lv.iq_rise_fast_ms, 300));
                 u16(r + 42, ramp(lv.iq_fall_slow_ms, 1000));
                 u16(r + 44, ramp(lv.iq_fall_fast_ms, 140));
+                if (version >= 8) { // FW-084: 0 = Extended Boost off
+                    u16(r + 46, Math.round(Math.max(0, Math.min(1000,
+                        lv.extended_boost_duration_ms ?? 0))));
+                }
             }
         });
         let crc = 0xFFFF;
@@ -1000,7 +1021,8 @@ class CanBusService extends EventEmitter {
         // version byte it does not know, so sending v6 to a pre-FW-068 controller would
         // make the whole Dynamics write fail. Fall back to the v5 layout in that case —
         // "Crank movement to start" simply has nowhere to go on that firmware.
-        const version = t.tuning_schema_version >= 6 ? 6 : 5;
+        // FW-085: v7 is v6's layout with offset 20 reinterpreted from ms to crank degrees.
+        const version = t.tuning_schema_version >= 7 ? 7 : (t.tuning_schema_version >= 6 ? 6 : 5);
         const BLOB_LEN = version >= 6 ? 32 : 24;
         const bodyLen = BLOB_LEN - 2;
         const d = new Array(BLOB_LEN).fill(0);
@@ -1012,7 +1034,12 @@ class CanBusService extends EventEmitter {
         u16(14, t.assist_run_deadband_mv);
         u16(16, t.assist_hold_ms);
         u16(18, t.assist_min_iq_pct);
-        u16(20, t.assist_torque_run_filter_ms);
+        // FW-085: offset 20 is crank degrees on v7. On an older controller it is still
+        // milliseconds, and the degrees value has no honest millisecond equivalent — so
+        // send that firmware's own default instead of a number that would silently mean
+        // something else. The window setting simply has nowhere to go on pre-FW-085
+        // firmware, the same way "Crank movement to start" has nowhere to go below v6.
+        u16(20, version >= 7 ? Math.min(t.assist_torque_run_window_deg ?? 180, 360) : 300);
         if (version >= 6) {
             u16(22, Math.round(Math.max(1, Math.min(20, t.assist_start_steps ?? 4))));
         }

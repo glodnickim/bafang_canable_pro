@@ -19,6 +19,27 @@ export const LEVEL_COLORS = ['#16a34a', '#2563eb', '#4f46e5', '#f2673f', '#7e22c
 
 export const PREVIEW_CADENCE_RPM = 60;
 
+/*
+ * FW-069 adaptive Iq ramp breakpoints, mirrored from firmware config.h
+ * (IQ_RAMP_SPEED_LO/HI, IQ_RAMP_CAD_LO/HI). They are compile-time constants, so the
+ * controller does not report them and the app cannot read them — but leaving the four ramp
+ * fields labelled only "low" and "high" meant nobody could tell at what speed the value they
+ * were editing applied. Kept here so the field labels, the help text and the ramps chart all
+ * quote ONE set of numbers; if firmware ever changes them, this is the single place to fix.
+ *
+ * Firmware maps speed and cadence to a ramp time separately and takes the SHORTER result
+ * (assist_dynamics.c), and map() clamps at both ends: below the low breakpoints you get
+ * exactly the slow value, above the high ones exactly the fast value.
+ */
+export const RAMP_SPEED_LO_KMH = 4.0;
+export const RAMP_SPEED_HI_KMH = 20.0;
+export const RAMP_CADENCE_LO_RPM = 20;
+export const RAMP_CADENCE_HI_RPM = 70;
+export const RAMP_SLOW_WHEN =
+    `at or below ${RAMP_SPEED_LO_KMH.toFixed(1)} km/h AND ${RAMP_CADENCE_LO_RPM} rpm`;
+export const RAMP_FAST_WHEN =
+    `at or above ${RAMP_SPEED_HI_KMH.toFixed(1)} km/h OR ${RAMP_CADENCE_HI_RPM} rpm`;
+
 export const MODES = [
     { value: 1, label: 'Power Linear' },
     { value: 2, label: 'Power Progressive' },

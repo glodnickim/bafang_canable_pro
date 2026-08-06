@@ -1036,7 +1036,7 @@
                         </div>
                         <div class="ebics-chart-card">
                             <div class="ebics-card-title">RUN torque smoothing — anti-pulse "left leg / right leg"</div>
-                            <p class="text-sm mb-3">A slower estimate of pedal effort used to compute power/eMTB while riding, so the motor follows your average effort instead of each individual leg push. Start, boost and the safety cut stay on the fast signal. 0 ms = off (old behaviour). Higher = smoother but more rubbery.</p>
+                            <p class="text-sm mb-3">A slower estimate of pedal effort used to compute power/eMTB while riding, so the motor follows your average effort instead of each individual leg push. Start, boost and the safety cut stay on the fast signal. The window is measured in <strong>degrees of crank rotation, not milliseconds</strong> — so one setting behaves the same grinding up a climb at 50 rpm and spinning at 110 rpm, which a fixed time could never do. 180° = half a turn = one leg. 0° = off (raw signal). Higher = smoother but slower to react to a change in effort.</p>
                             <div id="ebicsDynamicsTorqueRunFields" class="ebics-field-grid ebics-dynamics-field-grid"></div>
                         </div>
                     </div>
@@ -1228,7 +1228,7 @@
                 <div class="ebics-status-list ebics-card">
                     <div><span>Detected controller</span><b id="ebicsDetectionState">Controller: unknown</b></div>
                     <div><span>Detection evidence</span><b id="ebicsDetectionReason">Waiting for CAN connection.</b></div>
-                    <div><span>Ride Core bank schema</span><b>Version 2</b></div>
+                    <div><span>Ride Core bank schema</span><b>Version 8 (reads v1–v8)</b></div>
                     <div><span>Factory Bafang compatibility</span><b>Kept active</b></div>
                 </div>
                 <h3 class="section-subtitle mt-6">Controller service</h3>
@@ -1268,6 +1268,12 @@
                         <div><span>iq measured (live)</span><b><span id="diagIqMeasured">—</span></b></div>
                         <div><span>Battery limiting (live)</span><b><span id="diagBattLimit">—</span></b></div>
                         <div><span>Brake / torque fault (live)</span><b><span id="diagRelease">—</span> / <span id="diagLatched">—</span></b></div>
+                        <!-- FW-084: Extended Boost. Needed to tell "never armed" from "armed,
+                             waiting for the cranks to stop" from "a limit trimmed it". -->
+                        <div><span>Extended Boost state (live)</span><b id="diagExtBoostState">—</b></div>
+                        <div><span>Extended Boost peak load (live)</span><b><span id="diagExtBoostPeak">—</span> kg</b></div>
+                        <div><span>Extended Boost current / time left</span><b><span id="diagExtBoostIq">—</span> / <span id="diagExtBoostLeft">—</span> ms</b></div>
+                        <div><span>Extended Boost last cancel</span><b id="diagExtBoostCancel">—</b></div>
                         <div style="opacity:.6;margin-top:6px"><span>— peak since last read —</span><b></b></div>
                         <div><span>Cadence (peak)</span><b><span id="diagCadence">N/A</span> rpm</b></div>
                         <div><span>Torque to assist (peak)</span><b><span id="diagTorque">N/A</span> mV</b></div>

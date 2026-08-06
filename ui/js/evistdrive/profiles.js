@@ -10,6 +10,7 @@ import {
     el, isNumber, clamp, hexToRgba, socketReady, selectedLevel, tabIsVisible,
     writeBankAndWait,
     bankSchemaVersion, modeUnsupportedReason, populateSelects, fieldInput, plotLayout,
+    RAMP_SPEED_LO_KMH, RAMP_SPEED_HI_KMH, RAMP_CADENCE_LO_RPM, RAMP_CADENCE_HI_RPM,
 } from './common.js';
 import { updateTorqueSummary } from './torque.js';
 import { updateLiveSummary } from './live.js';
@@ -19,6 +20,12 @@ const HUMAN_POWER_CENTIKG_RPM_NUMERATOR = 1694;
 const HUMAN_POWER_CENTIKG_RPM_DENOMINATOR = 1000;
 const kgWithOneDecimal = (value) => Math.round(value * 10) / 10;
 const displayKgWithOneDecimal = (value) => kgWithOneDecimal(value).toFixed(1);
+// FW-084: the Extended Boost trigger is the one kg field on a 0.5 kg grid — one wire byte
+// had to span the whole 60 kg sensor scale, and 0.5 rather than 0.25 so every storable value
+// is exact at ONE decimal place like the other kg fields. Rounding it on the 0.1 kg grid
+// would show the rider a value the controller cannot store.
+const kgWithHalf = (value) => Math.round(value * 2) / 2;
+const displayKgWithHalf = (value) => kgWithHalf(value).toFixed(1);
 
 function tintProfileCards(levelIndex) {
     const tint = hexToRgba(LEVEL_COLORS[levelIndex] || '#475569', 0.16);
@@ -104,7 +111,15 @@ function modeFields(mode) {
 function sharedFieldGroups() {
     const all = sharedFieldList();
     const pick = (...keys) => keys.map((key) => all.find((field) => field.key === key));
-    return [
+    // A group is only as new as its newest field. Deriving the gate instead of repeating the
+    // number means the section and the preset importer can never disagree about which
+    // firmware can store it — they read the same property off the same descriptors.
+    const gated = (groups) => groups.map((group) => ({
+        ...group,
+        minBankSchema: Math.max(0,
+            ...group.fields.filter(Boolean).map((field) => field.minBankSchema || 0)) || undefined,
+    }));
+    return gated([
         {
             id: 'limits',
             title: 'Power and current ceiling',
@@ -133,12 +148,35 @@ function sharedFieldGroups() {
             title: 'Power smoothing and release',
             fields: pick('release_ms', 'power_rise_filter_ms', 'power_fall_filter_ms'),
         },
-    ];
+        // FW-084. Kept as its own section on purpose: it is the one group here that can keep
+        // the motor pushing with the cranks stationary, and "Copy to…" should move all three
+        // of its values together — a duration copied without its trigger load is meaningless.
+        {
+            id: 'extendedBoost',
+            title: 'Obstacle assist — Extended Boost',
+            note: 'Keeps the motor pushing for a moment AFTER you stop pedalling, for lifting '
+                + 'over steps and rocks. You arm it with a firm push on the pedal; the boost '
+                + 'then reproduces the peak load of that push. The times add up: from the '
+                + 'moment pedalling is recognized as stopped to zero current is Boost duration '
+                + '+ Release duration, and from your last pedal pulse it is roughly '
+                + '200–500 ms + Boost duration + Release duration. Release duration lives in '
+                + '"Power smoothing and release". IN LEGAL MODE the boost counts as '
+                + 'non-pedal assistance, because the cranks are stopped while it runs: it '
+                + 'fades from 5 km/h and gives nothing from 7 km/h. On a technical climb '
+                + 'that is the speed range it is meant for, but do not expect it to help at '
+                + 'speed unless offroad mode is on.',
+            fields: pick('extended_boost_trigger_load_kg', 'extended_boost_strength_pct',
+                'extended_boost_duration_ms'),
+        },
+    ]);
 }
 
 // These two groups render in the LEFT column of the Profiles tab (next to the mode-specific
 // card) instead of stacking under the other three on the right — see renderProfileEditor().
-const LEFT_COLUMN_GROUPS = new Set(['ramps', 'smoothing']);
+// FW-084 put extendedBoost here too: it hands over to the release ramp when it ends, so it
+// belongs beside "Power smoothing and release" — and it keeps the two columns at three
+// groups each instead of piling four on the right.
+const LEFT_COLUMN_GROUPS = new Set(['ramps', 'smoothing', 'extendedBoost']);
 
 // CB-020: every field a level owns, for the mode it is in. The preset importer clamps with
 // these, so a loaded file can never put a value outside what the editor itself allows —
@@ -174,14 +212,17 @@ function sharedFieldList() {
             help: 'Direct minimum load needed to re-engage assist while the bike is already moving (at least 1 km/h) and the cranks turn forward. This is an actual threshold, not a value subtracted from another field. It does not continuously limit assist after engagement.' },
         // FW-069: Iq ramps, moved here from the global Dynamics card so each level (and each
         // bank) can have its own character of power build-up.
-        { key: 'iq_rise_slow_ms', label: 'Acceleration — low speed/cadence', unit: 'ms', min: 20, max: 5000, step: 10,
-            help: 'Time for motor current to ramp from 0% to 100% while pedalling slowly or riding slowly. This is the SLOW end of an adaptive ramp — firmware blends toward the fast value as your speed/cadence rises. Example presets (Aggressive / Normal / Smooth): 250 / 500 / 800 ms. Higher = softer, more gradual pull-away; lower = the motor comes in faster but can feel abrupt at low speed.' },
-        { key: 'iq_rise_fast_ms', label: 'Acceleration — high speed/cadence', unit: 'ms', min: 20, max: 5000, step: 10,
-            help: 'Time for motor current to ramp from 0% to 100% once you are already riding at speed/cadence. Shorter than the slow value — quicker response once you are moving. Example presets (Aggressive / Normal / Smooth): 100 / 250 / 400 ms.' },
-        { key: 'iq_fall_slow_ms', label: 'Deceleration — low speed/cadence', unit: 'ms', min: 20, max: 5000, step: 10,
-            help: 'Time for motor current to ramp down to 0% while pedalling slowly or riding slowly. Example presets (Aggressive / Normal / Smooth): 300 / 500 / 800 ms. Higher = power lingers longer as you ease off; lower = it drops away promptly.' },
-        { key: 'iq_fall_fast_ms', label: 'Deceleration — high speed/cadence', unit: 'ms', min: 20, max: 5000, step: 10,
-            help: 'Time for motor current to ramp down to 0% while riding at speed/cadence — shorter than the slow value. Example presets (Aggressive / Normal / Smooth): 100 / 180 / 300 ms.' },
+        // FW-069: "low" and "high" are the fixed firmware breakpoints from config.h, spelled
+        // out here (and on the ramps chart) because the labels alone never told the rider at
+        // what speed the value they were editing actually applied.
+        { key: 'iq_rise_slow_ms', label: `Acceleration — low speed/cadence (≤ ${RAMP_SPEED_LO_KMH} km/h and ≤ ${RAMP_CADENCE_LO_RPM} rpm)`, unit: 'ms', min: 20, max: 5000, step: 10,
+            help: `Time for motor current to ramp from 0% to 100% at low speed AND low cadence — exactly this value at or below ${RAMP_SPEED_LO_KMH} km/h and ${RAMP_CADENCE_LO_RPM} rpm, blending toward the fast value above that. Pulling away from a standstill always uses this one. Example presets (Aggressive / Normal / Smooth): 250 / 500 / 800 ms. Higher = softer, more gradual pull-away; lower = the motor comes in faster but can feel abrupt at low speed.` },
+        { key: 'iq_rise_fast_ms', label: `Acceleration — high speed/cadence (≥ ${RAMP_SPEED_HI_KMH} km/h or ≥ ${RAMP_CADENCE_HI_RPM} rpm)`, unit: 'ms', min: 20, max: 5000, step: 10,
+            help: `Time for motor current to ramp from 0% to 100% once you are riding: exactly this value at or above ${RAMP_SPEED_HI_KMH} km/h OR ${RAMP_CADENCE_HI_RPM} rpm. Speed and cadence are judged separately and the FASTER of the two wins, so ${RAMP_CADENCE_HI_RPM} rpm in a low gear ramps like ${RAMP_SPEED_HI_KMH} km/h. This is the value that governs how sharply the motor answers a hard push mid-ride — raise it to take the edge off peaks without touching how the bike pulls away. Example presets (Aggressive / Normal / Smooth): 100 / 250 / 400 ms.` },
+        { key: 'iq_fall_slow_ms', label: `Deceleration — low speed/cadence (≤ ${RAMP_SPEED_LO_KMH} km/h and ≤ ${RAMP_CADENCE_LO_RPM} rpm)`, unit: 'ms', min: 20, max: 5000, step: 10,
+            help: `Time for motor current to ramp down to 0% at low speed AND low cadence — exactly this value at or below ${RAMP_SPEED_LO_KMH} km/h and ${RAMP_CADENCE_LO_RPM} rpm. Example presets (Aggressive / Normal / Smooth): 300 / 500 / 800 ms. Higher = power lingers longer as you ease off; lower = it drops away promptly.` },
+        { key: 'iq_fall_fast_ms', label: `Deceleration — high speed/cadence (≥ ${RAMP_SPEED_HI_KMH} km/h or ≥ ${RAMP_CADENCE_HI_RPM} rpm)`, unit: 'ms', min: 20, max: 5000, step: 10,
+            help: `Time for motor current to ramp down to 0% once you are riding: exactly this value at or above ${RAMP_SPEED_HI_KMH} km/h OR ${RAMP_CADENCE_HI_RPM} rpm, and the faster of the two wins. THIS is the one you feel when you ease off the pedal while still spinning — it is normally the shortest ramp on the bike, so power falls away quickly. Raise it if assist disappears too eagerly the moment you stop pushing hard. It does NOT control what happens after the cranks stop: that is Release duration. Example presets (Aggressive / Normal / Smooth): 100 / 180 / 300 ms.` },
         { key: 'startup_boost_enabled', label: 'Startup boost', type: 'checkbox',
             help: 'Give a temporary power boost right when you start pedalling from a stop, fading out as cadence rises (see Startup boost strength/end cadence here, and the global "Startup boost fade per cadence step" in the whole-bike band at the bottom of this tab).' },
         { key: 'startup_boost_strength_pct', label: 'Startup boost strength', unit: '%', min: 0, max: 300, step: 10,
@@ -196,6 +237,15 @@ function sharedFieldList() {
             help: 'Total time of the straight-line fade from whatever assist current is flowing at the moment you stop pedalling down to zero. 650 ms means about 650 ms to zero, whether you were pushing hard or barely at all — there is no extra tail after it. 0 = let this level\'s adaptive Deceleration ramps decide instead (their timing depends on your speed and cadence at the moment you stop). Example presets (Aggressive / Normal / Smooth): 250 / 450 / 650 ms. Higher = a longer, gentler hand-off; lower = assist disappears sooner after you stop.' },
         { key: 'power_rise_filter_ms', label: 'Power rise filter', unit: 'ms', min: 0, max: 5000, step: 50,
             help: 'Smooths sudden increases in requested motor power over this many milliseconds, before this level\'s current ramp even sees it. 0 = no smoothing (react immediately). Example presets (Aggressive / Normal / Smooth): 50 / 150 / 300 ms. Higher = calmer, less jumpy response to a hard push; lower = more immediate but can feel twitchy.' },
+        // FW-084: Extended Boost. The trigger is a calibrated pedal load in kg, deliberately
+        // not a rate of rise — see the section note in sharedFieldGroups().
+        { key: 'extended_boost_trigger_load_kg', label: 'Trigger pedal load', unit: 'kg', min: 1, max: 60, step: 0.5, minBankSchema: 8,
+            fromNative: displayKgWithHalf, toNative: kgWithHalf,
+            help: 'A confirmed pedal load at or above this value arms Extended Boost. It uses calibrated pedal load, not the rate at which the signal rises, and the load has to be held for about 30 ms — a single spike from a chain slap or a pothole is ignored. Higher values mean only a deliberate hard push arms the boost; lower values arm it more easily, including when you did not mean to. This one field steps in 0.5 kg rather than 0.1 kg, which is what lets it reach the sensor\'s full 60 kg. Setting it at 60 kg disables the boost in practice — nothing can push past the top of the scale.' },
+        { key: 'extended_boost_strength_pct', label: 'Boost strength', unit: '%', min: 0, max: 255, step: 5, minBankSchema: 8,
+            help: 'Multiplies the current calculated from the peak load of the latest qualifying pedal push. 100% = exactly that current, 150% = one and a half times it, 255% = the maximum 2.55×. The result is still capped by this level\'s Maximum motor current and by every controller safety limit — speed, power, battery, voltage and temperature.' },
+        { key: 'extended_boost_duration_ms', label: 'Boost duration — 0 = Off', unit: 'ms', min: 0, max: 1000, step: 25, minBankSchema: 8,
+            help: 'How long the motor may keep pushing after forward pedalling is recognized as stopped. 0 disables Extended Boost completely, which is the default. Start at 200 ms and only increase it once you have confirmed the brake, backward-pedal and limit behaviour on your own bike. The release ramp runs AFTER this time, so the two add up. In legal mode the boost is treated as non-pedal assistance and stops helping above 7 km/h — the cranks are stationary while it runs.' },
         { key: 'power_fall_filter_ms', label: 'Power fall filter', unit: 'ms', min: 0, max: 5000, step: 50,
             help: 'Smooths sudden drops in requested motor power over this many milliseconds — helps assist not visibly dip in the dead spots of each pedal stroke. This is an exponential time constant, not time-to-zero: after one interval about 37% of the previous step remains. Example presets (Aggressive / Normal / Smooth): 100 / 200 / 400 ms. Higher = steadier through the dead spots; lower = assist follows every dip in your pedal stroke.' },
     ];
@@ -226,6 +276,9 @@ function buildProfilePlaceholderBank(modeType) {
         startup_boost_enabled: true, startup_boost_strength_pct: 100, startup_boost_end_rpm: 27,
         smooth_start_enabled: false, smooth_start_ms: 300,
         release_ms: 650, power_rise_filter_ms: 150, power_fall_filter_ms: 375,
+        // FW-084: off out of the box, exactly like a fresh controller.
+        extended_boost_trigger_load_kg: 20, extended_boost_strength_pct: 100,
+        extended_boost_duration_ms: 0,
     }));
 }
 const PROFILE_LEVEL_PLACEHOLDER_BANKS = [
@@ -460,6 +513,36 @@ export function renderProfileEditor() {
             block.appendChild(grid);
             group.fields.filter(Boolean).forEach((field) =>
                 fieldInput(grid, level, withRestore(field), refresh));
+
+            /*
+             * FW-084: a group the connected controller CANNOT STORE must not be editable —
+             * typing a boost duration that the serializer then drops on write is worse than
+             * being told the firmware is too old, because the rider would ride expecting it.
+             *
+             * "Nothing read yet" is a different situation and stays editable, exactly like
+             * the mode selector does: offline there is no controller to disagree with, the
+             * values are placeholders, and nothing can be written anyway. Disabling it there
+             * only looked broken — the fields lost their spinners while every other card
+             * kept them.
+             */
+            if (group.minBankSchema) {
+                const schema = bankSchemaVersion();
+                const tooOld = schema > 0 && schema < group.minBankSchema;
+                if (tooOld || schema === 0) {
+                    const note = document.createElement('p');
+                    note.className = 'form-hint ebics-stale-warning';
+                    note.textContent = tooOld
+                        ? `⚠ This controller reports bank schema v${schema} and cannot store these settings — they are shown read-only. Flash firmware with FW-084 first.`
+                        : `⚠ Banks not read yet — these settings need bank schema v${group.minBankSchema}. You can set them up here, but press "Read banks" to confirm your controller can store them.`;
+                    block.insertBefore(note, grid);
+                }
+                if (tooOld) {
+                    grid.querySelectorAll('input, select, textarea, button')
+                        .forEach((control) => { control.disabled = true; });
+                    // Read-only has to LOOK read-only, or a greyed spinner is the only clue.
+                    grid.style.opacity = '0.55';
+                }
+            }
 
             // Every group gets its own collapsible preview chart, including "ramps" — this
             // replaces the old always-visible Acceleration/Deceleration cards, which took a

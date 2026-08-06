@@ -143,9 +143,21 @@ export function unsupportedModesIn(preset) {
 // Ranges come from the field descriptors the editor already uses, so a value can never be
 // loaded outside what the UI itself would allow. Reported rather than applied silently:
 // a preset quietly reshaped on import is a preset that no longer matches its author's bike.
-function clampInto(target, source, descriptors, label, adjusted) {
+function clampInto(target, source, descriptors, label, adjusted, skipped) {
+    const schema = bankSchemaVersion();
     descriptors.filter(Boolean).forEach((field) => {
         if (!Object.prototype.hasOwnProperty.call(source, field.key)) return;
+        /*
+         * FW-084: a preset written on newer firmware can carry settings this controller has
+         * no room for in its bank format. Loading them anyway would put a value in the
+         * editor that the serializer then drops on write — the rider would see a boost
+         * duration on screen, press Apply, get an OK, and ride a bike that never got it.
+         * Refuse the field and say so instead.
+         */
+        if (field.minBankSchema && (schema === 0 || schema < field.minBankSchema)) {
+            if (skipped) skipped.push(`${label} · ${field.label}`);
+            return;
+        }
         let value = source[field.key];
         if (field.type === 'checkbox') { target[field.key] = !!value; return; }
         if (!Number.isFinite(value)) return;
@@ -181,6 +193,7 @@ const BANK_SETTING_FIELDS = [
 // selection: { levels: Set("bankIndex:levelIndex"), bankSettings: Set(bankIndex), tuning: bool }
 export function applyPreset(preset, selection, descriptors) {
     const adjusted = [];
+    const skipped = [];
     let levelCount = 0;
     let bankSettingCount = 0;
 
@@ -188,7 +201,7 @@ export function applyPreset(preset, selection, descriptors) {
         const targetBank = state.lastBanks?.[bankIndex];
         if (!targetBank || !Array.isArray(bank?.levels)) return;
         if (selection.bankSettings?.has(bankIndex)) {
-            clampInto(targetBank, bank, BANK_SETTING_FIELDS, `Bank ${bankIndex + 1}`, adjusted);
+            clampInto(targetBank, bank, BANK_SETTING_FIELDS, `Bank ${bankIndex + 1}`, adjusted, skipped);
             bankSettingCount++;
         }
         bank.levels.forEach((legacySourceLevel, levelIndex) => {
@@ -199,19 +212,20 @@ export function applyPreset(preset, selection, descriptors) {
             // mode_type first: it decides which mode-specific fields even apply.
             if (Number.isFinite(sourceLevel.mode_type)) targetLevel.mode_type = sourceLevel.mode_type;
             const label = `Bank ${bankIndex + 1} / ${LEVEL_NAMES[levelIndex]}`;
-            clampInto(targetLevel, sourceLevel, descriptors.levelFields(sourceLevel.mode_type), label, adjusted);
+            clampInto(targetLevel, sourceLevel, descriptors.levelFields(sourceLevel.mode_type), label, adjusted, skipped);
             levelCount++;
         });
     });
 
     if (selection.tuning && preset.tuning && state.lastTuning) {
-        clampInto(state.lastTuning, preset.tuning, descriptors.tuningFields(), 'Global', adjusted);
+        clampInto(state.lastTuning, preset.tuning, descriptors.tuningFields(), 'Global', adjusted, skipped);
     }
     return {
         levelCount,
         bankSettingCount,
         tuningApplied: !!(selection.tuning && preset.tuning),
         adjusted,
+        skipped,
     };
 }
 
@@ -352,6 +366,11 @@ function buildImportPanel(preset, descriptors, container) {
         addLog('DATA', `Preset loaded: ${result.levelCount} level(s), ${result.bankSettingCount} bank setting block(s)${result.tuningApplied ? ' + global' : ''}. Nothing written yet — press Write, then Save to Flash.`);
         if (result.adjusted.length) {
             addLog('ERR', `${result.adjusted.length} value(s) were outside this app's allowed range and were clamped: ${result.adjusted.slice(0, 6).join('; ')}${result.adjusted.length > 6 ? ' …' : ''}`);
+        }
+        // FW-084: never silent. A skipped field is a promise the file made that this
+        // controller cannot keep, and the rider has to hear it before they ride.
+        if (result.skipped.length) {
+            addLog('ERR', `${result.skipped.length} setting(s) in this preset need newer firmware than your controller reports and were NOT loaded: ${result.skipped.slice(0, 6).join('; ')}${result.skipped.length > 6 ? ' …' : ''}`);
         }
     });
 

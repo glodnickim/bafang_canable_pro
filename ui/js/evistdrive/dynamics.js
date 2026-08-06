@@ -25,9 +25,10 @@ const TUNING_FIELDS = [
         help: 'How long assist stays latched at very light pedal load (below Run deadband) before it gives up and releases. Lower values release sooner; higher values bridge longer dead spots but can make light pedalling keep pulling. Example presets (Aggressive / Normal / Smooth): 300 / 600 / 1000 ms.' },
     { key: 'assist_min_iq_pct', label: 'Current floor while latched', unit: '%', min: 0, max: 25, step: 1,
         help: 'Minimum motor current (percent of the level’s current limit) while assist is latched and you are still pedalling forward. Lower values allow very light assistance; higher values keep the motor pulling between pedal strokes. Example presets (Aggressive / Normal / Smooth): 0 / 1 / 2%.' },
-    // FW-033: RUN torque estimator — smooths per-leg peaks in the power calc (0 = off).
-    { key: 'assist_torque_run_filter_ms', label: 'RUN torque smoothing (anti-pulse)', unit: 'ms', min: 0, max: 1000, step: 10,
-        help: 'Smooths the pedal-load signal used for RUN power/eMTB/torque calculations (not for starting or stopping). Higher values reduce per-leg pulsing but react more slowly to effort changes; lower values feel more immediate. 0 = raw signal. Example presets (Aggressive / Normal / Smooth): 100 / 200 / 350 ms.' },
+    // FW-033/085: RUN torque estimator — averages per-leg peaks out of the power calc
+    // over a window of CRANK ANGLE, so it behaves the same at any cadence (0 = off).
+    { key: 'assist_torque_run_window_deg', label: 'RUN torque smoothing (anti-pulse)', unit: '°', min: 0, max: 360, step: 15,
+        help: 'Averages the pedal-load signal used for RUN power/eMTB/torque calculations (not for starting or stopping) over this much of a pedal turn. Because the window is a slice of the crank rotation rather than a fixed time, one setting behaves the same grinding up a climb at 50 rpm and spinning at 110 rpm — a value in milliseconds could never do both. 180° = half a turn = one leg, which cancels the per-leg pulsing; 360° averages a full revolution for the smoothest delivery. Higher values react more slowly to changes in effort. 0 = raw signal. Example presets (Aggressive / Normal / Smooth): 90 / 180 / 270°.' },
 ];
 
 // CB-020: the global block's fields, for the preset importer to clamp with. Same list the
@@ -46,7 +47,7 @@ function ensureTuningDefaults() {
         return;
     }
     // FW-032/033/068: an older controller read won't include these fields — backfill defaults.
-    ['assist_run_deadband_mv', 'assist_hold_ms', 'assist_min_iq_pct', 'assist_torque_run_filter_ms',
+    ['assist_run_deadband_mv', 'assist_hold_ms', 'assist_min_iq_pct', 'assist_torque_run_window_deg',
         'assist_start_steps']
         .forEach((key) => {
             if (state.lastTuning[key] == null) state.lastTuning[key] = TUNING_DEFAULTS[key];
@@ -86,7 +87,7 @@ const TUNING_DEFAULTS = Object.freeze({
     startup_boost_cadence_step: 20,
     assist_start_steps: 4, // FW-068
     assist_run_deadband_mv: 5, assist_hold_ms: 1400, assist_min_iq_pct: 2,
-    assist_torque_run_filter_ms: 300,
+    assist_torque_run_window_deg: 180,
 });
 
 // What a restore should put back: the values as read when there are any, otherwise the

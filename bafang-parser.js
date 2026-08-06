@@ -357,7 +357,7 @@ class BafangCanControllerParser {
         if (!Array.isArray(d) || d.length < 185) {
             return { parseError: true, error: `Invalid bank blob length ${d?.length}` };
         }
-        if (d[0] !== 0x45 || d[1] !== 0x42 || d[2] < 1 || d[2] > 7) {
+        if (d[0] !== 0x45 || d[1] !== 0x42 || d[2] < 1 || d[2] > 8) {
             return { parseError: true, error: 'Bad bank blob magic/version' };
         }
         // FW-056: v4 has the same layout and length as v3; the version byte only
@@ -371,6 +371,11 @@ class BafangCanControllerParser {
         const HEADER = version >= 5 ? 13 : (version >= 3 ? 12 : (version === 2 ? 10 : 8));
         if (version === 7 && RECORD !== 46) {
             return { parseError: true, error: `Invalid v7 bank record length ${RECORD}` };
+        }
+        // FW-084: v8 grows the record to 48 B (Extended Boost). 255 B total is the ceiling
+        // of the transport, so this is the last version that can grow the record at all.
+        if (version === 8 && RECORD !== 48) {
+            return { parseError: true, error: `Invalid v8 bank record length ${RECORD}` };
         }
         const BLOB_LEN = HEADER + LEVELS * RECORD + 2;
         if (d.length < BLOB_LEN) {
@@ -427,6 +432,16 @@ class BafangCanControllerParser {
                 iq_rise_fast_ms: RECORD >= 46 ? u16(r + 40) : 300,
                 iq_fall_slow_ms: RECORD >= 46 ? u16(r + 42) : 1000,
                 iq_fall_fast_ms: RECORD >= 46 ? u16(r + 44) : 140,
+                // FW-084: bytes 36..37 are Extended Boost ONLY from v8 on. In v6/v7 they
+                // held the removed rise detector, so reading them from an older blob would
+                // present stale bytes as a live boost setting. Older controllers get the
+                // migration defaults, which have the function OFF.
+                // 0.5 kg per wire unit — the one kg field that is not 0.1 kg, because a
+                // single byte had to cover the full 60 kg sensor scale.
+                extended_boost_trigger_load_kg: version >= 8 && RECORD >= 48
+                    ? d[r + 36] / 2 : 20,
+                extended_boost_strength_pct: version >= 8 && RECORD >= 48 ? d[r + 37] : 100,
+                extended_boost_duration_ms: version >= 8 && RECORD >= 48 ? u16(r + 46) : 0,
             });
         }
         // FW-043: header byte 7 = this bank's Walk Assist cut-off wheel speed in 0.1 km/h units.
@@ -449,12 +464,13 @@ class BafangCanControllerParser {
     // FW-010: global ride-feel tuning blob (0x6023) — 4B header + 5 u16 fields + CRC16-CCITT
     static tuningBlob(packet) {
         // v1 16 B (ramps only), v2 22 B (+latch), v3/v4/v5 24 B (+torque-run filter),
-        // v6 32 B (+start steps, FW-068). All read.
+        // v6 32 B (+start steps, FW-068), v7 32 B (FW-085: offset 20 changes unit from
+        // milliseconds to crank degrees; the layout is v6's, byte for byte). All read.
         const d = packet?.data;
         if (!Array.isArray(d) || d.length < 16) {
             return { parseError: true, error: `Invalid tuning blob length ${d?.length}` };
         }
-        if (d[0] !== 0x54 || d[1] !== 0x55 || d[2] < 1 || d[2] > 6) {
+        if (d[0] !== 0x54 || d[1] !== 0x55 || d[2] < 1 || d[2] > 7) {
             return { parseError: true, error: 'Bad tuning blob magic/version' };
         }
         const version = d[2];
@@ -491,8 +507,20 @@ class BafangCanControllerParser {
             out.assist_hold_ms = 1400;
             out.assist_min_iq_pct = 2;
         }
-        // FW-033: torque-run filter; older controllers backfill the firmware default.
-        out.assist_torque_run_filter_ms = version >= 3 ? u16(20) : 300;
+        // FW-033/085: the RUN estimator's averaging window. Offset 20 changed UNIT in v7,
+        // from milliseconds to crank degrees — the position is the same, the meaning is not.
+        //
+        // A v6 value must not be shown as degrees. What a millisecond figure was worth
+        // depended on the cadence it was tuned at (precisely the flaw FW-085 removes), so
+        // there is no honest conversion; reading it literally would show 700 ms as 700 deg.
+        // Only "off" survives, because 0 means the same in both units.
+        if (version >= 7) {
+            out.assist_torque_run_window_deg = Math.min(u16(20), 360);
+        } else if (version >= 3) {
+            out.assist_torque_run_window_deg = u16(20) === 0 ? 0 : 180;
+        } else {
+            out.assist_torque_run_window_deg = 180;
+        }
         // FW-068: crank movement required before assist may start. 0 = written by tooling
         // that predates the field, so show the firmware default rather than "no condition".
         out.assist_start_steps = (version >= 6 && u16(22) >= 1) ? u16(22) : 4;
@@ -506,13 +534,14 @@ class BafangCanControllerParser {
         if (!Array.isArray(d) || d.length < 24) {
             return { parseError: true, error: `Invalid diagnostics length ${d?.length}` };
         }
-        if (d[0] !== 0x44 || d[1] !== 0x47 || (d[2] !== 1 && d[2] !== 2 && d[2] !== 3 && d[2] !== 4)) {
+        if (d[0] !== 0x44 || d[1] !== 0x47 || d[2] < 1 || d[2] > 5) {
             return { parseError: true, error: 'Bad diagnostics magic/version' };
         }
         const version = d[2];
         // v1 24 B (peak), v2 32 B (+current), v3 37 B (+torque_run, measured i_q, batt-limit),
-        // v4 47 B (FW-057: +cadence compensation, u_abs, pack voltage). CRC = last 2 B.
-        const BODY = { 1: 22, 2: 30, 3: 35, 4: 45 };
+        // v4 47 B (FW-057: +cadence compensation, u_abs, pack voltage),
+        // v5 55 B (FW-084: +Extended Boost state). CRC = last 2 B.
+        const BODY = { 1: 22, 2: 30, 3: 35, 4: 45, 5: 53 };
         const bodyLen = BODY[version];
         const minLen = bodyLen + 2;
         if (d.length < minLen) {
@@ -565,6 +594,16 @@ class BafangCanControllerParser {
             pack_voltage_mv: version >= 4 ? u16(41) : null,
             cadence_now: version >= 4 ? d[43] : null,
             cadence_comp_enabled: version >= 4 ? (d[44] & 0x01) !== 0 : null,
+            // FW-084: Extended Boost. Without these a log cannot tell "never armed" from
+            // "armed, waiting for the cranks to stop" from "a limit trimmed it".
+            ext_boost_qualifying: version >= 5 ? (d[45] & 0x01) !== 0 : null,
+            ext_boost_armed: version >= 5 ? (d[45] & 0x02) !== 0 : null,
+            ext_boost_active: version >= 5 ? (d[45] & 0x04) !== 0 : null,
+            ext_boost_arm_expired: version >= 5 ? (d[45] & 0x08) !== 0 : null,
+            ext_boost_peak_load_kg: version >= 5 ? u16(46) / 100 : null,
+            ext_boost_iq: version >= 5 ? u16(48) : null,   // before the shared limits
+            ext_boost_remaining_ms: version >= 5 ? u16(50) : null,
+            ext_boost_cancel_reason: version >= 5 ? d[52] : null,
         };
         return out;
     }

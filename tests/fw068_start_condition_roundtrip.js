@@ -137,7 +137,7 @@ check(BafangCanControllerParser.bankBlob({ data: badVersion }).parseError === tr
 const tuning = {
     iq_rise_slow_ms: 600, iq_rise_fast_ms: 300, iq_fall_slow_ms: 1000, iq_fall_fast_ms: 140,
     startup_boost_cadence_step: 20, assist_run_deadband_mv: 5, assist_hold_ms: 1400,
-    assist_min_iq_pct: 2, assist_torque_run_filter_ms: 300, assist_start_steps: 7,
+    assist_min_iq_pct: 2, assist_torque_run_window_deg: 180, assist_start_steps: 7,
 };
 const t6 = serializeTuning({ ...tuning, tuning_schema_version: 6 });
 check(t6.length === 32 && t6[2] === 6, 'tuning v6 geometry/version');

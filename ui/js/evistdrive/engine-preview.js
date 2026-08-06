@@ -61,7 +61,7 @@ export function simulateRide(settings, scenario) {
         // Power rise/fall filters (smooth short spikes/dips)
         const prevFiltered = sim.filteredDemand[i - 1] ?? 0;
         const isRising = smoothedDemand > prevFiltered;
-        let filteredDemand = applyPowerFilters(smoothedDemand, prevFiltered, settings, isRising);
+        let filteredDemand = applyPowerFilters(smoothedDemand, prevFiltered, settings, isRising, 100);
         sim.filteredDemand.push(filteredDemand);
 
         // Current ramp (iq_rise_slow/fast based on cadence)
@@ -110,17 +110,22 @@ export function calculateBoostFade(timeSinceStart, cadenceRpm, settings) {
     return Math.pow(fade, cadenceRpm / 5);
 }
 
-// Apply power rise/fall filters
-export function applyPowerFilters(current, prevFiltered, settings, isRising) {
+// Apply power rise/fall filters. Mirrors firmware filter_motor_power()
+// (assist_modes.c): every control tick moves the filtered value by
+// (raw - filtered) / filter_ticks, so filter_ms IS the time constant — after one
+// filter_ms interval about 63% of a step has been followed, not 100%.
+//
+// The old version divided a dt already expressed in SECONDS by 1000 again, making
+// alpha 1000x too small: every curve it produced was a near-flat crawl that never
+// left the axis, which is why the smoothing preview was unreadable.
+export function applyPowerFilters(current, prevFiltered, settings, isRising, dtMs = 100) {
     const riseFilterMs = (settings.power_rise_filter_ms || 0);
     const fallFilterMs = (settings.power_fall_filter_ms || 0);
     const filterMs = isRising ? riseFilterMs : fallFilterMs;
 
-    if (filterMs === 0) return current;
+    if (filterMs <= 0) return current;
 
-    // Simple low-pass: lerp between prev and current over filter time
-    const dt = 0.1; // 100ms per step
-    const alpha = Math.min(1, (dt / 1000) / (filterMs / 1000));
+    const alpha = Math.min(1, dtMs / filterMs);
     return prevFiltered + (current - prevFiltered) * alpha;
 }
 

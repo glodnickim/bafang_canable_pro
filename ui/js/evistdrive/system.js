@@ -35,7 +35,28 @@ export function updateDiagUI(d) {
     // brake and torque-fault here, not pedal release / release latch.
     setText('diagRelease', d.brake_active === null ? '—' : (d.brake_active ? 'yes' : 'no'));
     setText('diagLatched', d.torque_fault === null ? '—' : (d.torque_fault ? 'yes' : 'no'));
+    // FW-084: Extended Boost (v5 diagnostics). "idle" and "—" are different answers:
+    // the first means the firmware reported the module is doing nothing, the second that
+    // this controller does not report the module at all.
+    setText('diagExtBoostState', d.ext_boost_active === null ? '—'
+        : (d.ext_boost_active ? 'ACTIVE'
+            : (d.ext_boost_armed ? 'armed'
+                : (d.ext_boost_qualifying ? 'qualifying'
+                    : (d.ext_boost_arm_expired ? 'idle (arming expired)' : 'idle')))));
+    setText('diagExtBoostPeak', d.ext_boost_peak_load_kg === null ? '—'
+        : d.ext_boost_peak_load_kg.toFixed(2));
+    setText('diagExtBoostIq', dash(d.ext_boost_iq));
+    setText('diagExtBoostLeft', dash(d.ext_boost_remaining_ms));
+    setText('diagExtBoostCancel', d.ext_boost_cancel_reason === null ? '—'
+        : (EXT_BOOST_CANCEL[d.ext_boost_cancel_reason] ?? d.ext_boost_cancel_reason));
 }
+
+// Wire values from assist_extended_boost_cancel_t (inc/assist_extended_boost.h).
+const EXT_BOOST_CANCEL = [
+    'none', 'disabled', 'safety cut', 'backward crank', 'sensor invalid', 'walk assist',
+    'calibration', 'level/bank change', 'motion lost', 'pedalling resumed', 'arming expired',
+    'completed', 'bank config written',
+];
 
 let diagTimer = null;
 
