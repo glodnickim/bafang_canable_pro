@@ -184,8 +184,23 @@ function attachShiftRestore(input, target, descriptor, onChanged, applyToInput) 
     input.title = 'Shift+click to put this one value back to what was read (or to the firmware default).';
 }
 
+/*
+ * CB-024: last non-zero value of an off-able numeric field, so switching it back on restores
+ * what the rider had rather than snapping to a default.
+ *
+ * UI-ONLY STATE, on purpose. It is never serialized, never written to the controller and
+ * never put in the profile object — the wire format has one field with one meaning, and 0 IS
+ * "off". Keeping a shadow value in the model would be a second source of truth that the
+ * firmware knows nothing about.
+ */
+const lastNonZeroByField = new Map();
+
 export function fieldInput(container, target, descriptor, onChanged) {
     if (!container || !target) return;
+    if (descriptor.type === 'toggleValue') {
+        toggleValueInput(container, target, descriptor, onChanged);
+        return;
+    }
     const wrapper = document.createElement('div');
     wrapper.className = 'ebics-field';
     const label = document.createElement('label');
@@ -211,6 +226,24 @@ export function fieldInput(container, target, descriptor, onChanged) {
     }
     wrapper.appendChild(label);
 
+    /*
+     * CB-024: an optional live caption under the control, e.g. "≈ 60 Nm · 75% of the
+     * phase-current limit". Descriptors supply `note(nativeValue)`; it is re-rendered on
+     * every edit, including while a slider is being dragged, because a slider without a
+     * readout is a control you cannot set deliberately.
+     */
+    const note = typeof descriptor.note === 'function'
+        ? document.createElement('small') : null;
+    const refreshNote = () => {
+        if (note) {
+            note.textContent = descriptor.note(target[descriptor.key]);
+        }
+    };
+    if (note) {
+        note.className = 'form-hint';
+        note.style.display = 'block';
+    }
+
     const input = document.createElement('input');
     input.disabled = !!descriptor.disabled;
     if (descriptor.type === 'checkbox') {
@@ -218,9 +251,13 @@ export function fieldInput(container, target, descriptor, onChanged) {
         input.checked = !!target[descriptor.key];
         input.addEventListener('change', () => {
             target[descriptor.key] = input.checked;
+            refreshNote();
             onChanged?.();
         });
-        attachShiftRestore(input, target, descriptor, onChanged, (value) => { input.checked = !!value; });
+        attachShiftRestore(input, target, descriptor, onChanged, (value) => {
+            input.checked = !!value;
+            refreshNote();
+        });
     } else {
         input.type = 'number';
         input.className = 'form-input';
@@ -230,20 +267,201 @@ export function fieldInput(container, target, descriptor, onChanged) {
         const fromNative = descriptor.fromNative || ((value) => value);
         const toNative = descriptor.toNative || ((value) => value);
         input.value = fromNative(target[descriptor.key] ?? descriptor.min);
+
+        /*
+         * CB-024: an optional slider beside the number box, for settings where the useful
+         * question is "more or less" rather than "which exact number" — motor torque and the
+         * power ceiling. The number box stays: a slider alone cannot be typed into, and 25 W
+         * steps are painful to hit by dragging.
+         *
+         * Both controls write the same model field and nothing else. Dragging NEVER writes to
+         * the controller; that still only happens through the card's Write button.
+         */
+        const slider = descriptor.slider ? document.createElement('input') : null;
+        let framePending = 0;
+        const applyNative = (nativeValue, { fromSlider }) => {
+            target[descriptor.key] = nativeValue;
+            if (!fromSlider && slider) slider.value = fromNative(nativeValue);
+            if (fromSlider) input.value = fromNative(nativeValue);
+            refreshNote();
+        };
+        // The model updates on every pixel of the drag so the caption tracks the thumb, but
+        // the chart redraw is coalesced to one per animation frame. Plotly cannot keep up
+        // with a redraw per input event, and the queued frames are what make a slider feel
+        // like it is fighting back.
+        const scheduleRedraw = () => {
+            if (framePending) return;
+            const raf = typeof requestAnimationFrame === 'function'
+                ? requestAnimationFrame : (fn) => setTimeout(fn, 16);
+            framePending = raf(() => {
+                framePending = 0;
+                onChanged?.();
+            });
+        };
+
         input.addEventListener('change', () => {
             let value = parseFloat(input.value);
             if (!Number.isFinite(value)) value = descriptor.min;
             value = clamp(value, descriptor.min, descriptor.max);
             const nativeValue = toNative(value);
-            target[descriptor.key] = nativeValue;
+            applyNative(nativeValue, { fromSlider: false });
             // Show the value that will actually be stored. This matters for
             // quantized fields such as the 0.1 kg Start condition thresholds.
             input.value = fromNative(nativeValue);
             onChanged?.();
         });
-        attachShiftRestore(input, target, descriptor, onChanged, (value) => { input.value = fromNative(value); });
+        attachShiftRestore(input, target, descriptor, onChanged, (value) => {
+            input.value = fromNative(value);
+            if (slider) slider.value = fromNative(value);
+            refreshNote();
+        });
+
+        if (slider) {
+            slider.type = 'range';
+            slider.className = 'ebics-slider';
+            slider.min = descriptor.min;
+            slider.max = descriptor.max;
+            slider.step = descriptor.sliderStep ?? descriptor.step ?? 1;
+            slider.value = fromNative(target[descriptor.key] ?? descriptor.min);
+            slider.disabled = !!descriptor.disabled;
+            slider.addEventListener('input', () => {
+                const value = clamp(parseFloat(slider.value), descriptor.min, descriptor.max);
+                applyNative(toNative(value), { fromSlider: true });
+                scheduleRedraw();
+            });
+            // Dragging is a preview; letting go is the edit. Snap the thumb to what will
+            // really be stored, so a quantized field cannot leave the slider showing a value
+            // the controller will never hold.
+            slider.addEventListener('change', () => {
+                slider.value = fromNative(target[descriptor.key]);
+                onChanged?.();
+            });
+            wrapper.appendChild(slider);
+        }
     }
     wrapper.appendChild(input);
+    if (note) {
+        refreshNote();
+        wrapper.appendChild(note);
+    }
+    container.appendChild(wrapper);
+}
+
+/*
+ * CB-024: a checkbox that owns a numeric field whose 0 means "no limit".
+ *
+ * Off  -> the field is 0, the number/slider are hidden, and the caption says what that
+ *         actually means instead of leaving the rider to infer it from a zero.
+ * On   -> the field carries the chosen value; the last non-zero one is remembered per
+ *         bank/level so toggling off and on does not lose the tuning.
+ *
+ * Only ever writes the ONE real field. Nothing extra reaches the profile or the wire.
+ */
+function toggleValueInput(container, target, descriptor, onChanged) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'ebics-field';
+
+    const memoryKey = `${descriptor.memoryScope || ''}:${descriptor.key}`;
+    const stored = Number(target[descriptor.key]) || 0;
+    if (stored > 0) lastNonZeroByField.set(memoryKey, stored);
+
+    const label = document.createElement('label');
+    label.append(descriptor.label);
+    if (descriptor.help) {
+        const details = [descriptor.help];
+        if (Object.prototype.hasOwnProperty.call(descriptor, 'factoryDefault')) {
+            const raw = Number(descriptor.factoryDefault) || 0;
+            details.push(`${descriptor.factoryDefaultLabel || 'Factory default'}: ${raw > 0 ? `${raw} ${descriptor.unit}` : 'off'}.`);
+        }
+        if (Number.isFinite(descriptor.min) && Number.isFinite(descriptor.max)) {
+            details.push(`Allowed range when on: ${descriptor.min}-${descriptor.max} ${descriptor.unit}.`);
+        }
+        label.appendChild(helpBadge(details.join(' ')));
+    }
+
+    const toggle = document.createElement('input');
+    toggle.type = 'checkbox';
+    toggle.checked = stored > 0;
+    toggle.disabled = !!descriptor.disabled;
+    label.prepend(toggle, ' ');
+    wrapper.appendChild(label);
+
+    const valueRow = document.createElement('div');
+    const slider = document.createElement('input');
+    const number = document.createElement('input');
+    const note = document.createElement('small');
+    note.className = 'form-hint';
+    note.style.display = 'block';
+
+    const currentValue = () => Number(target[descriptor.key]) || 0;
+    const refresh = () => {
+        const value = currentValue();
+        const on = value > 0;
+        valueRow.style.display = on ? '' : 'none';
+        if (on) {
+            slider.value = value;
+            number.value = value;
+        }
+        note.textContent = on
+            ? (typeof descriptor.onText === 'function' ? descriptor.onText(value) : `${value} ${descriptor.unit}`)
+            : (descriptor.offText || 'Off');
+    };
+
+    const setValue = (raw, { redrawNow }) => {
+        const value = Math.round(clamp(Number(raw) || 0, descriptor.min, descriptor.max));
+        target[descriptor.key] = value;
+        if (value > 0) lastNonZeroByField.set(memoryKey, value);
+        refresh();
+        if (redrawNow) onChanged?.();
+    };
+
+    slider.type = 'range';
+    slider.className = 'ebics-slider';
+    number.type = 'number';
+    number.className = 'form-input';
+    [slider, number].forEach((control) => {
+        control.min = descriptor.min;
+        control.max = descriptor.max;
+        control.step = descriptor.step ?? 1;
+        control.disabled = !!descriptor.disabled;
+    });
+
+    let framePending = 0;
+    slider.addEventListener('input', () => {
+        setValue(slider.value, { redrawNow: false });
+        number.value = target[descriptor.key];
+        if (framePending) return;
+        const raf = typeof requestAnimationFrame === 'function'
+            ? requestAnimationFrame : (fn) => setTimeout(fn, 16);
+        framePending = raf(() => { framePending = 0; onChanged?.(); });
+    });
+    slider.addEventListener('change', () => setValue(slider.value, { redrawNow: true }));
+    number.addEventListener('change', () => setValue(number.value, { redrawNow: true }));
+    // CB-012 still applies here: Shift+click puts this one value back. Restoring a 0 has to
+    // switch the toggle off as well, or the card would show "on" with nothing set.
+    attachShiftRestore(number, target, descriptor, onChanged, (value) => {
+        toggle.checked = Number(value) > 0;
+        refresh();
+    });
+
+    toggle.addEventListener('change', () => {
+        if (toggle.checked) {
+            const remembered = lastNonZeroByField.get(memoryKey);
+            const fallback = descriptor.defaultOnValue ?? descriptor.min ?? 0;
+            setValue(remembered > 0 ? remembered : fallback, { redrawNow: true });
+        } else {
+            // Deliberately not through setValue: 0 must not be remembered as "last value".
+            target[descriptor.key] = 0;
+            refresh();
+            onChanged?.();
+        }
+    });
+
+    valueRow.appendChild(slider);
+    valueRow.appendChild(number);
+    wrapper.appendChild(valueRow);
+    wrapper.appendChild(note);
+    refresh();
     container.appendChild(wrapper);
 }
 

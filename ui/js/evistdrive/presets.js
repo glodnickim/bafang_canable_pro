@@ -158,17 +158,39 @@ function clampInto(target, source, descriptors, label, adjusted, skipped) {
             if (skipped) skipped.push(`${label} · ${field.label}`);
             return;
         }
-        let value = source[field.key];
+        const value = source[field.key];
         if (field.type === 'checkbox') { target[field.key] = !!value; return; }
         if (!Number.isFinite(value)) return;
-        if (Number.isFinite(field.min) && value < field.min) {
-            adjusted.push(`${label} · ${field.label}: ${value} → ${field.min}`);
-            value = field.min;
-        } else if (Number.isFinite(field.max) && value > field.max) {
-            adjusted.push(`${label} · ${field.label}: ${value} → ${field.max}`);
-            value = field.max;
+        /*
+         * CB-024 FIX: min/max on a descriptor are in the unit the field is DISPLAYED in,
+         * while the profile stores the native value. Comparing the two directly destroyed
+         * every field where they differ: a preset's emtb_reference_voltage_mv of 36000 was
+         * "clamped" to 84 (the volts maximum) and a curve exponent of 15 to 2.5. Both were
+         * then reported to the rider as an out-of-range value that had been corrected.
+         *
+         * Clamp in display space and convert back, so the bounds mean what they say. Fields
+         * without a conversion are unaffected — fromNative/toNative default to identity.
+         */
+        const fromNative = field.fromNative || ((raw) => raw);
+        const toNative = field.toNative || ((shown) => shown);
+        /*
+         * The bounds are translated INTO the stored unit and the comparison happens there.
+         * Clamping in display units instead would miss the case that matters most: a
+         * fromNative() that clamps on its own (the Nm view of max_iq_pct does) makes an
+         * out-of-range native value look in-range, and it would be written through untouched.
+         * Every conversion in use is monotonic, so translating the two ends is exact — and it
+         * avoids re-quantizing a value that was already fine.
+         */
+        const nativeMin = Number.isFinite(field.min) ? Number(toNative(field.min)) : -Infinity;
+        const nativeMax = Number.isFinite(field.max) ? Number(toNative(field.max)) : Infinity;
+        let clamped = value;
+        if (Number.isFinite(nativeMin) && value < nativeMin) clamped = nativeMin;
+        else if (Number.isFinite(nativeMax) && value > nativeMax) clamped = nativeMax;
+        if (clamped !== value) {
+            // Reported in the unit the rider sees, not in the stored one.
+            adjusted.push(`${label} · ${field.label}: ${fromNative(value)} → ${fromNative(clamped)}`);
         }
-        target[field.key] = value;
+        target[field.key] = clamped;
     });
 }
 

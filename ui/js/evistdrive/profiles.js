@@ -6,6 +6,9 @@ import { markUnsavedInRam } from './global-actions.js';
 // firmware generator, so the preview draws the real curve and not a lookalike.
 import { evalPowerCurvePermille } from './power-curve-lut.js';
 import {
+    M820_MAX_TORQUE_NM, iqPercentToTorqueNm, torqueNmToIqPercent,
+} from './motor-limits.js';
+import {
     LEVEL_NAMES, LEVEL_COLORS, MODE_LABELS, PREVIEW_CADENCE_RPM,
     el, isNumber, clamp, hexToRgba, socketReady, selectedLevel, tabIsVisible,
     writeBankAndWait,
@@ -198,10 +201,40 @@ function maxMotorPowerCeilingW() {
 
 function sharedFieldList() {
     return [
-        { key: 'max_motor_power_w', label: 'Maximum motor power — 0 disables', unit: 'W', min: 0, max: maxMotorPowerCeilingW(), step: 25,
-            help: 'Hard ceiling on requested motor power for this level, converted to a current limit using the Reference voltage field (eMTB mode) or nominal voltage. Lower values restrain the high-speed/top-power response. 0 = no power ceiling (Maximum motor current below still applies). The allowed range is also capped at Maximum battery current × Overvoltage cutoff (Limits tab) — the most power the battery could ever supply.' },
-        { key: 'max_iq_pct', label: 'Maximum motor current', unit: '%', min: 0, max: 100, step: 5,
-            help: 'Hard ceiling on motor current for this level, as a percentage of the controller\'s overall phase-current limit. Lower values reduce maximum low-speed torque; higher values allow a stronger push. This is the final cap — startup boost, latch floor and everything else are still clipped by it.' },
+        /*
+         * CB-024: both ceilings are set in the unit the rider actually feels.
+         *
+         * Torque instead of "percent of phase current": nobody can picture 75 % of a
+         * phase-current limit, and every rider knows what 60 Nm means. The percent is still
+         * what gets stored and is still shown in the caption, so nothing is hidden.
+         *
+         * The power ceiling gets an explicit on/off switch because 0 does NOT mean "no
+         * motor" — it means "no extra power limit". The old label said "0 disables", which
+         * reads exactly backwards and is the kind of thing someone discovers by setting it
+         * to 0 and expecting the motor to stop.
+         */
+        {
+            key: 'max_motor_power_w',
+            label: 'Limit maximum motor power',
+            type: 'toggleValue',
+            valueLabel: 'Maximum motor power', unit: 'W',
+            min: 0, max: maxMotorPowerCeilingW(), step: 25, slider: true,
+            offText: 'No extra power limit — only the torque ceiling above applies.',
+            onText: (watts) => `${watts} W ceiling once you are spinning.`,
+            defaultOnValue: 600,
+            help: 'Caps motor power while you are pedalling at higher cadence. It does NOT set how hard the bike pulls away — at low cadence there is almost no power to cap, so launch force comes from the torque setting above. Switch it off for no extra power limit; the torque ceiling still applies either way. The allowed range is capped at Maximum battery current × Overvoltage cutoff (Limits tab) — the most power the battery could ever supply.',
+        },
+        {
+            key: 'max_iq_pct',
+            label: 'Maximum motor torque', unit: 'Nm',
+            min: 0, max: M820_MAX_TORQUE_NM, step: 1, slider: true, sliderStep: 1,
+            fromNative: (pct) => Math.round(iqPercentToTorqueNm(pct)),
+            toNative: (nm) => torqueNmToIqPercent(nm),
+            note: (pct) => (pct > 0
+                ? `About ${Math.round(iqPercentToTorqueNm(pct))} Nm · ${pct}% of the phase-current limit`
+                : 'Assist is switched off at this level.'),
+            help: `Limits how hard the motor can push, which you feel most when pulling away and at low cadence. The Nm figure is an ESTIMATE for a Bafang M820 (${M820_MAX_TORQUE_NM} Nm at full phase current) — the controller stores a percentage of its own phase-current limit, so if that limit is set below the motor's rated current the real torque is lower than the number shown. This is the final cap: startup boost, latch floor and Extended Boost are all clipped by it.`,
+        },
         { key: 'assist_without_rotation', label: 'Assist without crank rotation', type: 'checkbox',
             help: 'Allow the motor to push from a dead stop, before the cranks are turning — useful for pulling away on a steep start. Still needs a clear push on the pedal (see Minimum pedal load) to trigger, so it can\'t be set off by an idle foot resting on the pedal.' },
         { key: 'minimum_pedal_load_kg', label: 'Minimum pedal load', unit: 'kg', min: 0, max: 22.5, step: 0.1,
@@ -481,6 +514,9 @@ export function renderProfileEditor() {
     const factoryDefaults = factoryLevel[selected.levelIndex] || factoryLevel[0];
     const withRestore = (field) => ({
         ...field,
+        // CB-024: an off-able field remembers its last non-zero value PER bank and level, so
+        // switching the power limit off on BOOST cannot resurrect ECO's number.
+        memoryScope: `${selected.bankIndex}:${selected.levelIndex}`,
         factoryDefault: factoryDefaults[field.key],
         factoryDefaultLabel:
             `Factory default for Bank ${selected.bankIndex + 1} / ${LEVEL_NAMES[selected.levelIndex]}`,

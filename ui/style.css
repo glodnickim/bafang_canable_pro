@@ -242,6 +242,15 @@ details[open] > summary.ebics-card-title { margin-bottom: 12px; }
     align-items: baseline;
     justify-content: space-between;
 }
+/* CB-024: slider shown above the number box for the two motor-ceiling settings. Plain CSS,
+   not a Tailwind utility, so it needs no `npm run build:css` to take effect. */
+.ebics-slider {
+    width: 100%;
+    margin: 2px 0 4px;
+    accent-color: #2a78d6; /* same blue the preview charts use for "what the motor gets" */
+    cursor: pointer;
+}
+.ebics-slider:disabled { cursor: not-allowed; opacity: 0.5; }
 .ebics-field-group-title { margin-bottom: 6px; }
 .ebics-field-group-actions { display: inline-flex; align-items: center; gap: 8px; }
 .ebics-field-group-note { margin: 0 0 8px; }

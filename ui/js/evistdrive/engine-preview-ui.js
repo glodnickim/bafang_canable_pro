@@ -12,6 +12,10 @@ import {
     RAMP_SLOW_WHEN, RAMP_FAST_WHEN,
 } from './common.js';
 import { calculateBoostFade, applyPowerFilters } from './engine-preview.js';
+import {
+    M820_MAX_TORQUE_NM, PREVIEW_EFFICIENCY, MAX_PREVIEW_CADENCE_RPM,
+    iqPercentToTorqueNm, buildMotorLimitSeries,
+} from './motor-limits.js';
 
 const CHART_HEIGHT = 260;
 
@@ -52,134 +56,143 @@ function draw(containerId, traces, layout) {
     Plotly.react(container, traces, layout, { responsive: true, displaylogo: false });
 }
 
-// ── Power and current ceiling ──────────────────────────────────────────────
-// Two independent walls guard this group, and firmware applies BOTH (assist_modes.c
-// :667-690): motor power is clipped to max_motor_power_w, the result is turned into
-// current by the pack voltage, and that current is separately clipped to max_iq_pct
-// of the controller's phase limit. Whichever wall is reached first is the one you
-// actually feel — the other never comes into play.
+// ── Motor ceilings: torque and power against cadence ───────────────────────
 //
-// The old chart drew the current wall only and dismissed the watts one as "not shown
-// to scale here", so the W field changed a caption and nothing else. Two panels side
-// by side show each wall in its own real unit, with no invented conversion between
-// them: the UI has the pack voltage and battery current limit, but NOT the
-// controller's phase-current constant, so watts and percent genuinely cannot share
-// one axis honestly. Side-by-side small multiples rather than one twin-scale chart is
-// also the only correct form here — a second y-scale on one frame lets the reader
-// infer crossings that mean nothing.
+// CB-024. Firmware applies BOTH ceilings (assist_modes.c finish_power_request and
+// assist_modes_profile_iq_ceiling): motor power is clipped to max_motor_power_w and the
+// current is separately clipped to max_iq_pct of the controller's phase limit. Whichever is
+// reached first is the one the rider feels — and WHICH ONE that is depends on cadence, which
+// is precisely what the old chart could not show.
+//
+// The old version plotted both ceilings against "how hard you push", in W and %. That axis
+// was invented: effort does not map to either ceiling, the two panels shared no physical
+// relationship, and the % panel told a rider nothing they could feel. Cadence is the real
+// independent variable here, because P = M x omega is what makes the two ceilings trade
+// places, and both panels can now be read in units a rider knows: Nm and W.
+//
+// Everything drawn is an ENVELOPE — the ceiling the settings impose — not a motor curve.
+// No dyno data and no manufacturer map exist for the M820, so nothing here invents a torque
+// characteristic: no low-cadence bump, no high-cadence roll-off. See motor-limits.js.
 function renderLimitsChart(level) {
     const iqPct = level.max_iq_pct ?? 100;
     const powerW = level.max_motor_power_w ?? 0;
+    const series = buildMotorLimitSeries({ maxIqPct: iqPct, maxMotorPowerW: powerW });
+    const torqueCeilingNm = iqPercentToTorqueNm(iqPct);
 
-    const p1 = state.controllerParams1 || state.lastControllerP1 || {};
-    const voltage = isNumber(p1.system_voltage) ? p1.system_voltage : 48;
-    const batteryAmps = isNumber(p1.current_limit) ? p1.current_limit : 15;
-    // The most power this bike could ever make. Full effort is drawn as reaching it,
-    // which is what lets one effort axis carry both panels.
-    const electricalMaxW = Math.max(1, Math.round(voltage * batteryAmps));
-
-    const effort = Array.from({ length: 101 }, (_, i) => i);
-    const uncappedW = effort.map((e) => (electricalMaxW * e) / 100);
-    const cappedW = uncappedW.map((w) => (powerW > 0 ? Math.min(w, powerW) : w));
-    const cappedPct = effort.map((e) => Math.min(e, iqPct));
-
-    // Effort at which each wall starts clipping; Infinity means it never does.
-    const powerBitesAt = powerW > 0 && powerW < electricalMaxW ? (powerW / electricalMaxW) * 100 : Infinity;
-    const currentBitesAt = iqPct < 100 ? iqPct : Infinity;
-    const firstBiteAt = Math.min(powerBitesAt, currentBitesAt);
-
-    const uncapped = (y, axis) => ({
-        x: effort, y, name: 'Without any ceiling', legendgroup: 'raw',
-        showlegend: axis === 'y', type: 'scatter', mode: 'lines',
-        xaxis: axis === 'y' ? 'x' : 'x2', yaxis: axis,
-        line: { color: C.REFERENCE, dash: 'dash', width: 2 },
-    });
-    const delivered = (y, axis) => ({
-        x: effort, y, name: 'What the motor actually gets', legendgroup: 'capped',
-        showlegend: axis === 'y', type: 'scatter', mode: 'lines',
-        xaxis: axis === 'y' ? 'x' : 'x2', yaxis: axis,
-        line: { color: C.SERIES_1, width: 3 },
-    });
     const traces = [
-        uncapped(uncappedW, 'y'), delivered(cappedW, 'y'),
-        uncapped(effort, 'y2'), delivered(cappedPct, 'y2'),
+        {
+            x: series.cadenceRpm, y: series.currentTorqueLimitNm,
+            name: 'Torque ceiling (this level)', legendgroup: 'ceiling',
+            type: 'scatter', mode: 'lines', xaxis: 'x', yaxis: 'y',
+            line: { color: C.REFERENCE, dash: 'dash', width: 2 },
+        },
+        {
+            x: series.cadenceRpm, y: series.availableTorqueNm,
+            name: 'What the motor can actually give', legendgroup: 'delivered',
+            type: 'scatter', mode: 'lines', xaxis: 'x', yaxis: 'y',
+            line: { color: C.SERIES_1, width: 3 },
+        },
+        {
+            x: series.cadenceRpm, y: series.electricalPowerW,
+            name: 'What the motor can actually give', legendgroup: 'delivered',
+            showlegend: false, type: 'scatter', mode: 'lines', xaxis: 'x2', yaxis: 'y2',
+            line: { color: C.SERIES_1, width: 3 },
+        },
     ];
 
-    const layout = plotLayout('How hard you push (%)', '');
+    const layout = plotLayout('Crank cadence (rpm)', '');
     layout.height = CHART_HEIGHT + 40;
     layout.margin = { l: 60, r: 16, t: 62, b: 64 };
     layout.hovermode = 'closest';
     const axisBase = layout.xaxis;
-    layout.xaxis = { ...axisBase, title: 'How hard you push (%)', range: [0, 100], domain: [0, 0.46], anchor: 'y' };
-    layout.xaxis2 = { ...axisBase, title: 'How hard you push (%)', range: [0, 100], domain: [0.58, 1], anchor: 'y2' };
-    layout.yaxis = {
-        ...layout.yaxis, title: 'Motor power (W)',
-        range: [0, electricalMaxW * 1.14], rangemode: 'tozero', anchor: 'x',
+    const cadenceAxis = {
+        ...axisBase, title: 'Crank cadence (rpm)', range: [0, MAX_PREVIEW_CADENCE_RPM],
     };
-    layout.yaxis2 = { ...layout.yaxis, title: 'Motor current (%)', range: [0, 114], anchor: 'x2' };
+    layout.xaxis = { ...cadenceAxis, domain: [0, 0.46], anchor: 'y' };
+    layout.xaxis2 = { ...cadenceAxis, domain: [0.58, 1], anchor: 'y2' };
+    layout.yaxis = {
+        ...layout.yaxis, title: 'Estimated torque (Nm)',
+        range: [0, M820_MAX_TORQUE_NM * 1.1], anchor: 'x',
+    };
+    const powerTop = Math.max(100, ...series.electricalPowerW) * 1.15;
+    layout.yaxis2 = {
+        ...layout.yaxis, title: 'Estimated electrical power (W)',
+        range: [0, powerTop], anchor: 'x2',
+    };
     layout.shapes = [];
     layout.annotations = [];
 
-    // Each panel gets its own ceiling line plus, if that wall is the one that engages
-    // first, the vertical marker saying so. Two panels means two of everything —
-    // there is no shared axis to hang a single marker on any more.
-    const panel = (xref, yref, xDomain, ceilingY, ceilingText, ceilingActive, bitesAt, isFirst) => {
-        if (ceilingActive) {
-            layout.shapes.push({
-                type: 'line', xref: 'paper', yref, x0: xDomain[0], x1: xDomain[1], y0: ceilingY, y1: ceilingY,
-                line: { color: C.LIMIT, width: 2, dash: 'dot' },
-            });
-        }
-        layout.annotations.push({
-            xref: 'paper', x: xDomain[1], xanchor: 'right', yref, y: ceilingY, yanchor: 'bottom',
-            text: ceilingText, showarrow: false,
-            font: { color: ceilingActive ? C.LIMIT : C.EVENT_TEXT, size: 10 },
+    // The torque ceiling as a wall on the left panel, and the power ceiling as one on the
+    // right. LIMIT red is the palette's wall colour and SERIES_2 is absent from this chart,
+    // so the red/orange rule in the palette comment still holds.
+    if (iqPct < 100) {
+        layout.shapes.push({
+            type: 'line', xref: 'paper', yref: 'y', x0: 0, x1: 0.46,
+            y0: torqueCeilingNm, y1: torqueCeilingNm,
+            line: { color: C.LIMIT, width: 2, dash: 'dot' },
         });
-        if (Number.isFinite(bitesAt)) {
+    }
+    layout.annotations.push({
+        xref: 'paper', x: 0.46, xanchor: 'right', yref: 'y', y: torqueCeilingNm,
+        yanchor: 'bottom',
+        text: iqPct > 0
+            ? `About ${Math.round(torqueCeilingNm)} Nm — ${iqPct}% of phase current`
+            : 'Assist off at this level (0%)',
+        showarrow: false, font: { color: iqPct < 100 ? C.LIMIT : C.EVENT_TEXT, size: 10 },
+    });
+
+    if (powerW > 0) {
+        layout.shapes.push({
+            type: 'line', xref: 'paper', yref: 'y2', x0: 0.58, x1: 1, y0: powerW, y1: powerW,
+            line: { color: C.LIMIT, width: 2, dash: 'dot' },
+        });
+    }
+    layout.annotations.push({
+        xref: 'paper', x: 1, xanchor: 'right', yref: 'y2', y: powerW > 0 ? powerW : powerTop,
+        yanchor: 'bottom',
+        text: powerW > 0 ? `Power ceiling — ${powerW} W` : 'No extra power limit',
+        showarrow: false, font: { color: powerW > 0 ? C.LIMIT : C.EVENT_TEXT, size: 10 },
+    });
+
+    // The one number on this chart a rider can act on: above this cadence the power setting
+    // is what they feel, below it the torque setting is. Reading that off a plotted curve by
+    // eye is exactly the job a UI should do for them.
+    if (series.crossoverRpm !== null) {
+        [['x', 'y'], ['x2', 'y2']].forEach(([xref]) => {
             layout.shapes.push({
-                type: 'line', xref, yref: 'paper', x0: bitesAt, x1: bitesAt, y0: 0, y1: 1,
+                type: 'line', xref, yref: 'paper',
+                x0: series.crossoverRpm, x1: series.crossoverRpm, y0: 0, y1: 1,
                 line: { color: C.EVENT_LINE, width: 1, dash: 'dot' },
             });
-            layout.annotations.push({
-                xref, x: bitesAt, xanchor: bitesAt > 55 ? 'right' : 'left',
-                yref: 'paper', y: 0.02, yanchor: 'bottom',
-                text: isFirst ? 'this wall bites FIRST' : 'clips here',
-                showarrow: false, font: { color: isFirst ? C.LIMIT : C.EVENT_TEXT, size: 10 },
-            });
-        }
-    };
-
-    const powerIsFirst = powerBitesAt <= currentBitesAt;
-    panel('x', 'y', [0, 0.46], powerW > 0 ? powerW : electricalMaxW,
-        powerW <= 0
-            ? 'No power ceiling (0 = off)'
-            : (powerW >= electricalMaxW
-                ? `${powerW} W — above what this bike can make, never reached`
-                : `Maximum motor power — ${powerW} W`),
-        powerW > 0 && powerW < electricalMaxW, powerBitesAt, powerIsFirst);
-
-    panel('x2', 'y2', [0.58, 1], iqPct,
-        iqPct >= 100 ? 'No current ceiling (100%)' : `Maximum motor current — ${iqPct}%`,
-        iqPct < 100, currentBitesAt, !powerIsFirst);
+        });
+        layout.annotations.push({
+            xref: 'x', x: series.crossoverRpm,
+            xanchor: series.crossoverRpm > MAX_PREVIEW_CADENCE_RPM * 0.6 ? 'right' : 'left',
+            yref: 'paper', y: 0.02, yanchor: 'bottom',
+            text: `power limit takes over here (~${Math.round(series.crossoverRpm)} rpm)`,
+            showarrow: false, font: { color: C.EVENT_TEXT, size: 10 },
+        });
+    }
 
     layout.annotations.push({
         xref: 'paper', x: 0.5, xanchor: 'center', yref: 'paper', y: 1.20, yanchor: 'bottom',
-        text: Number.isFinite(firstBiteAt)
-            ? `Both ceilings apply — the ${powerIsFirst ? 'power' : 'current'} one is reached first, so it is the one you feel`
-            : 'Neither ceiling is active — this level runs unrestricted',
-        showarrow: false,
-        font: { color: Number.isFinite(firstBiteAt) ? C.LIMIT : C.EVENT_TEXT, size: 11 },
+        text: powerW > 0
+            ? (series.crossoverRpm === null
+                ? `The torque setting is what you feel across the whole cadence range`
+                : `Torque setting rules below ~${Math.round(series.crossoverRpm)} rpm, the power setting above it`)
+            : 'Only the torque setting limits this level',
+        showarrow: false, font: { color: C.SERIES_1, size: 11 },
     });
-
     layout.annotations.push({
-        xref: 'paper', x: 0, yref: 'paper', y: -0.20, yanchor: 'top', xanchor: 'left',
-        text: `Full effort drawn as this bike's electrical maximum: ${voltage} V × ${batteryAmps} A ≈ ${electricalMaxW} W`,
+        xref: 'paper', x: 0, xanchor: 'left', yref: 'paper', y: -0.20, yanchor: 'top',
+        text: `Estimated limit envelope for a Bafang M820 (${M820_MAX_TORQUE_NM} Nm at full `
+            + `phase current, ${Math.round(PREVIEW_EFFICIENCY * 100)}% assumed efficiency) — `
+            + 'not a dyno measurement of your motor.',
         showarrow: false, font: { color: C.EVENT_TEXT, size: 10 },
     });
 
     draw('ebicsEnginePreviewLimitsChart', traces, layout);
 }
-
 // ── Start condition ─────────────────────────────────────────────────────────
 function renderStartChart(level) {
     const thresholdKg = level.minimum_pedal_load_kg ?? 0.7;
