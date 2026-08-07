@@ -17,13 +17,25 @@ export function updateSocFullUI(s) {
     if (input && document.activeElement !== input && v != null) input.value = v.toFixed(1);
 }
 
+/*
+ * CB-026: the full-charge threshold travels on its own command (SET_SOC_FULL), not inside any
+ * of the parameter blocks, so the one save action has to send it separately.
+ *
+ * Only sent when the box holds a value the controller would accept. An empty or nonsense box
+ * means "nothing to say about this setting" — never a reason to fail the whole save, and never
+ * a reason to push a guess at what the rider's pack does at 100 %.
+ *
+ * Returns what it did, for the caller's one summary. Never talks to the user itself.
+ */
+export function writeSocFullThreshold() {
+    const raw = el('ebicsSocFullInput')?.value;
+    const volts = parseFloat(raw);
+    if (!(volts >= 20 && volts <= 90)) return null;
+    socket.send(`SET_SOC_FULL:${Math.round(volts * 100)}`); // V -> units of 10 mV
+    addLog('REQ', `Full-charge voltage -> ${volts.toFixed(1)} V (the controller stores it at standstill)`);
+    return `full-charge voltage ${volts.toFixed(1)} V`;
+}
+
 export function bindLimitsControls() {
-    el('ebicsSocFullSaveButton')?.addEventListener('click', () => {
-        if (!socketReady()) return;
-        const volts = parseFloat(el('ebicsSocFullInput')?.value);
-        if (!(volts >= 20 && volts <= 90)) { alert('Enter the measured full-charge pack voltage in the range 20–90 V.'); return; }
-        const pack10mv = Math.round(volts * 100); // V -> units of 10 mV
-        socket.send(`SET_SOC_FULL:${pack10mv}`);
-        addLog('REQ', `Full-charge voltage -> ${volts.toFixed(1)} V (saves at standstill)`);
-    });
+    // CB-026: nothing here talks to the bike any more — the top bar owns reading and saving.
 }

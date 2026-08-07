@@ -444,6 +444,145 @@ details[open] > summary.ebics-card-title { margin-bottom: 12px; }
 /* Matches DYNAMICS_CHART_HEIGHT / profilePlotLayout in tab-ebics.js: the container must reserve
    at least as much as the plots declare, or a chart overlaps the card below it. */
 .ebics-chart { width: 100%; min-height: 380px; }
+
+/* ── CB-026: the one save dialog ───────────────────────────────────────────────────────
+   Anchored under the Save… button rather than floating in the middle of the screen: the
+   choice belongs to that button, and a rider should be able to see what they are about to
+   send without losing sight of where they pressed. Plain CSS, like everything else added
+   since CB-024 — no Tailwind class means no `npm run build:css` to see it work. */
+.evd-global-actions { position: relative; }
+.evd-save-dialog {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    z-index: 60;
+    width: min(440px, 94vw);
+    margin-top: 8px;
+    padding: 14px;
+    border: 1px solid #94a3b8;
+    border-radius: 12px;
+    background: #ffffff;
+    color: #1e293b;
+    font-size: 12px;
+    line-height: 1.45;
+    text-align: left;
+    box-shadow: 0 14px 34px rgba(15, 23, 42, .24);
+}
+.evd-save-title { margin-bottom: 10px; color: var(--ebics-dark); font-size: 13px; font-weight: 800; }
+.evd-save-options { display: grid; gap: 8px; }
+.evd-save-option {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 9px;
+    align-items: start;
+    padding: 9px 10px;
+    border: 1px solid #e2e8f0;
+    border-radius: 9px;
+    background: #f8fafc;
+    cursor: pointer;
+}
+.evd-save-option:hover { border-color: #94a3b8; background: #f1f5f9; }
+.evd-save-option input { margin-top: 2px; width: 15px; height: 15px; }
+.evd-save-option-title { color: #0f172a; font-weight: 800; }
+.evd-save-option-detail { margin-top: 2px; color: #475569; }
+/* What is about to leave the app, and what will not — the question a save button should
+   never leave a rider guessing about. */
+.evd-save-scope {
+    margin-top: 10px;
+    padding: 9px 10px;
+    border: 1px dashed #cbd5e1;
+    border-radius: 9px;
+    background: #ffffff;
+}
+.evd-save-scope-title { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .03em; }
+.evd-save-scope-title.is-included { color: #15803d; }
+.evd-save-scope-title.is-skipped { margin-top: 8px; color: #b45309; }
+.evd-save-scope ul { margin: 3px 0 0; padding-left: 18px; color: #475569; }
+.evd-save-scope li { margin: 2px 0; }
+.evd-save-footer { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+
+/* ── Editable parameter chart (evistdrive/editable-chart.js) ───────────────────────────
+   The drag layer sits ON TOP of the Plotly graph div and owns every pointer event on it, so
+   Plotly runs with staticPlot and never competes for the same gesture. Plain CSS on purpose,
+   like .ebics-slider above: no Tailwind class means no `npm run build:css` to see it work.
+   `touch-action: none` is what makes a vertical drag edit the value instead of scrolling the
+   page away under the finger. */
+.evd-editable-chart { position: relative; width: 100%; }
+.evd-editable-chart-layer {
+    position: absolute;
+    inset: 0;
+    touch-action: none;
+    outline: none;
+}
+.evd-editable-chart-layer.is-dragging { cursor: ns-resize; }
+.evd-editable-chart-layer:focus-visible {
+    outline: 2px solid #2a78d6;
+    outline-offset: -2px;
+    border-radius: 8px;
+}
+.evd-editable-chart-tip {
+    position: absolute;
+    z-index: 6;
+    max-width: 260px;
+    padding: 6px 9px;
+    border-radius: 7px;
+    background: rgba(15, 23, 42, .93);
+    color: #e2e8f0;
+    font-size: 11px;
+    line-height: 1.5;
+    pointer-events: none;
+    box-shadow: 0 6px 18px rgba(15, 23, 42, .28);
+}
+.evd-editable-chart-tip-head { color: #ffffff; font-weight: 700; }
+
+/* The level-curve card itself. Height matches DEFAULT_HEIGHT in editable-chart.js, so the
+   space reserved and the space drawn into agree — .ebics-chart's 380px would leave a gap. */
+.evd-level-curve-chart { width: 100%; min-height: 300px; }
+.evd-level-curve-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 16px;
+    align-items: flex-start;
+    justify-content: space-between;
+}
+.evd-level-curve-head > div:first-child { min-width: 0; flex: 1 1 380px; }
+.evd-level-curve-note { margin: 0 0 10px; }
+.evd-level-curve-pick {
+    display: grid;
+    gap: 4px;
+    color: #475569;
+    font-size: 11px;
+    font-weight: 700;
+}
+.evd-level-curve-pick .form-select { min-width: 230px; }
+.evd-level-curve-status {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 8px;
+    align-items: center;
+    margin-top: 10px;
+}
+/* One chip per assist level: what the controller holds, and what is on screen when they
+   differ. The border carries the level's own colour, matching the point on the chart. */
+.evd-level-chip {
+    display: inline-flex;
+    gap: 6px;
+    align-items: baseline;
+    padding: 3px 9px;
+    border: 1px solid #cbd5e1;
+    border-left-width: 4px;
+    border-radius: 7px;
+    background: #f8fafc;
+    color: #475569;
+    font-size: 11px;
+    white-space: nowrap;
+}
+.evd-level-chip strong { color: #0f172a; font-weight: 800; }
+.evd-level-chip.is-selected { background: #ffffff; box-shadow: 0 0 0 2px rgba(42, 120, 214, .35); }
+.evd-level-chip.is-modified { background: #fff7ed; color: #9a3412; }
+.evd-level-chip.is-modified strong { color: #9a3412; }
+.evd-level-summary { color: #64748b; font-size: 11px; font-weight: 700; }
+.evd-level-summary.is-dirty { color: #b45309; }
 .ebics-gauge {
     position: relative;
     height: 18px;

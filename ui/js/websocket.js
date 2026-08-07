@@ -79,6 +79,10 @@ socket.onerror = (error) => {
     addLog('ERROR', `WebSocket error: ${error.message || 'Unknown error'}`);
 };
 
+// The three unprefixed replies server.js sends after a write. Matched on the exact type names
+// rather than "looks like JSON", so nothing else can accidentally fall into this branch.
+const WRITE_RESULT_MESSAGE = /^\{"type":"(bank_write_result|bank_save_result|tuning_write_result)"/;
+
 socket.onmessage = (event) => {
     const message = event.data;
     let needsDisplayUpdate = false;
@@ -151,8 +155,27 @@ socket.onmessage = (event) => {
         addLog('STATUS', statusMsg);
     }
     else if (message.startsWith('CAN_ERROR:')) { const errorMsg = message.substring('CAN_ERROR:'.length).trim(); addLog('ERROR', errorMsg); }
-    else if (message.startsWith('BAFANG_DATA:')) {
-        const jsonString = message.substring('BAFANG_DATA:'.length);
+    /*
+     * CB-026: the write acknowledgements arrive WITHOUT the BAFANG_DATA prefix.
+     *
+     * server.js broadcasts parsed CAN events as `BAFANG_DATA: {…}` but replies to a write with
+     * a bare `ws.send(JSON.stringify({ type: 'bank_write_result', … }))` — see server.js around
+     * the WRITE_BANK / SAVE_BANKS / WRITE_TUNING handlers. Those three replies were therefore
+     * never parsed here, `state.lastBankWriteResult` was never set, and every writeBankAndWait
+     * sat out its full five-second timeout and then reported "no answer from the controller"
+     * even when the bike had accepted the data.
+     *
+     * It stayed hidden while each card wrote one block and merely logged the failure. The one
+     * save action writes several blocks in sequence and stops at the first unconfirmed one —
+     * correctly — so the same bug now stops the whole save at bank 1.
+     *
+     * Fixed on this side rather than in server.js: the protocol is the backend's, and a client
+     * that accepts both shapes cannot break an older server.
+     */
+    else if (message.startsWith('BAFANG_DATA:') || WRITE_RESULT_MESSAGE.test(message)) {
+        const jsonString = message.startsWith('BAFANG_DATA:')
+            ? message.substring('BAFANG_DATA:'.length)
+            : message;
         try {
             const parsedEvent = JSON.parse(jsonString);
             state.allEventsStore[parsedEvent.type] = parsedEvent;

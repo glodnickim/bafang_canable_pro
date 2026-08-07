@@ -87,7 +87,7 @@ export function buildPreset(name, note) {
 
 export function exportPreset() {
     if (!state.lastBanks?.[0] && !state.lastBanks?.[1] && !state.lastTuning) {
-        addLog('ERR', 'Nothing to export yet — press "Read all" first so the file holds your bike\'s real settings.');
+        addLog('ERR', 'Nothing to export yet — press "Read from bike" first so the file holds your bike\'s real settings.');
         return;
     }
     const name = (el('ebicsPresetName')?.value || '').trim();
@@ -385,7 +385,7 @@ function buildImportPanel(preset, descriptors, container) {
         renderProfileEditor();
         renderDynamics();
         markUnsavedInRam();
-        addLog('DATA', `Preset loaded: ${result.levelCount} level(s), ${result.bankSettingCount} bank setting block(s)${result.tuningApplied ? ' + global' : ''}. Nothing written yet — press Write, then Save to Flash.`);
+        addLog('DATA', `Preset loaded: ${result.levelCount} level(s), ${result.bankSettingCount} bank setting block(s)${result.tuningApplied ? ' + global' : ''}. Nothing has reached the bike — use "Save…" in the top bar when you are ready.`);
         if (result.adjusted.length) {
             addLog('ERR', `${result.adjusted.length} value(s) were outside this app's allowed range and were clamped: ${result.adjusted.slice(0, 6).join('; ')}${result.adjusted.length > 6 ? ' …' : ''}`);
         }
@@ -423,7 +423,7 @@ export function bindPresetControls(descriptors) {
             input.value = ''; // so picking the same file twice fires change again
             if (error) { addLog('ERR', error); return; }
             if (!state.lastBanks?.[0] && !state.lastBanks?.[1]) {
-                addLog('ERR', 'Read the bike first ("Read all"), so the preset is loaded on top of your real settings rather than placeholders.');
+                addLog('ERR', 'Read the bike first ("Read from bike"), so the preset is loaded on top of your real settings rather than placeholders.');
                 return;
             }
             buildImportPanel(preset, descriptors, el('ebicsPresetPanel'));

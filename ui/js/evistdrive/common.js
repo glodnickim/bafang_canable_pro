@@ -195,6 +195,36 @@ function attachShiftRestore(input, target, descriptor, onChanged, applyToInput) 
  */
 const lastNonZeroByField = new Map();
 
+/*
+ * How a control gets told that its value was changed somewhere else.
+ *
+ * Until the editable charts existed, every edit started at the control itself, so a control
+ * only ever had to WRITE the model. A chart point that moves writes the same model field, and
+ * the number box beside it has to follow immediately — otherwise the two disagree about what
+ * the bike is about to be sent.
+ *
+ * Each field registers a function that re-reads the model and repaints itself. The wrapper
+ * carries the key as a data attribute so it can be found without giving every control an id,
+ * and the functions live in a WeakMap so a re-rendered card's old controls are collected with
+ * their entries. Display only — nothing here changes a value or touches the controller.
+ */
+const fieldDisplayUpdaters = new WeakMap();
+
+export function registerFieldDisplay(wrapper, key, update) {
+    wrapper.dataset.ebicsField = key;
+    fieldDisplayUpdaters.set(wrapper, update);
+}
+
+/**
+ * Repaint every on-screen control bound to `key`. Call AFTER the model has been updated —
+ * the registered updaters read the value back out of it.
+ */
+export function updateFieldDisplays(key, root = document) {
+    if (!key) return;
+    root.querySelectorAll(`[data-ebics-field="${key}"]`)
+        .forEach((node) => fieldDisplayUpdaters.get(node)?.());
+}
+
 export function fieldInput(container, target, descriptor, onChanged) {
     if (!container || !target) return;
     if (descriptor.type === 'toggleValue') {
@@ -256,6 +286,10 @@ export function fieldInput(container, target, descriptor, onChanged) {
         });
         attachShiftRestore(input, target, descriptor, onChanged, (value) => {
             input.checked = !!value;
+            refreshNote();
+        });
+        registerFieldDisplay(wrapper, descriptor.key, () => {
+            input.checked = !!target[descriptor.key];
             refreshNote();
         });
     } else {
@@ -338,6 +372,16 @@ export function fieldInput(container, target, descriptor, onChanged) {
             });
             wrapper.appendChild(slider);
         }
+
+        // Chart -> box. The editable level-curve chart writes the model field and then asks
+        // every control bound to that key to repaint, which is how dragging a point makes the
+        // number here change under your finger.
+        registerFieldDisplay(wrapper, descriptor.key, () => {
+            const shown = fromNative(target[descriptor.key] ?? descriptor.min);
+            input.value = shown;
+            if (slider) slider.value = shown;
+            refreshNote();
+        });
     }
     wrapper.appendChild(input);
     if (note) {
@@ -461,6 +505,10 @@ function toggleValueInput(container, target, descriptor, onChanged) {
     valueRow.appendChild(number);
     wrapper.appendChild(valueRow);
     wrapper.appendChild(note);
+    registerFieldDisplay(wrapper, descriptor.key, () => {
+        toggle.checked = currentValue() > 0;
+        refresh();
+    });
     refresh();
     container.appendChild(wrapper);
 }
@@ -522,6 +570,22 @@ export async function saveToFlashAndWait(timeoutMs = WRITE_ACK_TIMEOUT_MS) {
 // any eVistDrive tab redrew five hidden charts.
 export function tabIsVisible(tabId) {
     return !!el(tabId)?.classList.contains('active');
+}
+
+/*
+ * CB-026: "you are looking at placeholders, press Read" now has ONE button to point at.
+ *
+ * Each card used to highlight its own Read button. With a single read in the top bar they
+ * would all be toggling the same class, and the last card to render would decide — so a fresh
+ * Profiles tab could switch off a warning that Limits still needs. The flags are therefore
+ * collected and the highlight is on while ANY source is stale.
+ */
+const staleReadSources = new Set();
+
+export function markReadNeeded(sourceId, stale) {
+    if (stale) staleReadSources.add(sourceId);
+    else staleReadSources.delete(sourceId);
+    el('evdReadAllButton')?.classList.toggle('btn-needs-read', staleReadSources.size > 0);
 }
 
 // Shared Plotly styling. Every eVistDrive chart starts here so they read as one

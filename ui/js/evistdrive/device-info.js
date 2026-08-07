@@ -104,9 +104,6 @@ export function updateDeviceInfoUI() {
 }
 
 export function bindDeviceInfoControls() {
-    el('evdInfoReadButton')?.addEventListener('click', () => {
-        if (!socketReady()) return;
-        addLog('REQ', 'Reading device identification (controller, display, sensor, battery)...');
-        syncAllDeviceInfo();
-    });
+    // CB-026: the top bar's "Read from bike" already asks every device for its identification,
+    // so a second button here only ever repeated part of it.
 }

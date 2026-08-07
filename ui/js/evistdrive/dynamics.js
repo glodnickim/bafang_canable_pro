@@ -99,6 +99,14 @@ function tuningRestoreSource() {
         : { source: 'defaults', tuning: { ...TUNING_DEFAULTS } };
 }
 
+// CB-026: what the top bar's one Undo does to the whole-bike tuning block. Screen only.
+export function restoreTuningFromRead() {
+    const { source, tuning } = tuningRestoreSource();
+    state.lastTuning = tuning;
+    renderDynamics();
+    return source === 'read' ? 'ride-feel tuning (as read)' : 'ride-feel tuning (firmware defaults)';
+}
+
 function renderDynamicsCharts() {
     if (typeof Plotly === 'undefined') return;
     // FW-069: the acceleration/deceleration ramp charts moved to the Profiles card together
@@ -135,37 +143,8 @@ export function updateDiagTuning() {
 }
 
 export function bindDynamicsControls() {
-    el('ebicsDynamicsReadButton')?.addEventListener('click', () => {
-        if (!socketReady()) return;
-        socket.send('READ_TUNING');
-        addLog('REQ', 'Reading eVistDrive global tuning...');
-    });
-    // Writes to controller RAM. Making it permanent is the top bar's "Save to Flash",
-    // which is one controller command covering the banks and the tuning together — there
-    // is no way to persist the tuning on its own.
-    el('ebicsDynamicsApplyButton')?.addEventListener('click', async () => {
-        if (!socketReady()) return;
-        if (!state.tuningSynced) {
-            addLog('ERR', 'Read eVistDrive tuning before writing changes.');
-            return;
-        }
-        ensureTuningDefaults();
-        const written = await writeTuningAndWait(state.lastTuning);
-        if (!written.ok) {
-            addLog('ERR', `Tuning was not written (${written.reason}).`);
-            return;
-        }
-        markUnsavedInRam();
-        addLog('SAVE_REQ', 'Tuning written to controller RAM — press "Save to Flash" in the top bar to keep it.');
-    });
-
-    // CB-012: undo the whole card. Screen only — the bike keeps its settings until Write.
-    el('ebicsDynamicsRestoreButton')?.addEventListener('click', () => {
-        const { source, tuning } = tuningRestoreSource();
-        const label = source === 'read' ? 'the values read from the controller' : 'the firmware defaults';
-        if (!confirm(`Put the ride-feel tuning back to ${label}?\n\nThis only changes what you see here. Nothing is sent to the bike until you press "Write (RAM)".`)) return;
-        state.lastTuning = tuning;
-        renderDynamics();
-        addLog('INFO', `Ride-feel tuning put back to ${label}. Not written to the bike — press "Write (RAM)" to apply.`);
-    });
+    // CB-026: reading, writing and undoing are the top bar's job now. This block cannot be
+    // persisted on its own anyway — SAVE_BANKS always covers the banks AND the tuning
+    // together — so a per-card save was promising something the controller does not offer.
+    ensureTuningDefaults();
 }

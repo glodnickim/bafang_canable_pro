@@ -12,7 +12,7 @@
 //   renderWalkFields, syncWalkData              Walk card
 //   renderSystemFields                          System card
 //   renderLegacy*Table, renderErrors            Walk card's legacy cross-reference
-//   applyLimits / applyWalk / applySystem       the writes back to the controller
+//   writeLegacyBlocks / restoreLegacyDraft      what the top bar's save and undo call
 //
 // The factory Controller/Assist tabs still own these blocks too; this module writes
 // the same frames, so a change here shows up there after a re-read, and vice versa.
@@ -24,8 +24,13 @@ import {
     errorDescriptions, errorRecommendations, helpBadge, isEbicsConnected,
 } from '../shared.js';
 // Shared write-then-confirm helpers, so every 'Save to flash' button behaves identically.
-import { writeBankAndWait } from './common.js';
+import { writeBankAndWait, updateFieldDisplays, registerFieldDisplay, markReadNeeded } from './common.js';
 import { markUnsavedInRam } from './global-actions.js';
+// CB-025: the limp-mode chart is an editor. Same drag machinery as every other editable
+// chart in the app — see editable-chart.js.
+import {
+    chartHost, frozenAxis, drawEditable, handleTraces, fieldHandle, handleEditor,
+} from './editable-chart.js';
 
 const LEVEL_NAMES = ['ECO', 'TOUR', 'SPORT', 'SPORT+', 'BOOST'];
 const LEVEL_MAP = uiToInternalAssistMap[5];
@@ -178,18 +183,18 @@ function sourceLabel(keys) {
 
 function updateSourceLabels() {
     const labels = {
-        ebicsCompatibilitySourceLimits: { keys: ['p1', 'speed'], readButton: 'ebicsLimitsSyncButton' },
-        ebicsCompatibilitySourceWalk: { keys: ['banks'], readButton: 'ebicsWalkSyncButton' },
-        ebicsCompatibilitySourceLegacy: { keys: ['p0', 'p1', 'p2', 'startup'], readButton: null },
-        ebicsCompatibilitySourceSystem: { keys: ['p1'], readButton: 'ebicsSystemSyncButton' },
+        ebicsCompatibilitySourceLimits: { keys: ['p1', 'speed'] },
+        ebicsCompatibilitySourceWalk: { keys: ['banks'] },
+        ebicsCompatibilitySourceLegacy: { keys: ['p0', 'p1', 'p2', 'startup'] },
+        ebicsCompatibilitySourceSystem: { keys: ['p1'] },
     };
-    Object.entries(labels).forEach(([id, { keys, readButton }]) => {
+    Object.entries(labels).forEach(([id, { keys }]) => {
         const { text, stale } = sourceLabel(keys);
         if (el(id)) {
             el(id).textContent = text;
             el(id).classList.toggle('ebics-stale-warning', stale);
         }
-        if (readButton) el(readButton)?.classList.toggle('btn-needs-read', stale);
+        markReadNeeded(id, stale);
     });
 }
 
@@ -278,13 +283,15 @@ function createField(container, target, descriptor) {
         // flagged it as out of range, and touching the box clamped 255 down to 100, turning
         // "off" into a real threshold with no way to type "off" back. The switch makes the
         // state explicit and settable in both directions.
+        const isOff = (value) => value === descriptor.disabledValue || value === 0 || !isNumber(value);
+        let offToggle = null;
         if (descriptor.disabledValue !== undefined) {
-            const isOff = (value) => value === descriptor.disabledValue || value === 0 || !isNumber(value);
             const toggle = document.createElement('label');
             toggle.className = 'ebics-inline-check';
             const box = document.createElement('input');
             box.type = 'checkbox';
             box.checked = !isOff(target[descriptor.key]);
+            offToggle = box;
             toggle.appendChild(box);
             toggle.append(descriptor.enableLabel || 'Enabled');
             wrapper.appendChild(toggle);
@@ -317,6 +324,15 @@ function createField(container, target, descriptor) {
         };
         input.addEventListener('change', () => updateValue(true));
         if (descriptor.liveUpdate) input.addEventListener('input', () => updateValue(false));
+        // CB-025: chart -> box. The limp-mode chart writes the draft and then asks every
+        // control bound to that key to repaint, so the number here follows the handle.
+        registerFieldDisplay(wrapper, descriptor.key, () => {
+            const value = target[descriptor.key];
+            const off = descriptor.disabledValue !== undefined && isOff(value);
+            if (offToggle) offToggle.checked = !off;
+            input.disabled = off || !!descriptor.disabled;
+            input.value = off ? '' : fromNative(value);
+        });
         // Last, so it wins over the CB-015 on/off state above: an unread field must not
         // present any value at all, on or off.
         if (unread) markFieldUnread(input, false);
@@ -373,13 +389,46 @@ function limpFloorStartSoc(stage1, stage2) {
         + (LIMP_FLOOR_PCT - LIMP_STAGE2_PCT) * (stage1 - stage2) / (100 - LIMP_STAGE2_PCT);
 }
 
+/*
+ * CB-025: the limp chart is an editor too.
+ *
+ * Its container is created once and reused, never rebuilt. That is a requirement, not a
+ * preference: updateLimpSocSummary runs on every frame of a drag, and a chart element removed
+ * from the document loses the overlay's pointer capture — which would end the drag after the
+ * first pixel.
+ */
+const LIMP_CHART_ID = 'ebicsLimpSocChart';
+let limpChartElement = null;
+
+function limpChartNode() {
+    if (!limpChartElement) {
+        limpChartElement = document.createElement('div');
+        limpChartElement.className = 'ebics-limp-chart';
+        limpChartElement.id = LIMP_CHART_ID;
+    }
+    return limpChartElement;
+}
+
+// The two thresholds, described by the very field descriptors the boxes above are built from.
+// Kept next to the fields themselves (renderLimitsFields) so the two cannot drift apart.
+const LIMP_FIELD_DESCRIPTORS = [
+    { key: 'limp_mode_soc_limit', label: 'Limp SoC stage 1 threshold', unit: '%', min: 1, max: 100, step: 1 },
+    { key: 'limp_mode_soc_limit_stage2', label: 'Limp SoC stage 2 threshold', unit: '%', min: 1, max: 100, step: 1 },
+];
+
 function renderLimpSocChart(chart, stage1, stage2) {
     if (!chart || !globalThis.Plotly) return;
 
+    const host = chartHost(LIMP_CHART_ID);
+    if (!host) return;
     const disabled = limpStage1Disabled(stage1);
     const stage2Enabled = limpStage2Active(stage1, stage2);
     const floorStart = limpFloorStartSoc(stage1, stage2);
-    const maxSoc = disabled ? 100 : Math.min(100, Math.max(15, Math.ceil(stage1 * 1.25)));
+    // Frozen while dragging: the axis end is derived from Stage 1, which is what the handle
+    // moves — an axis that followed it would make the drag chase itself.
+    const maxSoc = disabled
+        ? 100
+        : Math.min(100, frozenAxis(host, 'x', Math.max(15, stage1 * 1.25), 5));
     const points = new Set(Array.from({ length: 241 }, (_, index) => maxSoc * index / 240));
     [0, maxSoc, stage1, stage2Enabled ? stage2 : null, stage2Enabled ? floorStart : null]
         .filter((value) => isNumber(value) && value >= 0 && value <= maxSoc)
@@ -416,29 +465,72 @@ function renderLimpSocChart(chart, stage1, stage2) {
         });
     }
 
-    globalThis.Plotly.react(chart, traces, {
+    /*
+     * The two thresholds are the two corners of this curve, and both are a SoC — a position
+     * along the x axis — so they slide left and right. The axis runs backwards (100 % on the
+     * left, empty on the right) because that is the direction a ride goes; the drag maths is
+     * a straight linear map either way.
+     *
+     * A threshold whose switch is off gets no handle: turning limp mode on is a decision, not
+     * something to stumble into by brushing the chart.
+     */
+    const edit = {
+        descriptors: LIMP_FIELD_DESCRIPTORS,
+        onEdit: (key) => updateFieldDisplays(key),
+    };
+    const xRange = [maxSoc, 0];
+    const yRange = [0, 105];
+    const handles = [
+        fieldHandle(edit, 'limp_mode_soc_limit', {
+            axis: 'x', x: stage1, y: 100, value: stage1, color: '#ea580c',
+            label: 'Stage 1 — limp starts here', disabled,
+        }),
+        fieldHandle(edit, 'limp_mode_soc_limit_stage2', {
+            axis: 'x', x: stage2, y: firmwareLimpScalePct(stage2, stage1, stage2), value: stage2,
+            color: '#ea580c', label: 'Stage 2 — steeper slope below here',
+            disabled: !stage2Enabled,
+        }),
+    ];
+    traces.push(...handleTraces(handles, 'Drag a threshold'));
+
+    const layout = {
         height: 280,
         margin: { t: 18, r: 12, b: 48, l: 52 },
         paper_bgcolor: 'rgba(0,0,0,0)',
         plot_bgcolor: 'rgba(255,255,255,0.72)',
         font: { color: '#1e3a8a', size: 11 },
         showlegend: false,
-        hovermode: 'closest',
+        hovermode: false,
         xaxis: {
             title: 'Displayed SoC (%) — decreasing →',
-            range: [maxSoc, 0],
+            range: xRange,
+            fixedrange: true,
+            automargin: false,
             ticksuffix: '%',
             gridcolor: '#dbeafe',
             zerolinecolor: '#93c5fd',
         },
         yaxis: {
             title: 'Phase-current limit',
-            range: [0, 105],
+            range: yRange,
+            fixedrange: true,
+            automargin: false,
             ticksuffix: '%',
             gridcolor: '#dbeafe',
             zerolinecolor: '#93c5fd',
         },
-    }, { responsive: true, displayModeBar: false, displaylogo: false });
+    };
+
+    drawEditable(LIMP_CHART_ID, traces, layout, {
+        handles,
+        xRange,
+        yRange,
+        grab: 'point',
+        description: 'Low-SoC limp. Drag a threshold left or right, or use the arrow keys.',
+        // The draft is what every other control on this tab edits; nothing here reaches the
+        // controller until the tab's own Write button is pressed.
+        onChange: handleEditor(ensureDraft().p1, edit, updateLimpSocSummary),
+    });
 }
 
 function updateLimpSocSummary() {
@@ -451,15 +543,8 @@ function updateLimpSocSummary() {
     const stage1Disabled = limpStage1Disabled(stage1);
     const stage2Active = limpStage2Active(stage1, stage2);
 
-    const title = document.createElement('div');
-    title.className = 'ebics-limp-title';
-    title.textContent = 'Low-SoC limp scales phase-current max from displayed SoC:';
-
-    const table = document.createElement('table');
-    table.className = 'ebics-limp-table';
-
-    const chart = document.createElement('div');
-    chart.className = 'ebics-limp-chart';
+    const { table, chart, noteElement } = limpSummaryNodes(summary);
+    while (table.rows.length) table.deleteRow(0);
 
     let note = '';
     if (stage1Disabled) {
@@ -478,11 +563,33 @@ function updateLimpSocSummary() {
         note = 'Stage 2 is inactive unless it is greater than 0 and lower than Stage 1.';
     }
 
-    const noteElement = document.createElement('div');
-    noteElement.className = 'ebics-limp-note';
     noteElement.textContent = `${note} Firmware refreshes this scale about once per second from displayed SoC. Legacy Startup Boost is a separate path and can temporarily exceed the scaled ceiling.`;
-    summary.replaceChildren(title, table, chart, noteElement);
     renderLimpSocChart(chart, stage1, stage2);
+}
+
+/*
+ * The summary's furniture, built once and then updated in place.
+ *
+ * This used to replaceChildren() on every call, which was harmless while the chart was only a
+ * picture. It is not harmless now: this function runs on every frame of a drag, and removing
+ * the chart element from the document — which replaceChildren does even when the same node is
+ * put straight back — releases the overlay's pointer capture and ends the drag after one pixel.
+ */
+let limpNodes = null;
+function limpSummaryNodes(summary) {
+    if (!limpNodes || limpNodes.summary !== summary || !summary.contains(limpNodes.chart)) {
+        const title = document.createElement('div');
+        title.className = 'ebics-limp-title';
+        title.textContent = 'Low-SoC limp scales phase-current max from displayed SoC:';
+        const table = document.createElement('table');
+        table.className = 'ebics-limp-table';
+        const chart = limpChartNode();
+        const noteElement = document.createElement('div');
+        noteElement.className = 'ebics-limp-note';
+        summary.replaceChildren(title, table, chart, noteElement);
+        limpNodes = { summary, title, table, chart, noteElement };
+    }
+    return limpNodes;
 }
 
 function renderLimitsFields() {
@@ -626,12 +733,12 @@ function renderWalkFields() {
             ? `Bank read failed: ${state.ebicsBankReadError}`
             : (stale
                 ? '⚠ Not read from the controller yet — fields below are placeholders, NOT your bike\'s real settings. Press "Read".'
-                : 'Offline defaults — connect and press "Read" to load your real settings.');
+                : 'Offline defaults — connect and press "Read from bike" to load your real settings.');
         setWalkStatus(text, stale || !!state.ebicsBankReadError);
     } else {
         setWalkStatus('');
     }
-    el('ebicsWalkSyncButton')?.classList.toggle('btn-needs-read', stale);
+    markReadNeeded('walk', stale);
     renderWalkActiveSummary();
 
     const active = state.lastBanks?.[0]?.active_bank ?? state.lastBanks?.[1]?.active_bank ?? 0;
@@ -988,46 +1095,80 @@ const SYSTEM_P1_KEYS = [
     'current_loading_time', 'current_shedding_time',
 ];
 
-function applyLimits() {
-    if (!requireRead(['p1', 'speed'], 'write limits and speed')) return;
-    if (!confirm('Write eVistDrive electrical, battery, legal and speed settings to controller RAM?')) return;
+/*
+ * CB-026: the legacy blocks, written by the ONE save action in the top bar.
+ *
+ * These blocks are not like the eVistDrive blobs: the controller commits them to permanent
+ * storage the moment it receives them, so there is no "try it and switch the bike off"
+ * for anything in here. That is a property of the controller, not a choice this app makes,
+ * and it is why the save dialog says so out loud.
+ *
+ * Limits and System both live in P1 and share `speedmeter_magnets_number`, so they go out as
+ * ONE P1 frame rather than two that would each overwrite part of the other's work.
+ *
+ * Returns what it did instead of talking to the user: the caller is running several writes in
+ * a row and has to report on all of them together.
+ */
+export async function writeLegacyBlocks() {
+    const received = state.ebicsCompatibilityReceived || {};
+    if (!received.p1) {
+        return { ok: true, written: [], skipped: ['limits and system (never read from the bike)'] };
+    }
     const draft = ensureDraft();
-    socket.send(`WRITE_LONG_P1:${JSON.stringify(p1Subset(LIMIT_P1_KEYS))}`);
-    socket.send(`WRITE_LONG_SPEED:${JSON.stringify(draft.speed)}`);
-    addLog('SAVE_REQ', 'eVistDrive limits P1 + speed block');
+    /*
+     * The WHOLE P1 block, never a subset.
+     *
+     * WRITE_LONG_P1 carries a fixed 64-byte structure and the serializer packs it by position.
+     * Hand it an object with only the ten fields one card owns and every OTHER field is packed
+     * from `undefined` — the block that comes back is not "the old values with a few changed",
+     * it is garbage. Measured on the bench 2026-08-07: a subset write turned 15 A / 59 V /
+     * 22.44 V into 66 A / 8 V / 1.28 V and switched the legal speed limit off, while the very
+     * same values sent as a complete block wrote cleanly.
+     *
+     * The draft IS the complete block — a clone of the last read, with the edited fields
+     * changed in place — so sending it whole is both correct and the smallest possible change.
+     * Fields the parser adds for its own use are dropped; the controller has no room for them.
+     */
+    const p1 = clone(draft.p1);
+    delete p1._rawBytes;
+    delete p1.checksum_missmatch;
+    socket.send(`WRITE_LONG_P1:${JSON.stringify(p1)}`);
+    const written = ['limits and system'];
+    const skipped = [];
+    if (received.speed) {
+        // The controller carries ONE multi-frame channel. Starting a second long write while
+        // the first is still streaming makes it error-ACK the newcomer — seen on the bench as
+        // `normal_ack subCode:33` immediately followed by `error_ack subCode:33`, and then a
+        // bank that never changed. The same 500 ms spacing the old per-block writes used.
+        await delay(LONG_WRITE_GAP_MS);
+        socket.send(`WRITE_LONG_SPEED:${JSON.stringify(draft.speed)}`);
+        written.push('speed limit and wheel');
+    } else {
+        skipped.push('speed limit and wheel (never read from the bike)');
+    }
+    await delay(LONG_WRITE_GAP_MS);
+    return { ok: true, written, skipped };
 }
 
-// Writes the Walk settings to controller RAM. Making them permanent is the top bar's
-// "Save to Flash" — one controller command covering both banks and the tuning together,
-// which is why it is no longer a button on this card.
-async function applyWalk() {
-    const readIndexes = [0, 1].filter((index) => state.ebicsReceivedBanks?.[index]);
-    if (!readIndexes.length) {
-        addLog('ERR', 'Read the profile banks before writing Walk settings.');
-        return;
-    }
-    if (!confirm(`Write Walk Assist settings for ${readIndexes.map((i) => `bank ${i + 1}`).join(' and ')} to controller RAM?`)) return;
-    for (const index of readIndexes) {
-        const written = await writeBankAndWait(state.lastBanks[index]);
-        if (!written.ok) {
-            const message = `Bank ${index + 1} was not written (${written.reason}).`;
-            addLog('ERR', message);
-            setWalkStatus(message, true);
-            return;
-        }
-    }
-    markUnsavedInRam();
-    const done = `Walk settings written to controller RAM (${readIndexes.map((i) => `bank ${i + 1}`).join(', ')}). Press "Save to Flash" in the top bar to keep them.`;
-    addLog('SAVE_REQ', done);
-    setWalkStatus(done);
+// One multi-frame transfer must finish before the next one starts; see writeLegacyBlocks().
+// A 255-byte bank blob is the longest of them, so the gap is sized for that rather than for
+// the 64-byte P1 block.
+export const LONG_WRITE_GAP_MS = 600;
+
+/** Throw away on-screen edits to the legacy blocks and rebuild the draft from what was read. */
+export function restoreLegacyDraft() {
+    state.ebicsCompatibilityDraft = null;
+    ensureDraft();
+    captureEvent('controller_params_0');
+    captureEvent('controller_params_1');
+    captureEvent('controller_params_2');
+    updateLegacyParamsUI();
 }
 
-function applySystem() {
-    if (!requireRead(['p1'], 'write system settings')) return;
-    if (!confirm('Write eVistDrive motor, PAS, throttle and Legacy timing settings to controller RAM?')) return;
-    socket.send(`WRITE_LONG_P1:${JSON.stringify(p1Subset(SYSTEM_P1_KEYS))}`);
-    addLog('SAVE_REQ', 'eVistDrive system settings');
-}
+// CB-026: applyWalk and applySystem are gone. Walk Assist lives inside the bank blob, so the
+// top bar's save already carries it when it writes the banks, and the System block is part of
+// the single P1 frame writeLegacyBlocks() sends. Both were writing the same bytes a second
+// time from a second button.
 
 async function applyLegacy() {
     if (!requireRead(['p0', 'p1', 'p2', 'startup'], 'write Legacy blocks')) return;
@@ -1100,15 +1241,17 @@ function repairChecksum(block) {
     addLog('SAVE_REQ', `Repair ${block} checksum from eVistDrive System`);
 }
 
+/*
+ * CB-026: the per-card Read and Write buttons are gone from every eVistDrive tab.
+ *
+ * Reading one block was always a subset of the top bar's read, and writing one card was
+ * always a subset of its save — so a rider faced six buttons that did four overlapping
+ * things, with only the tooltips explaining which of them actually survived a power cycle.
+ * There is now one read, one save (with the temporary/permanent choice made in the dialog)
+ * and one undo, in one place. What stays here is what is genuinely NOT a settings write:
+ * calibration, defaults, error clearing and checksum repair.
+ */
 function bindButtons() {
-    ['ebicsLimitsSyncButton', 'ebicsLegacySyncButton', 'ebicsSystemSyncButton']
-        .forEach((id) => el(id)?.addEventListener('click', syncAllCompatibilityData));
-    // Walk is bank-backed, so keep its reads sequential. Overlapping reads can leave the form blank.
-    el('ebicsWalkSyncButton')?.addEventListener('click', syncWalkData);
-    el('ebicsLimitsApplyButton')?.addEventListener('click', applyLimits);
-    el('ebicsWalkApplyButton')?.addEventListener('click', applyWalk);
-    el('ebicsSystemApplyButton')?.addEventListener('click', applySystem);
-    el('ebicsLegacyApplyButton')?.addEventListener('click', applyLegacy);
     el('ebicsCalibratePositionButton')?.addEventListener('click', calibratePosition);
     el('ebicsRestoreControllerDefaultsButton')?.addEventListener('click', restoreControllerDefaults);
     el('ebicsClearControllerErrorsButton')?.addEventListener('click', clearControllerErrors);

@@ -61,7 +61,7 @@ function bindControls() {
     bindTorqueControls();
     bindSystemControls();
     bindDeviceInfoControls();
-    bindGlobalActions(); // CB-017: Read all / Save to Flash in the top bar
+    bindGlobalActions(); // CB-017/CB-026: the one Read / Save… / Undo in the top bar
     bindPresetControls({ levelFields: levelFieldDescriptors, tuningFields: tuningFieldDescriptors });
     bindEnginePreviewControls();
 

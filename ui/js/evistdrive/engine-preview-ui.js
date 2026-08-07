@@ -7,11 +7,16 @@
 /* global Plotly */
 import { state } from '../shared.js';
 import {
-    el, isNumber, plotLayout, tabIsVisible,
+    el, isNumber, plotLayout, tabIsVisible, bankSchemaVersion,
     RAMP_SPEED_LO_KMH, RAMP_SPEED_HI_KMH, RAMP_CADENCE_LO_RPM, RAMP_CADENCE_HI_RPM,
     RAMP_SLOW_WHEN, RAMP_FAST_WHEN,
 } from './common.js';
 import { calculateBoostFade, applyPowerFilters } from './engine-preview.js';
+// CB-025: these charts are editors, not pictures. Every piece of the drag machinery is shared
+// with the other editable charts in the app — see editable-chart.js.
+import {
+    chartHost, frozenAxis, drawEditable, handleTraces, pinned, fieldHandle, handleEditor,
+} from './editable-chart.js';
 import {
     M820_MAX_TORQUE_NM, PREVIEW_EFFICIENCY, MAX_PREVIEW_CADENCE_RPM,
     iqPercentToTorqueNm, buildMotorLimitSeries,
@@ -49,12 +54,23 @@ function baseLayout(xTitle, yTitle) {
     return layout;
 }
 
-function draw(containerId, traces, layout) {
-    if (typeof Plotly === 'undefined') return;
-    const container = el(containerId);
-    if (!container) return;
-    Plotly.react(container, traces, layout, { responsive: true, displaylogo: false });
-}
+/* ── CB-025: every chart in this file is an editor ────────────────────────────────────
+ *
+ * The six preview charts used to be pictures of the fields above them. They now carry the
+ * same drag overlay the level curve does, so a setting can be shaped where it is understood
+ * instead of only being typed into a box.
+ *
+ * All of the machinery — the chart hosts, the frozen axes, the handle descriptors and the
+ * write path — lives in editable-chart.js and is shared with the Profiles level curve, the
+ * engine preview curves and the Limits limp chart. Nothing about dragging is written twice.
+ *
+ * The `edit` argument is optional everywhere. Without it the charts render exactly as they
+ * used to, with no overlay and no handles, which is what keeps this module usable from
+ * anywhere that only wants the picture.
+ *
+ * NONE OF IT SENDS CAN TRAFFIC. Edits go into the level object and are reported upwards;
+ * writing to the bike remains the job of the card's Write button.
+ */
 
 // ── Motor ceilings: torque and power against cadence ───────────────────────
 //
@@ -73,7 +89,9 @@ function draw(containerId, traces, layout) {
 // Everything drawn is an ENVELOPE — the ceiling the settings impose — not a motor curve.
 // No dyno data and no manufacturer map exist for the M820, so nothing here invents a torque
 // characteristic: no low-cadence bump, no high-cadence roll-off. See motor-limits.js.
-function renderLimitsChart(level) {
+function renderLimitsChart(level, edit) {
+    const host = chartHost('ebicsEnginePreviewLimitsChart');
+    if (!host) return;
     const iqPct = level.max_iq_pct ?? 100;
     const powerW = level.max_motor_power_w ?? 0;
     const series = buildMotorLimitSeries({ maxIqPct: iqPct, maxMotorPowerW: powerW });
@@ -108,19 +126,49 @@ function renderLimitsChart(level) {
     const cadenceAxis = {
         ...axisBase, title: 'Crank cadence (rpm)', range: [0, MAX_PREVIEW_CADENCE_RPM],
     };
-    layout.xaxis = { ...cadenceAxis, domain: [0, 0.46], anchor: 'y' };
-    layout.xaxis2 = { ...cadenceAxis, domain: [0.58, 1], anchor: 'y2' };
-    layout.yaxis = {
-        ...layout.yaxis, title: 'Estimated torque (Nm)',
-        range: [0, M820_MAX_TORQUE_NM * 1.1], anchor: 'x',
-    };
-    const powerTop = Math.max(100, ...series.electricalPowerW) * 1.15;
-    layout.yaxis2 = {
-        ...layout.yaxis, title: 'Estimated electrical power (W)',
-        range: [0, powerTop], anchor: 'x2',
-    };
+    const LEFT_DOMAIN = [0, 0.46];
+    const RIGHT_DOMAIN = [0.58, 1];
+    layout.xaxis = pinned({ ...cadenceAxis, domain: LEFT_DOMAIN, anchor: 'y' },
+        [0, MAX_PREVIEW_CADENCE_RPM]);
+    layout.xaxis2 = pinned({ ...cadenceAxis, domain: RIGHT_DOMAIN, anchor: 'y2' },
+        [0, MAX_PREVIEW_CADENCE_RPM]);
+    const torqueTop = M820_MAX_TORQUE_NM * 1.1;
+    layout.yaxis = pinned({
+        ...layout.yaxis, title: 'Estimated torque (Nm)', anchor: 'x',
+    }, [0, torqueTop]);
+    // Quantized and frozen: the right panel's height is derived from the power ceiling being
+    // dragged, and an axis that grew with it would inflate the drag.
+    const powerTop = frozenAxis(host, 'y2', Math.max(100, ...series.electricalPowerW) * 1.15, 100);
+    layout.yaxis2 = pinned({
+        ...layout.yaxis, title: 'Estimated electrical power (W)', anchor: 'x2',
+    }, [0, powerTop]);
+    layout.hovermode = false;
     layout.shapes = [];
     layout.annotations = [];
+
+    /*
+     * The two ceilings ARE the two dotted red walls, so the walls are what you grab — one per
+     * panel, each dragged up and down in the unit its own panel is drawn in.
+     *
+     * The torque handle carries the level's Nm figure, which is exactly what the number box
+     * shows; the descriptor's own toNative turns it back into the percent of phase current the
+     * controller stores. The power handle is the one field where 0 is meaningful — it means
+     * "no extra power limit" — so dragging it to the floor switches the limit off, and the
+     * checkbox in the field grid follows.
+     */
+    const handles = [
+        fieldHandle(edit, 'max_iq_pct', {
+            axis: 'y', x: MAX_PREVIEW_CADENCE_RPM * 0.5, y: torqueCeilingNm, value: torqueCeilingNm,
+            color: C.LIMIT, xDomain: LEFT_DOMAIN, yRange: [0, torqueTop],
+        }),
+        fieldHandle(edit, 'max_motor_power_w', {
+            axis: 'y', x: MAX_PREVIEW_CADENCE_RPM * 0.5, y: Math.min(powerW, powerTop),
+            value: powerW, color: C.LIMIT,
+            plotX: 'x2', plotY: 'y2', xDomain: RIGHT_DOMAIN, yRange: [0, powerTop],
+            label: 'Maximum motor power',
+        }),
+    ].filter(Boolean);
+    traces.push(...handleTraces(handles, 'Drag a ceiling up or down'));
 
     // The torque ceiling as a wall on the left panel, and the power ceiling as one on the
     // right. LIMIT red is the palette's wall colour and SERIES_2 is absent from this chart,
@@ -191,15 +239,31 @@ function renderLimitsChart(level) {
         showarrow: false, font: { color: C.EVENT_TEXT, size: 10 },
     });
 
-    draw('ebicsEnginePreviewLimitsChart', traces, layout);
+    drawEditable('ebicsEnginePreviewLimitsChart', traces, layout, {
+        handles,
+        xRange: [0, MAX_PREVIEW_CADENCE_RPM],
+        yRange: [0, torqueTop],
+        // One handle per panel, each in the middle of its own panel — grabbing a whole column
+        // would be ambiguous across the gap between the two.
+        grab: 'point',
+        description: 'Power and current ceiling. Drag the torque wall on the left panel or the '
+            + 'power wall on the right, or use the arrow keys.',
+        onChange: handleEditor(level, edit, () => renderLimitsChart(level, edit)),
+    });
 }
 // ── Start condition ─────────────────────────────────────────────────────────
-function renderStartChart(level) {
+function renderStartChart(level, edit) {
+    const host = chartHost('ebicsEnginePreviewStartChart');
+    if (!host) return;
     const thresholdKg = level.minimum_pedal_load_kg ?? 0.7;
     const ridingThresholdKg = level.riding_minimum_pedal_load_kg ?? thresholdKg;
     const withoutRotation = !!level.assist_without_rotation;
 
-    const peakKg = Math.max(thresholdKg * 1.6, thresholdKg + 0.8, 1);
+    // The load axis follows the thresholds, so it has to be quantized and frozen or dragging a
+    // threshold up would stretch the axis and inflate the drag. 0.5 kg is fine enough to keep
+    // a 0.7 kg threshold readable and coarse enough that most edits never move the axis.
+    const peakKg = frozenAxis(host, 'y',
+        Math.max(thresholdKg * 1.6, ridingThresholdKg * 1.6, thresholdKg + 0.8, 1), 0.5);
     const rampMs = 1200;
     const steps = 40;
     const time = Array.from({ length: steps + 1 }, (_, i) => (i / steps) * 2000);
@@ -217,15 +281,27 @@ function renderStartChart(level) {
             type: 'scatter', mode: 'lines', line: { width: 2, color: C.LIMIT, dash: 'dash' } },
     ];
 
-    if (Math.abs(ridingThresholdKg - thresholdKg) > 0.001) {
-        traces.push({
-            x: [0, 2000], y: [ridingThresholdKg, ridingThresholdKg], name: `Minimum while riding — ${ridingThresholdKg.toFixed(1)} kg`,
-            type: 'scatter', mode: 'lines', line: { width: 2, color: C.LIMIT, dash: 'dot' },
-        });
-    }
+    traces.push({
+        x: [0, 2000], y: [ridingThresholdKg, ridingThresholdKg], name: `Minimum while riding — ${ridingThresholdKg.toFixed(1)} kg`,
+        type: 'scatter', mode: 'lines', line: { width: 2, color: C.LIMIT, dash: 'dot' },
+    });
+
+    const yRange = [0, peakKg * 1.15];
+    // Both thresholds are a load, so they are dragged UP and DOWN. Placed a third and two
+    // thirds along the time axis so the two never sit on top of each other even when the two
+    // values are identical — which is the case on a fresh bank.
+    const handles = [
+        fieldHandle(edit, 'minimum_pedal_load_kg',
+            { axis: 'y', x: 700, y: thresholdKg, value: thresholdKg, color: C.LIMIT }),
+        fieldHandle(edit, 'riding_minimum_pedal_load_kg',
+            { axis: 'y', x: 1400, y: ridingThresholdKg, value: ridingThresholdKg, color: C.LIMIT }),
+    ].filter(Boolean);
+    traces.push(...handleTraces(handles, 'Drag a threshold up or down'));
 
     const layout = baseLayout('Time (ms)', 'Pedal load (kg)');
-    layout.yaxis.range = [0, peakKg * 1.15];
+    layout.xaxis = pinned(layout.xaxis, [0, 2000]);
+    layout.yaxis = pinned(layout.yaxis, yRange);
+    layout.hovermode = false;
     layout.shapes = [];
     layout.annotations = [];
 
@@ -244,11 +320,22 @@ function renderStartChart(level) {
         showarrow: false, font: { color: C.EVENT_TEXT, size: 11 },
     });
 
-    draw('ebicsEnginePreviewStartChart', traces, layout);
+    drawEditable('ebicsEnginePreviewStartChart', traces, layout, {
+        handles,
+        xRange: [0, 2000],
+        yRange,
+        // The two handles are at different times but can share a load, so a press has to be
+        // judged in both directions.
+        grab: 'point',
+        description: 'Start condition. Drag a threshold line up or down, or use the arrow keys.',
+        onChange: handleEditor(level, edit, () => renderStartChart(level, edit)),
+    });
 }
 
 // ── Launch feel — boost and smooth start ────────────────────────────────────
-function renderLaunchChart(level, tuning) {
+function renderLaunchChart(level, tuning, edit) {
+    const host = chartHost('ebicsEnginePreviewLaunchChart');
+    if (!host) return;
     const boostOn = !!level.startup_boost_enabled;
     const strengthPct = level.startup_boost_strength_pct || 0;
     const endRpm = level.startup_boost_end_rpm || 90;
@@ -272,18 +359,66 @@ function renderLaunchChart(level, tuning) {
     });
 
     const traces = [
-        { x: [0, durationMs], y: [100, 100], name: 'Target level (no boost)', type: 'scatter', mode: 'lines', line: { width: 2, color: C.REFERENCE, dash: 'dash' } },
-        { x: time, y: value, name: 'With boost / smooth start', type: 'scatter', mode: 'lines', line: { width: 3, color: C.SERIES_1 } },
+        { x: [0, durationMs], y: [100, 100], name: 'Target level (no boost)', type: 'scatter', mode: 'lines', line: { width: 2, color: C.REFERENCE, dash: 'dash' }, hoverinfo: 'skip' },
+        { x: time, y: value, name: 'With boost / smooth start', type: 'scatter', mode: 'lines', line: { width: 3, color: C.SERIES_1 }, hoverinfo: 'skip' },
     ];
 
     const layout = baseLayout('Time since start (ms)', 'Requested power (%)');
-    const peak = Math.max(...value, 100);
-    layout.yaxis.range = [0, peak * 1.15];
+    // Frozen and quantized on a 25 % grid: the peak of this curve IS the boost strength, so an
+    // axis that followed it would make dragging the strength handle chase its own tail.
+    const peak = frozenAxis(host, 'y', Math.max(...value, 100), 25);
+    const yRange = [0, peak * 1.15];
+
+    /*
+     * Three handles, and each one is placed where its own value can be READ OFF the picture
+     * rather than at some point on the curve that happens to move with it:
+     *
+     *   strength     at t = 0, where the curve height is exactly 100 % + strength. The
+     *                conversion is that "+ 100", nothing more.
+     *   end cadence  this chart's x axis is time, and it spins the reference cadence up to
+     *                120 rpm over 2000 ms, so a cadence maps to a time by that ratio.
+     *   smooth start straight along the time axis — it IS a duration.
+     *
+     * A handle for a switched-off feature is shown greyed rather than hidden: the field is
+     * still there in the grid above, and a handle that vanishes is harder to understand than
+     * one that will not move.
+     */
+    const handles = [
+        fieldHandle(edit, 'startup_boost_strength_pct', {
+            axis: 'y', x: 0, y: Math.min(yRange[1], 100 + strengthPct), value: strengthPct,
+            color: C.SERIES_1, disabled: !boostOn,
+            toValue: (y) => y - 100,
+            toCoordinate: (v) => v + 100,
+        }),
+        fieldHandle(edit, 'startup_boost_end_rpm', {
+            axis: 'x', x: (endRpm / assumedEndRpm) * durationMs, y: 100, value: endRpm,
+            color: C.SERIES_2, disabled: !boostOn,
+            toValue: (x) => (x / durationMs) * assumedEndRpm,
+            toCoordinate: (v) => (v / assumedEndRpm) * durationMs,
+        }),
+        fieldHandle(edit, 'smooth_start_ms', {
+            axis: 'x', x: smoothMs, y: Math.min(yRange[1] * 0.9, 100), value: smoothMs,
+            color: C.LIMIT, disabled: !smoothOn,
+        }),
+    ].filter(Boolean);
+    traces.push(...handleTraces(handles, 'Drag these'));
+
+    layout.xaxis = pinned(layout.xaxis, [0, durationMs]);
+    layout.yaxis = pinned(layout.yaxis, yRange);
+    layout.hovermode = false;
     layout.annotations = [];
-    if (!boostOn) layout.annotations.push({ x: durationMs * 0.6, y: peak * 1.08, text: 'Startup boost is off', showarrow: false, font: { color: C.EVENT_TEXT, size: 11 } });
+    if (!boostOn) layout.annotations.push({ x: durationMs * 0.6, y: peak * 1.08, text: 'Startup boost is off — switch it on above to shape it here', showarrow: false, font: { color: C.EVENT_TEXT, size: 11 } });
     if (!smoothOn) layout.annotations.push({ x: durationMs * 0.15, y: peak * 0.15, text: 'Smooth start is off (instant step)', showarrow: false, font: { color: C.EVENT_TEXT, size: 11 } });
 
-    draw('ebicsEnginePreviewLaunchChart', traces, layout);
+    drawEditable('ebicsEnginePreviewLaunchChart', traces, layout, {
+        handles,
+        xRange: [0, durationMs],
+        yRange,
+        grab: 'point',
+        description: 'Launch feel. Drag the boost height, the cadence where it ends, or the '
+            + 'smooth-start time — or use the arrow keys.',
+        onChange: handleEditor(level, edit, () => renderLaunchChart(level, tuning, edit)),
+    });
 }
 
 // ── Current ramps — acceleration and deceleration ───────────────────────────
@@ -298,12 +433,30 @@ function renderLaunchChart(level, tuning) {
 // the low breakpoint you get exactly the slow value and above the high one exactly the fast
 // value; in between it is a straight blend.
 
-function renderRampsChart(level) {
+/*
+ * CB-025: this one is EDITABLE.
+ *
+ * All four values it draws are times, and a time on this chart is a HORIZONTAL distance — so
+ * the corners of the two trapezoids are the handles and they slide left and right. That is
+ * also why it cannot reuse the level-curve chart: there the value IS the y coordinate, here
+ * the deceleration handle sits at (rise + hold + fall) while its value is only `fall`. The
+ * shared overlay takes a pair of conversion functions for exactly this.
+ *
+ * The chart container is rebuilt by profiles.js on every editor render, so the inner graph div
+ * and the overlay are re-created whenever that happens rather than being cached forever.
+ */
+const RAMP_HOLD_MS = 300;
+const RAMPS_CHART = 'ebicsEnginePreviewRampsChart';
+
+function renderRampsChart(level, edit) {
+    const host = chartHost(RAMPS_CHART);
+    if (!host) return;
+
     const riseSlow = level.iq_rise_slow_ms ?? 600;
     const riseFast = level.iq_rise_fast_ms ?? 300;
     const fallSlow = level.iq_fall_slow_ms ?? 1000;
     const fallFast = level.iq_fall_fast_ms ?? 140;
-    const holdMs = 300;
+    const holdMs = RAMP_HOLD_MS;
 
     const trapezoid = (riseMs, fallMs) => {
         const t1 = riseMs;
@@ -314,26 +467,61 @@ function renderRampsChart(level) {
 
     const low = trapezoid(riseSlow, fallSlow);
     const high = trapezoid(riseFast, fallFast);
-    const chartEnd = Math.max(low.x[3], high.x[3]) * 1.1;
+    const chartEnd = frozenAxis(host, 'x', Math.max(low.x[3], high.x[3]) * 1.15, 500);
+
+    const yRange = [-5, 110];
+    const handles = [
+        fieldHandle(edit, 'iq_rise_slow_ms',
+            { axis: 'x', x: riseSlow, y: 100, value: riseSlow, color: C.SERIES_1 }),
+        fieldHandle(edit, 'iq_fall_slow_ms', {
+            axis: 'x', x: low.x[3], y: 0, value: fallSlow, color: C.SERIES_1,
+            // The handle sits at the END of the whole shape; its value is only the last leg.
+            toValue: (x) => x - riseSlow - holdMs,
+            toCoordinate: (value) => value + riseSlow + holdMs,
+        }),
+        fieldHandle(edit, 'iq_rise_fast_ms',
+            { axis: 'x', x: riseFast, y: 100, value: riseFast, color: C.SERIES_2 }),
+        fieldHandle(edit, 'iq_fall_fast_ms', {
+            axis: 'x', x: high.x[3], y: 0, value: fallFast, color: C.SERIES_2,
+            toValue: (x) => x - riseFast - holdMs,
+            toCoordinate: (value) => value + riseFast + holdMs,
+        }),
+    ].filter(Boolean);
 
     const traces = [
-        { ...low, name: `Slow — ${RAMP_SLOW_WHEN} — rise ${riseSlow} ms / fall ${fallSlow} ms`, type: 'scatter', mode: 'lines', line: { width: 3, color: C.SERIES_1 } },
-        { ...high, name: `Fast — ${RAMP_FAST_WHEN} — rise ${riseFast} ms / fall ${fallFast} ms`, type: 'scatter', mode: 'lines', line: { width: 3, color: C.SERIES_2 } },
+        { ...low, name: `Slow — ${RAMP_SLOW_WHEN} — rise ${riseSlow} ms / fall ${fallSlow} ms`, type: 'scatter', mode: 'lines', line: { width: 3, color: C.SERIES_1 }, hoverinfo: 'skip' },
+        { ...high, name: `Fast — ${RAMP_FAST_WHEN} — rise ${riseFast} ms / fall ${fallFast} ms`, type: 'scatter', mode: 'lines', line: { width: 3, color: C.SERIES_2 }, hoverinfo: 'skip' },
+        ...handleTraces(handles, 'Drag these dots to retime the ramps'),
     ];
 
     const layout = baseLayout('Time — pedal push then release (ms)', 'Motor current (%)');
-    layout.xaxis.range = [0, chartEnd];
-    layout.yaxis.range = [-5, 110];
-    layout.margin.b = 62;
+    layout.xaxis = pinned(layout.xaxis, [0, chartEnd]);
+    layout.yaxis = pinned(layout.yaxis, yRange);
+    layout.margin.b = 76;
+    layout.hovermode = false;
+    // Broken by hand rather than left to run off the frame: the group charts render in a
+    // column barely 600 px wide, where one long line clipped at the right edge and collided
+    // with the axis title underneath it.
     layout.annotations = [{
-        xref: 'paper', x: 0, xanchor: 'left', yref: 'paper', y: -0.30, yanchor: 'top',
-        text: `Between those points the two curves blend. Speed and cadence are judged separately `
-            + `and the FASTER result wins — ${RAMP_CADENCE_HI_RPM} rpm on the spot ramps like `
-            + `${RAMP_SPEED_HI_KMH.toFixed(0)} km/h. Pulling away from a standstill always uses the slow curve.`,
-        showarrow: false, font: { color: C.EVENT_TEXT, size: 10 },
+        xref: 'paper', x: 0, xanchor: 'left', yref: 'paper', y: -0.42, yanchor: 'top',
+        text: 'Between those points the two curves blend. Speed and cadence are judged<br>'
+            + `separately and the FASTER result wins — ${RAMP_CADENCE_HI_RPM} rpm on the spot ramps like `
+            + `${RAMP_SPEED_HI_KMH.toFixed(0)} km/h.<br>`
+            + 'Pulling away from a standstill always uses the slow curve.',
+        showarrow: false, align: 'left', font: { color: C.EVENT_TEXT, size: 10 },
     }];
 
-    draw('ebicsEnginePreviewRampsChart', traces, layout);
+    drawEditable(RAMPS_CHART, traces, layout, {
+        handles,
+        xRange: [0, chartEnd],
+        yRange,
+        // Two handles share y = 100 % and two share y = 0 %, so a press has to be judged in
+        // both directions — grabbing a whole row would be ambiguous here.
+        grab: 'point',
+        description: 'Current ramps. Drag a dot left or right to change that ramp time, '
+            + 'or use the arrow keys.',
+        onChange: handleEditor(level, edit, () => renderRampsChart(level, edit)),
+    });
 }
 
 // ── Power smoothing and release ─────────────────────────────────────────────
@@ -349,7 +537,9 @@ function renderRampsChart(level) {
 // Filters curve and release is straight for a real reason: the filters are
 // first-order lags, the release is a fixed-time linear fade. Keeping that visual
 // difference is the point — it is what tells the two mechanisms apart.
-function renderSmoothingChart(level) {
+function renderSmoothingChart(level, edit) {
+    const host = chartHost('ebicsEnginePreviewSmoothingChart');
+    if (!host) return;
     const riseFilterMs = level.power_rise_filter_ms || 0;
     const fallFilterMs = level.power_fall_filter_ms || 0;
     const releaseMs = level.release_ms || 0;
@@ -384,7 +574,9 @@ function renderSmoothingChart(level) {
     const levelAtStop = prev;
     const autoFadeMs = Math.max(1, Math.round(fallSlowMs * (levelAtStop / 100)));
     const fadeMs = releaseMs > 0 ? releaseMs : autoFadeMs;
-    const totalMs = T_STOP + fadeMs + 400;
+    // Quantized and frozen: the release handle sits at T_STOP + fadeMs, so an axis that grew
+    // with the fade would make the handle run away from the pointer.
+    const totalMs = frozenAxis(host, 'x', T_STOP + fadeMs + 400, 500);
 
     const releaseTime = [];
     const releaseValue = [];
@@ -412,10 +604,43 @@ function renderSmoothingChart(level) {
         },
     ];
 
+    /*
+     * Each of the three values is the WIDTH of one band, so each handle sits at the band's
+     * right-hand edge and its conversion subtracts the moment the band starts. Dragging the
+     * edge is the same gesture as widening the band, which is what the value means.
+     *
+     * The release handle is the one that can be at 0: release_ms = 0 means AUTO, and dragging
+     * it right leaves AUTO for an explicit time. That is a real edit, not a display quirk, and
+     * the number box says so the instant the handle moves.
+     */
+    const yRange = [-6, 118];
+    const handles = [
+        fieldHandle(edit, 'power_rise_filter_ms', {
+            axis: 'x', x: Math.min(totalMs, T_PUSH + riseFilterMs), y: 100, value: riseFilterMs,
+            color: C.SERIES_1,
+            toValue: (x) => x - T_PUSH,
+            toCoordinate: (v) => v + T_PUSH,
+        }),
+        fieldHandle(edit, 'power_fall_filter_ms', {
+            axis: 'x', x: Math.min(totalMs, T_EASE + fallFilterMs), y: CRUISE, value: fallFilterMs,
+            color: C.SERIES_1,
+            toValue: (x) => x - T_EASE,
+            toCoordinate: (v) => v + T_EASE,
+        }),
+        fieldHandle(edit, 'release_ms', {
+            axis: 'x', x: Math.min(totalMs, T_STOP + fadeMs), y: 0, value: releaseMs,
+            color: C.SERIES_2,
+            toValue: (x) => x - T_STOP,
+            toCoordinate: (v) => (v > 0 ? v + T_STOP : T_STOP + autoFadeMs),
+        }),
+    ].filter(Boolean);
+    traces.push(...handleTraces(handles, 'Drag these to retime the filters and the release'));
+
     const layout = baseLayout('One pedal story — time (ms)', 'Power (%)');
     layout.margin.t = 46; // top band labels sit inside the plot, under the legend
-    layout.yaxis.range = [-6, 118];
-    layout.xaxis.range = [0, totalMs];
+    layout.xaxis = pinned(layout.xaxis, [0, totalMs]);
+    layout.yaxis = pinned(layout.yaxis, yRange);
+    layout.hovermode = false;
     layout.shapes = [];
     layout.annotations = [];
 
@@ -468,7 +693,15 @@ function renderSmoothingChart(level) {
         showarrow: false, font: { color: C.EVENT_TEXT, size: 10 },
     });
 
-    draw('ebicsEnginePreviewSmoothingChart', traces, layout);
+    drawEditable('ebicsEnginePreviewSmoothingChart', traces, layout, {
+        handles,
+        xRange: [0, totalMs],
+        yRange,
+        grab: 'point',
+        description: 'Power smoothing and release. Drag the right-hand edge of a band to '
+            + 'change that time, or use the arrow keys.',
+        onChange: handleEditor(level, edit, () => renderSmoothingChart(level, edit)),
+    });
 }
 
 // ── Obstacle assist — Extended Boost ────────────────────────────────────────
@@ -482,7 +715,9 @@ function renderSmoothingChart(level) {
 // here than anywhere else: the boost REPLACES the mode's own result, so the ceiling is
 // re-applied to it afterwards (assist_modes_profile_iq_ceiling); a rider who has set
 // Maximum motor current to 20% must be able to see that a 255% boost still stops there.
-function renderExtendedBoostChart(level) {
+function renderExtendedBoostChart(level, edit) {
+    const host = chartHost('ebicsEnginePreviewExtendedBoostChart');
+    if (!host) return;
     const triggerKg = level.extended_boost_trigger_load_kg ?? 8;
     const strengthPct = level.extended_boost_strength_pct ?? 100;
     const durationMs = level.extended_boost_duration_ms ?? 0;
@@ -506,8 +741,10 @@ function renderExtendedBoostChart(level) {
     // The trigger can be set anywhere on the sensor's 60 kg scale, so the axis follows it
     // instead of being fixed: a 40 kg trigger on a 40 kg axis would sit on the frame edge
     // with the whole useful part of the curve off-chart.
+    // Frozen while dragging for the same reason as everywhere else: the trigger handle moves
+    // along this axis, and an axis derived from the trigger would chase it.
     const PUSH_AXIS_MAX_KG = Math.min(FULL_SCALE_KG,
-        Math.max(40, Math.ceil((triggerKg + 15) / 10) * 10));
+        frozenAxis(host, 'x', Math.max(40, triggerKg + 15), 10));
     const loads = Array.from({ length: 81 }, (_, i) => (i * PUSH_AXIS_MAX_KG) / 80);
     // A push the rider would recognize as "a real shove over a rock", used to fix the
     // height of the right panel. Named in the caption so the height is never mistaken for
@@ -519,7 +756,7 @@ function renderExtendedBoostChart(level) {
     // 100% sweep — the same convention the smoothing chart explains.
     const autoFadeMs = Math.max(1, Math.round(fallSlowMs * (examplePct / 100)));
     const fadeMs = releaseMs > 0 ? releaseMs : autoFadeMs;
-    const totalMs = Math.max(600, durationMs + fadeMs + 250);
+    const totalMs = Math.max(600, frozenAxis(host, 'x2', durationMs + fadeMs + 250, 250));
 
     const boostOn = durationMs > 0 && strengthPct > 0;
     const timeX = [0, durationMs, durationMs + fadeMs, totalMs];
@@ -556,20 +793,68 @@ function renderExtendedBoostChart(level) {
     const layout = plotLayout('Peak pedal load of the push (kg)', '');
     layout.height = CHART_HEIGHT + 40;
     layout.margin = { l: 60, r: 16, t: 62, b: 64 };
-    layout.hovermode = 'closest';
+    layout.hovermode = false;
     const axisBase = layout.xaxis;
-    layout.xaxis = {
-        ...axisBase, title: 'Peak pedal load of the push (kg)',
-        range: [0, PUSH_AXIS_MAX_KG], domain: [0, 0.46], anchor: 'y',
-    };
-    layout.xaxis2 = {
-        ...axisBase, title: 'After the cranks stop (ms)',
-        range: [0, totalMs], domain: [0.58, 1], anchor: 'y2',
-    };
-    layout.yaxis = { ...layout.yaxis, title: 'Motor current (%)', range: [0, 114], anchor: 'x' };
-    layout.yaxis2 = { ...layout.yaxis, title: 'Motor current (%)', range: [0, 114], anchor: 'x2' };
+    const LEFT_DOMAIN = [0, 0.46];
+    const RIGHT_DOMAIN = [0.58, 1];
+    const Y_TOP = 114;
+    layout.xaxis = pinned({
+        ...axisBase, title: 'Peak pedal load of the push (kg)', domain: LEFT_DOMAIN, anchor: 'y',
+    }, [0, PUSH_AXIS_MAX_KG]);
+    layout.xaxis2 = pinned({
+        ...axisBase, title: 'After the cranks stop (ms)', domain: RIGHT_DOMAIN, anchor: 'y2',
+    }, [0, totalMs]);
+    layout.yaxis = pinned({ ...layout.yaxis, title: 'Motor current (%)', anchor: 'x' }, [0, Y_TOP]);
+    layout.yaxis2 = pinned({ ...layout.yaxis, title: 'Motor current (%)', anchor: 'x2' }, [0, Y_TOP]);
     layout.shapes = [];
     layout.annotations = [];
+
+    /*
+     * Three handles across the two panels.
+     *
+     * Trigger and duration are straightforward: each is a position along its own panel's x
+     * axis, and the drag is that position.
+     *
+     * Strength is the one that needed thought. It scales the whole left-hand curve, so a
+     * handle placed anywhere on that curve moves with it — but the curve is CLIPPED at 100 %,
+     * and above the clip a position no longer tells you the strength. The handle therefore
+     * sits at the load where the un-scaled ramp reaches 35 % of the scale: 35 % x 2.55 = 89 %,
+     * so the whole 0-255 % range stays below the clip and every strength is reachable by
+     * dragging. Any load further right would make the top of the range unreachable.
+     */
+    const scaleSpanKg = FULL_SCALE_KG - triggerKg;
+    const STRENGTH_BASE_PCT = 35;
+    const strengthLoadKg = triggerKg + (STRENGTH_BASE_PCT / 100) * scaleSpanKg;
+    const schema = bankSchemaVersion();
+    const handles = [
+        fieldHandle(edit, 'extended_boost_trigger_load_kg', {
+            axis: 'x', x: triggerKg, y: Y_TOP * 0.5, value: triggerKg, color: C.LIMIT,
+            xDomain: LEFT_DOMAIN, xRange: [0, PUSH_AXIS_MAX_KG], yRange: [0, Y_TOP],
+        }),
+        fieldHandle(edit, 'extended_boost_strength_pct', {
+            axis: 'y', x: strengthLoadKg, y: (STRENGTH_BASE_PCT * strengthPct) / 100,
+            value: strengthPct, color: C.SERIES_1,
+            xDomain: LEFT_DOMAIN, xRange: [0, PUSH_AXIS_MAX_KG], yRange: [0, Y_TOP],
+            toValue: (y) => (y * 100) / STRENGTH_BASE_PCT,
+            toCoordinate: (v) => (STRENGTH_BASE_PCT * v) / 100,
+            // A trigger at the very top of the sensor scale leaves no span to scale, and the
+            // firmware gives nothing there either.
+            disabled: scaleSpanKg <= 0,
+        }),
+        fieldHandle(edit, 'extended_boost_duration_ms', {
+            axis: 'x', x: durationMs, y: Math.max(6, examplePct), value: durationMs,
+            color: C.SERIES_1,
+            plotX: 'x2', plotY: 'y2',
+            xDomain: RIGHT_DOMAIN, xRange: [0, totalMs], yRange: [0, Y_TOP],
+        }),
+    ].filter(Boolean).map((handle) => ({
+        // FW-084 lives in bank schema v8. On an older controller the fields in the grid are
+        // shown read-only, and a handle that still moved would be offering an edit the
+        // controller cannot store.
+        ...handle,
+        disabled: handle.disabled || (schema > 0 && schema < 8),
+    }));
+    traces.push(...handleTraces(handles, 'Drag these'));
 
     // Left panel: the trigger is a threshold and the level ceiling is a wall — both are
     // LIMIT red, and SERIES_2 is deliberately absent from this chart so the palette's
@@ -633,20 +918,34 @@ function renderExtendedBoostChart(level) {
         showarrow: false, font: { color: C.EVENT_TEXT, size: 10 },
     });
 
-    draw('ebicsEnginePreviewExtendedBoostChart', traces, layout);
+    drawEditable('ebicsEnginePreviewExtendedBoostChart', traces, layout, {
+        handles,
+        xRange: [0, PUSH_AXIS_MAX_KG],
+        yRange: [0, Y_TOP],
+        grab: 'point',
+        description: 'Obstacle assist. Drag the trigger load, the boost strength or the boost '
+            + 'duration, or use the arrow keys.',
+        onChange: handleEditor(level, edit, () => renderExtendedBoostChart(level, edit)),
+    });
 }
 
-export function renderEnginePreview(level, tuning) {
+/**
+ * `edit` is optional: { descriptors, baselineLevel, onEdit(key, value, { committed }) }.
+ * Without it every chart renders exactly as before, read-only — which is what keeps this
+ * module usable from anywhere that only wants the picture.
+ */
+export function renderEnginePreview(level, tuning, edit) {
     if (typeof Plotly === 'undefined') return;
     if (!tabIsVisible('tab-ebics-profiles')) return;
     if (!level) return;
 
-    renderLimitsChart(level);
-    renderStartChart(level);
-    renderLaunchChart(level, tuning);
-    renderRampsChart(level);
-    renderSmoothingChart(level);
-    renderExtendedBoostChart(level); //FW-084
+    // CB-025: every one of them is draggable when `edit` is supplied.
+    renderLimitsChart(level, edit);
+    renderStartChart(level, edit);
+    renderLaunchChart(level, tuning, edit);
+    renderRampsChart(level, edit);
+    renderSmoothingChart(level, edit);
+    renderExtendedBoostChart(level, edit); //FW-084
 }
 
 export function bindEnginePreviewControls() {
@@ -655,6 +954,6 @@ export function bindEnginePreviewControls() {
 }
 
 // Called by profiles.js whenever the selected level's fields (re)render or change.
-export function updateEnginePreviewUI(level, tuning) {
-    renderEnginePreview(level, tuning);
+export function updateEnginePreviewUI(level, tuning, edit) {
+    renderEnginePreview(level, tuning, edit);
 }

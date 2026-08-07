@@ -13,11 +13,19 @@ import {
     el, isNumber, clamp, hexToRgba, socketReady, selectedLevel, tabIsVisible,
     writeBankAndWait,
     bankSchemaVersion, modeUnsupportedReason, populateSelects, fieldInput, plotLayout,
+    updateFieldDisplays, markReadNeeded,
     RAMP_SPEED_LO_KMH, RAMP_SPEED_HI_KMH, RAMP_CADENCE_LO_RPM, RAMP_CADENCE_HI_RPM,
 } from './common.js';
 import { updateTorqueSummary } from './torque.js';
 import { updateLiveSummary } from './live.js';
 import { updateEnginePreviewUI } from './engine-preview-ui.js';
+// The one chart on this tab that is an input rather than a picture. It is handed everything
+// it needs as arguments and imports nothing back from here, so the dependency stays one-way.
+import { renderLevelCurve, bindLevelCurveControls } from './level-curve.js';
+import {
+    chartHost, frozenAxis, drawEditable, handleTraces, pinned,
+    fieldHandle, handleEditor, descriptorOf, toDisplayValue, solveOnGrid,
+} from './editable-chart.js';
 
 const HUMAN_POWER_CENTIKG_RPM_NUMERATOR = 1694;
 const HUMAN_POWER_CENTIKG_RPM_DENOMINATOR = 1000;
@@ -353,6 +361,34 @@ function resetPlaceholderBank(bankIndex) {
     banks[bankIndex] = JSON.parse(JSON.stringify(source));
 }
 
+/*
+ * CB-026: what the top bar's one Undo does to the profile banks.
+ *
+ * BOTH banks, because the single Undo is defined as "put the screen back to the bike", and a
+ * version that quietly left the other bank edited would be the same trap the per-card buttons
+ * were. Screen only — the controller keeps whatever it holds until a save.
+ *
+ * Returns what it actually put back so the caller can say so in one message.
+ */
+export function restoreProfilesFromRead() {
+    const restored = [];
+    [0, 1].forEach((bankIndex) => {
+        const read = state.lastBanksAsRead?.[bankIndex];
+        if (read) {
+            state.lastBanks = state.lastBanks || {};
+            state.lastBanks[bankIndex] = JSON.parse(JSON.stringify(read));
+            restored.push(`bank ${bankIndex + 1} (as read)`);
+        } else {
+            // Nothing was ever read for this bank, so the editor is working on the offline
+            // copy: rebuild it from the untouched defaults table.
+            resetPlaceholderBank(bankIndex);
+            restored.push(`bank ${bankIndex + 1} (firmware defaults)`);
+        }
+    });
+    renderProfileEditor();
+    return restored;
+}
+
 // Every level object of ONE bank — read from the controller if we have it, the offline
 // working copy otherwise. This is what "Copy to…" writes into.
 function bankWorkingLevels(bankIndex) {
@@ -360,6 +396,97 @@ function bankWorkingLevels(bankIndex) {
     if (Array.isArray(read) && read.length) return read;
     const banks = placeholderBanks();
     return banks[bankIndex] || banks[0];
+}
+
+/*
+ * Everything the editable level-curve chart needs, gathered fresh on every call.
+ *
+ * It edits the SAME objects the field grid does — bankWorkingLevels() — so a point dragged
+ * here and a number typed below are one and the same edit, and there is no second copy of a
+ * value to fall out of step. The controller's own values come from state.lastBanksAsRead,
+ * which CB-012 already maintains and nothing ever writes to.
+ *
+ * onEdit runs on every frame of a drag. Only the matching number box is repainted there,
+ * because that is the one thing that must not lag behind the finger; the six preview charts
+ * are far too heavy for that and wait for the pointer to be released.
+ */
+function levelCurveContext() {
+    const selected = selectedLevel();
+    const levels = bankWorkingLevels(selected.bankIndex);
+    return {
+        bankIndex: selected.bankIndex,
+        levelIndex: selected.levelIndex,
+        levels,
+        baselineLevels: state.lastBanksAsRead?.[selected.bankIndex]?.levels || null,
+        descriptors: sharedFieldList(),
+        onEdit: (levelIndex, key, stored, { committed }) => {
+            if (levelIndex === selected.levelIndex) updateFieldDisplays(key);
+            if (!committed) return;
+            markUnsavedInRam();
+            renderProfileChart();
+            refreshEnginePreview(levels[selected.levelIndex]);
+            updateTorqueSummary();
+            addLog('DATA', `${LEVEL_NAMES[levelIndex]}: ${key} set to ${stored} on screen — not written to the bike yet.`);
+        },
+    };
+}
+
+/*
+ * CB-025: what the ramps preview chart needs to become an editor instead of a picture.
+ *
+ * Same contract as the level curve: the chart writes the level object the field grid already
+ * works on, the ranges come from the same descriptors the number boxes are built from, and the
+ * controller's own values come from state.lastBanksAsRead. Passing this in is what makes the
+ * chart editable — engine-preview-ui.js renders read-only without it, which is what keeps it
+ * usable from anywhere that only wants the picture.
+ */
+function previewEditContext() {
+    const selected = selectedLevel();
+    const levels = bankWorkingLevels(selected.bankIndex);
+    return {
+        descriptors: sharedFieldList(),
+        baselineLevel: state.lastBanksAsRead?.[selected.bankIndex]
+            ?.levels?.[selected.levelIndex] || null,
+        onEdit: (key, value, { committed }) => {
+            // The number box must not lag behind the handle; everything else can wait for the
+            // pointer to be released.
+            updateFieldDisplays(key);
+            if (!committed) return;
+            markUnsavedInRam();
+            renderProfileChart();
+            updateTorqueSummary();
+            renderLevelCurve(levelCurveContext());
+            addLog('DATA', `${LEVEL_NAMES[selected.levelIndex]}: ${key} set to ${value} on screen — not written to the bike yet.`);
+        },
+    };
+}
+
+function refreshEnginePreview(level) {
+    updateEnginePreviewUI(level, state.lastTuning, previewEditContext());
+}
+
+/*
+ * CB-025: the same contract for the two big engine curves, whose handles move the MODE
+ * fields (support ratio, the support window, the curve shape) rather than the shared ones.
+ *
+ * Deliberately does not redraw the engine curves from onEdit — they redraw themselves on
+ * every frame of the drag, and calling back into them here would be a second redraw per
+ * frame chasing the first.
+ */
+function curveEditContext(selected, mode) {
+    return {
+        descriptors: modeFields(mode || 1),
+        baselineLevel: state.lastBanksAsRead?.[selected.bankIndex]
+            ?.levels?.[selected.levelIndex] || null,
+        onEdit: (key, value, { committed }) => {
+            updateFieldDisplays(key);
+            if (!committed) return;
+            markUnsavedInRam();
+            updateTorqueSummary();
+            updateLiveSummary();
+            addLog('DATA', `${LEVEL_NAMES[selected.levelIndex]}: ${key} set to ${value} on screen — not written to the bike yet.`);
+        },
+    };
 }
 
 /*
@@ -450,7 +577,7 @@ function renderCadenceComp(selected) {
     let badge = enabled ? 'ON' : 'OFF';
     if (!bank) {
         badge = 'NOT READ';
-        status = 'Not read from the controller yet — press "Read banks" to see this bank\'s real setting. ';
+        status = 'Not read from the controller yet — press "Read from bike" to see this bank\'s real setting. ';
     } else if (blocked) {
         badge = 'UNAVAILABLE';
         status = 'This controller\'s firmware does not have cadence compensation, so the switch is locked. ';
@@ -467,7 +594,6 @@ export function renderProfileEditor() {
     const selected = selectedLevel();
     tintProfileCards(selected.levelIndex);
     const source = el('ebicsProfilesSource');
-    const readButton = el('ebicsProfilesReadButton');
     const hasData = !!selected.level;
     const stale = !hasData && isEbicsConnected();
     if (source) {
@@ -476,9 +602,9 @@ export function renderProfileEditor() {
             ? 'Selected bank read from controller'
             : (stale
                 ? '⚠ Not read from the controller yet — values below are placeholders, NOT your bike\'s real settings. Press "Read banks".'
-                : 'Offline defaults — connect and press "Read banks" to load your real settings.');
+                : 'Offline defaults — connect and press "Read from bike" to load your real settings.');
     }
-    readButton?.classList.toggle('btn-needs-read', stale);
+    markReadNeeded('profiles', stale);
 
     populateSelects(); // FW-056: mode list depends on the schema version just read
     renderCadenceComp(selected); // FW-057
@@ -494,7 +620,10 @@ export function renderProfileEditor() {
     const refresh = () => {
         renderProfileChart();
         updateTorqueSummary();
-        updateEnginePreviewUI(level, state.lastTuning);
+        refreshEnginePreview(level);
+        // Box -> chart. A value typed (or nudged with the spinner, or put back with
+        // Shift+click) moves the matching point immediately.
+        renderLevelCurve(levelCurveContext());
     };
     const mode = level.mode_type || 1;
     const unsupported = modeUnsupportedReason(mode); // FW-056
@@ -503,7 +632,7 @@ export function renderProfileEditor() {
         note.className = 'form-hint ebics-stale-warning';
         note.style.gridColumn = '1 / -1';
         note.textContent = unsupported === 'not-read'
-            ? '⚠ Banks not read yet — this mode needs firmware with bank schema v4. Press "Read banks" to confirm your controller supports it. You can still shape the curve here; writing is blocked until it is confirmed.'
+            ? '⚠ Banks not read yet — this mode needs firmware with bank schema v4. Press "Read from bike" to confirm your controller supports it. You can still shape the curve here; writing is blocked until it is confirmed.'
             : '⚠ This controller reports an older bank format and cannot store this mode. Writing is blocked — it would reject the whole bank and silently keep your old settings. Flash firmware with FW-056 first.';
         modeContainer.appendChild(note);
     }
@@ -569,7 +698,7 @@ export function renderProfileEditor() {
                     note.className = 'form-hint ebics-stale-warning';
                     note.textContent = tooOld
                         ? `⚠ This controller reports bank schema v${schema} and cannot store these settings — they are shown read-only. Flash firmware with FW-084 first.`
-                        : `⚠ Banks not read yet — these settings need bank schema v${group.minBankSchema}. You can set them up here, but press "Read banks" to confirm your controller can store them.`;
+                        : `⚠ Banks not read yet — these settings need bank schema v${group.minBankSchema}. You can set them up here, but press "Read from bike" to confirm your controller can store them.`;
                     block.insertBefore(note, grid);
                 }
                 if (tooOld) {
@@ -603,14 +732,15 @@ export function renderProfileEditor() {
             // Plotly can't size into a container hidden by a closed <details> — it draws
             // blank and never recovers on its own. Redraw once the panel is actually visible.
             chartDetails.addEventListener('toggle', () => {
-                if (chartDetails.open) updateEnginePreviewUI(level, state.lastTuning);
+                if (chartDetails.open) refreshEnginePreview(level);
             });
 
             sharedContainer.appendChild(block);
         });
     }
     renderProfileChart();
-    updateEnginePreviewUI(level, state.lastTuning);
+    refreshEnginePreview(level);
+    renderLevelCurve(levelCurveContext());
 }
 
 // FW-071: header of one shared section — title plus the copy affordance.
@@ -905,7 +1035,119 @@ export function renderProfileChart() {
         }]
         : [];
 
-    const draw = (target, view) => {
+    /*
+     * CB-025: these two are editors as well.
+     *
+     * Handles go on the SELECTED level only. Five levels' worth would be fifteen handles on a
+     * chart whose whole point is comparing the five lines, and the card already says the
+     * selected one is the subject (it is the line drawn thicker).
+     *
+     * There is no inverse function anywhere here. Every handle asks solveOnGrid which of the
+     * values the controller can actually store puts the curve closest to the pointer, using
+     * the SAME forward function the chart draws with — supportRatioForChart or
+     * requestedPowerForLevel. That matters because most of these cannot be inverted at all:
+     * the Power Curve gammas are a lookup table, the eMTB parameter sits inside a clamped
+     * denominator, and the power view is clipped by the battery ceiling. A hand-derived
+     * inverse would be a second model that could disagree with the one on screen.
+     */
+    const editContext = curveEditContext(selected, selectedMode);
+    const editedLevel = previewLevels[selected.levelIndex] || previewLevels[0] || {};
+
+    const probeValue = (key, displayValue, xValue, view) => {
+        const descriptor = descriptorOf(editContext, key);
+        const stored = descriptor?.toNative ? descriptor.toNative(displayValue) : displayValue;
+        const probe = { ...editedLevel, mode_type: selectedMode, [key]: stored };
+        return view === 'support'
+            ? supportRatioForChart(probe, xValue, chartMode)
+            : requestedPowerForLevel(probe, xValue, chartMode);
+    };
+
+    /*
+     * The power view is clipped by what the battery could ever supply, and a handle sitting in
+     * a clipped stretch cannot express anything: every value above the clip draws the same
+     * flat line, so dragging it would move the pointer and not the number.
+     *
+     * So on that view a handle slides left until the line is still rising, and the choice is
+     * frozen for the duration of a drag — recomputing it every frame would slide the point out
+     * from under the pointer.
+     */
+    const powerCeilingW = previewPowerCeilingW(editedLevel);
+    const uncappedPowerAt = (xValue) => requestedPowerForLevel(
+        { ...editedLevel, mode_type: selectedMode }, xValue, chartMode, false);
+    const observableX = (host, key, view, preferredX) => {
+        if (view !== 'power' || !(powerCeilingW > 0)) return preferredX;
+        const stepX = Math.max(1, x[1] - x[0]);
+        let candidate = preferredX;
+        while (candidate > stepX && uncappedPowerAt(candidate) > powerCeilingW * 0.8) {
+            candidate -= stepX;
+        }
+        return frozenAxis(host, `handle-x-${key}`, candidate, stepX);
+    };
+
+    const curveHandle = (key, preferredX, view, host, extra = {}) => {
+        const descriptor = descriptorOf(editContext, key);
+        if (!descriptor) return null;
+        const current = toDisplayValue(descriptor, editedLevel[key]);
+        const xValue = observableX(host, key, view, preferredX);
+        return fieldHandle(editContext, key, {
+            axis: 'y',
+            x: xValue,
+            y: probeValue(key, current, xValue, view),
+            value: current,
+            color: LEVEL_COLORS[selected.levelIndex] || '#475569',
+            toValue: (target) => solveOnGrid({
+                min: Number(descriptor.min),
+                max: Number(descriptor.max),
+                step: descriptor.step ?? 1,
+                current,
+                target,
+                evaluate: (candidate) => probeValue(key, candidate, xValue, view),
+            }),
+            ...extra,
+        });
+    };
+
+    // Where each handle sits, per mode. The x positions are chosen so that the value being
+    // dragged is the one that actually moves the curve THERE — a handle at a point its own
+    // parameter barely affects would be a control that fights back.
+    const referenceW = clamp(selectedLevelConfig.reference_power_w || 200, 50, 500);
+    const midLoadKg = 30;
+    const buildHandles = (view, host) => {
+        if (chartMode === 'load') {
+            return [curveHandle(selectedMode === 5 ? 'torque_assist_factor' : 'emtb_parameter',
+                midLoadKg, view, host)];
+        }
+        if (selectedMode === 1) return [curveHandle('support_ratio_pct', 200, view, host)];
+        const list = [
+            // At 0 W the support view IS the minimum, exactly. The power view is 0 W there
+            // whatever the minimum is, so on that chart the handle moves to where the value
+            // can actually be seen.
+            curveHandle('support_min_pct', view === 'support' ? 0 : referenceW * 0.2, view, host),
+            curveHandle('support_max_pct', referenceW, view, host),
+            fieldHandle(editContext, 'reference_power_w', {
+                axis: 'x',
+                // At the FOOT of the knee line, not on the curve. On the curve it would land
+                // exactly where the Maximum-support handle already is — both are at the
+                // reference power, at the same height — and the two would be impossible to
+                // tell apart or to grab separately.
+                x: referenceW,
+                y: 0,
+                value: referenceW,
+                color: '#94a3b8',
+                label: 'Reference rider power (drag the knee sideways)',
+            }),
+        ];
+        if (selectedMode === 2) list.push(curveHandle('progression_pct', referenceW / 2, view, host));
+        if (selectedMode === 6) {
+            // The two gammas split the support window at its midpoint by construction, so each
+            // one is grabbed in the half it actually shapes.
+            list.push(curveHandle('curve_exponent_x10', referenceW * 0.25, view, host));
+            list.push(curveHandle('curve_exponent_high_x10', referenceW * 0.75, view, host));
+        }
+        return list;
+    };
+
+    const draw = (target, targetId, view) => {
         if (!target) return;
         const unit = view === 'support' ? '%' : 'W';
         const traces = previewLevels.map((level, index) => ({
@@ -926,8 +1168,21 @@ export function renderProfileChart() {
             opacity: index === selected.levelIndex ? 1 : 0.92,
             hovertemplate: `${LEVEL_NAMES[index]}${hasData ? '' : ' (placeholder)'}<br>%{x}<br>%{y:.0f} ${unit}<extra></extra>`,
         }));
+        const host = chartHost(targetId);
+        const handles = buildHandles(view, host).filter(Boolean);
+        traces.push(...handleTraces(handles, 'Drag these to shape this level'));
+
         const layout = profilePlotLayout(axisX,
             view === 'support' ? 'Support ratio (%)' : 'Requested motor power (W)');
+        // Both axes have to be pinned for the drag geometry, and the value axis additionally
+        // frozen while dragging: its height comes from the very curves being shaped.
+        const xTop = x[x.length - 1];
+        const peak = traces.reduce((top, trace) => (Array.isArray(trace.y) && trace.mode === 'lines'
+            ? Math.max(top, ...trace.y) : top), 1);
+        const yTop = frozenAxis(host, `y-${view}`, peak * 1.12, view === 'support' ? 100 : 100);
+        layout.xaxis = pinned(layout.xaxis, [0, xTop]);
+        layout.yaxis = pinned(layout.yaxis, [0, yTop]);
+        layout.hovermode = false;
         layout.shapes = referenceShape.slice();
         if (view === 'power' && selectedLevelConfig.max_motor_power_w > 0) {
             layout.shapes.push({
@@ -936,15 +1191,27 @@ export function renderProfileChart() {
                 line: { color: '#f87171', width: 1.5, dash: 'dot' },
             });
         }
-        Plotly.react(target, traces, layout, { responsive: true, displaylogo: false });
+
+        drawEditable(targetId, traces, layout, {
+            handles,
+            xRange: [0, xTop],
+            yRange: [0, yTop],
+            grab: 'point',
+            description: `${LEVEL_NAMES[selected.levelIndex]}: drag a point to shape this `
+                + 'level\'s curve, or use the arrow keys.',
+            onChange: handleEditor(editedLevel, editContext, renderProfileChart),
+        });
     };
 
-    draw(supportChart, 'support');
-    draw(powerChart, 'power');
+    draw(supportChart, 'ebicsProfileChartSupport', 'support');
+    draw(powerChart, 'ebicsProfileChart', 'power');
 }
 
 export function bindProfileControls() {
     ['ebicsProfileBankSelect', 'ebicsProfileLevelSelect'].forEach((id) => el(id)?.addEventListener('change', renderProfileEditor));
+    // Picking a different setting to shape only redraws that one card — the field grid below
+    // is unaffected, so there is no reason to rebuild it.
+    bindLevelCurveControls(() => renderLevelCurve(levelCurveContext()));
     el('ebicsCadenceCompEnabled')?.addEventListener('change', () => { //FW-057
         const selected = selectedLevel();
         if (!selected.bank) return;
@@ -969,58 +1236,26 @@ export function bindProfileControls() {
         updateLiveSummary();
     });
 
-    el('ebicsProfilesReadButton')?.addEventListener('click', () => {
-        if (!socketReady()) return;
-        addLog('REQ', 'Reading eVistDrive profile banks...');
-        socket.send('READ_BANK:0');
-        setTimeout(() => { if (socket.readyState === WebSocket.OPEN) socket.send('READ_BANK:1'); }, 400);
-    });
+    // CB-026: reading, writing and undoing are the top bar's job now — see global-actions.js.
+}
 
-    // Writes the selected bank to controller RAM. Making it permanent is the top bar's
-    // "Save to Flash" — one controller command that covers both banks and the tuning
-    // together, which is why it is not a per-card button.
-    el('ebicsProfilesApplyButton')?.addEventListener('click', async () => {
-        if (!socketReady()) return;
-        const selected = selectedLevel();
-        if (!selected.bank) { addLog('ERR', 'No eVistDrive bank data to apply.'); return; }
-        if (!state.ebicsReceivedBanks?.[selected.bankIndex]) {
-            addLog('ERR', `Read eVistDrive bank ${selected.bankIndex + 1} before writing changes.`);
-            return;
-        }
-        // FW-056: the controller validates every level and rejects the whole blob on an
-        // unknown mode, so catch it here with a readable reason.
-        const blocked = (selected.bank.levels || []).findIndex(
-            (lv) => modeUnsupportedReason(lv.mode_type) === 'old-firmware');
-        if (blocked >= 0) {
-            const label = MODE_LABELS[selected.bank.levels[blocked].mode_type];
-            addLog('ERR', `${LEVEL_NAMES[blocked]} uses "${label}", which this controller's firmware cannot store. Writing would be rejected and your current settings kept. Flash newer firmware or pick another mode.`);
-            return;
-        }
-        const written = await writeBankAndWait(selected.bank);
-        if (!written.ok) {
-            addLog('ERR', `Bank ${selected.bankIndex + 1} was not written (${written.reason}).`);
-            return;
-        }
-        markUnsavedInRam();
-        addLog('SAVE_REQ', `Bank ${selected.bankIndex + 1} written to controller RAM — press "Save to Flash" in the top bar to keep it.`);
-    });
-
-    // CB-012: undo a session of clicking, for the whole selected bank. Only touches what is
-    // on screen — the bike keeps its settings until Write (RAM) is pressed.
-    el('ebicsProfilesRestoreButton')?.addEventListener('click', () => {
-        const selected = selectedLevel();
-        const read = state.lastBanksAsRead?.[selected.bankIndex];
-        const label = read ? 'the values read from the controller' : 'the firmware defaults';
-        if (!confirm(`Put bank ${selected.bankIndex + 1} back to ${label}?\n\nThis only changes what you see here. Nothing is sent to the bike until you press "Write (RAM)".`)) return;
-
-        if (read) {
-            state.lastBanks[selected.bankIndex] = JSON.parse(JSON.stringify(read));
-        } else {
-            // Nothing was ever read, so the editor is working on the offline copy: rebuild
-            // it from the untouched defaults table.
-            resetPlaceholderBank(selected.bankIndex);
-        }
-        renderProfileEditor();
-        addLog('INFO', `Bank ${selected.bankIndex + 1} put back to ${label}. Not written to the bike — press "Write (RAM)" to apply.`);
-    });
+/*
+ * FW-056, kept as its own check because the whole bank stands or falls together.
+ *
+ * The controller validates every level in the blob and rejects ALL of it on a mode it does not
+ * know — then silently keeps the settings it already had. A rider who is not watching the log
+ * would ride away believing the new tune was applied. This turns that into a readable reason
+ * before anything is sent, and it has to run wherever a bank is written, which since CB-026 is
+ * the one save action in the top bar.
+ *
+ * Returns a sentence to show, or null when the bank is safe to write.
+ */
+export function unsupportedModeInBank(bankIndex) {
+    const levels = state.lastBanks?.[bankIndex]?.levels || [];
+    const blocked = levels.findIndex((level) => modeUnsupportedReason(level.mode_type) === 'old-firmware');
+    if (blocked < 0) return null;
+    const label = MODE_LABELS[levels[blocked].mode_type];
+    return `Bank ${bankIndex + 1}, ${LEVEL_NAMES[blocked]} uses "${label}", which this `
+        + 'controller\'s firmware cannot store. The controller would reject the whole bank and '
+        + 'quietly keep your current settings. Flash newer firmware or pick another mode.';
 }

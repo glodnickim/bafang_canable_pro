@@ -38,19 +38,24 @@
                 <input type="checkbox" id="hideFactoryTabsCheckbox" class="w-4 h-4 accent-olive" checked>
                 Show only eVistDrive tabs
             </label>
-            <!-- CB-017: global actions, next to Connect and visible from every tab.
-                 Saving to flash is one controller command (0x6022) that persists BOTH banks
-                 and the tuning together — there is no partial flash write — so a per-card
-                 "Save (Flash)" button looked like it saved that card and did not. One
-                 button, one place, matching what the controller actually does. -->
-            <div class="flex items-center gap-2 flex-wrap">
+            <!-- CB-017 / CB-026: the ONLY place the eVistDrive UI talks to the bike.
+                 Every card used to carry its own Read and Write, each a subset of these, with
+                 the one difference that mattered — what survives switching the bike off —
+                 explained only in tooltips. Three actions now: read everything, send (the
+                 temporary/permanent choice is made inside the dialog, where the consequences
+                 are written next to each option), and undo on screen. -->
+            <div class="flex items-center gap-2 flex-wrap evd-global-actions">
                 <span id="evdUnsavedBadge" class="ebics-readonly-pill" style="display:none"
-                    title="Settings have been written to the controller's memory but not yet made permanent. They are lost when the bike is switched off until you press Save to Flash.">Unsaved in RAM</span>
+                    title="Settings are active in the controller's memory but not permanent yet. They are lost when the bike is switched off until you save permanently.">Not permanent yet</span>
                 <button id="evdReadAllButton" class="btn btn-blue btn-sm" data-requires-link
-                    title="Read everything from the controller: both profile banks, the ride-feel tuning and the legacy parameter blocks.">Read all</button>
-                <button id="evdSaveFlashButton" class="btn btn-red btn-sm" data-requires-link
-                    title="Make the current settings permanent. The controller performs the flash write at full standstill, and it always covers both banks and the tuning together.">Save to Flash</button>
+                    title="Read everything from the bike: both profile banks, the ride-feel tuning, the limits and system blocks, the torque scale and the device identification. There is nothing else to read.">Read from bike</button>
+                <button id="evdSaveButton" class="btn btn-orange btn-sm" data-requires-link
+                    title="Send what is on screen to the bike. You choose whether it is just for this ride or saved permanently.">Save…</button>
+                <button id="evdUndoButton" class="btn btn-secondary btn-sm"
+                    title="Put every setting on screen back to what was read from the bike. Nothing is sent to the bike.">Undo changes</button>
                 <button id="connectCanButton" disabled class="btn btn-primary">Connect</button>
+                <!-- Filled in by global-actions.js when Save… is pressed. -->
+                <div id="evdSaveDialog" class="evd-save-dialog" style="display:none"></div>
             </div>
         </div>
     </div>
@@ -914,11 +919,8 @@
                         <div class="ebics-kicker">eVistDrive Ride Core</div>
                         <h2 class="section-title text-lg">Profiles</h2>
                     </div>
-                    <div class="flex gap-2 flex-wrap">
-                        <button id="ebicsProfilesReadButton" class="btn btn-blue">Read banks</button>
-                        <button id="ebicsProfilesApplyButton" data-requires-link class="btn btn-orange" title="Sent to the controller's working memory. It is lost when the bike is switched off until you press Save to Flash in the top bar.">Write selected bank (RAM)</button>
-                        <button id="ebicsProfilesRestoreButton" class="btn btn-secondary">Restore</button>
-                    </div>
+                    <!-- CB-026: reading and writing live in the top bar, once, for the whole
+                         app. Nothing on this card talks to the bike. -->
                 </div>
                 <!-- CB-020: share a tuning as a file. Deliberately NOT the Data Backup tab:
                      that one dumps the whole device (battery, sensor, serials) and restores
@@ -932,8 +934,12 @@
                         <label>Note
                             <input id="ebicsPresetNote" class="form-input" type="text" maxlength="160" placeholder="optional — what it is for">
                         </label>
-                        <button id="ebicsPresetExportButton" class="btn btn-secondary">⤓ Export preset</button>
-                        <button id="ebicsPresetImportButton" class="btn btn-secondary">⤒ Import preset</button>
+                        <!-- CB-026: these two are FILE actions and are worded so they cannot be
+                             mistaken for the bike actions in the top bar. "Export"/"Import"
+                             read like "read"/"write" to anyone who has not used the app
+                             before, which is exactly the confusion being cleared up. -->
+                        <button id="ebicsPresetExportButton" class="btn btn-secondary" title="Writes a file on this computer. Nothing is sent to the bike.">💾 Save settings to a file…</button>
+                        <button id="ebicsPresetImportButton" class="btn btn-secondary" title="Loads a file into the editor on screen. Nothing reaches the bike until you use Save… in the top bar.">📂 Load settings from a file…</button>
                         <input id="ebicsPresetImportInput" type="file" accept="application/json" style="display:none">
                     </div>
                     <small class="form-hint">Both banks and the whole-bike block. Sensor calibration, battery and wheel settings are never included — they belong to one bike and would break another. Importing only fills the editor; nothing reaches the controller until you press Write.</small>
@@ -961,6 +967,24 @@
                         </div>
                         <div id="ebicsCadenceCompNote" class="ebics-feature-note"></div>
                     </div>
+                </section>
+                <!-- The one editor on this tab that spans ALL FIVE levels at once. Everything
+                     below it edits only the level picked in the toolbar, so the difference has
+                     to be stated on the card itself and not left to be discovered. Dragging a
+                     point changes what is on screen; the bike keeps its settings until
+                     "Save…" in the top bar. -->
+                <section id="ebicsLevelCurveCard" class="ebics-card mt-4">
+                    <div class="evd-level-curve-head">
+                        <div>
+                            <div class="ebics-card-title">Assist level curve — drag the points</div>
+                            <p class="form-hint evd-level-curve-note">One setting across <strong>all five assist levels</strong> of the selected bank. Drag a point up or down, or type in the boxes below — both change the same value, and each follows the other straight away. Keyboard: ← → pick a level, ↑ ↓ change it (hold Shift for ten steps). <strong>Nothing is sent to the bike here</strong> — use “Save…” in the top bar when you are happy with it.</p>
+                        </div>
+                        <label class="evd-level-curve-pick">Setting
+                            <select id="ebicsLevelCurveParam" class="form-select"></select>
+                        </label>
+                    </div>
+                    <div id="ebicsLevelCurveChart" class="evd-level-curve-chart"></div>
+                    <div id="ebicsLevelCurveStatus" class="evd-level-curve-status"></div>
                 </section>
                 <div class="ebics-two-column mt-4">
                     <div class="ebics-profile-left-column">
@@ -1015,11 +1039,8 @@
                             <p class="text-sm mt-1 mb-0">These are <strong>not</strong> bank or level settings. One set of values applies to <strong>both banks and all five assist levels</strong>. Changing the bank or level selector above has no effect on anything in this section, and it has its own Read/Write buttons.</p>
                         </div>
                         <div class="flex gap-2 flex-wrap">
-                            <button id="ebicsDynamicsReadButton" class="btn btn-blue">Read global tuning</button>
-                            <button id="ebicsDynamicsApplyButton" data-requires-link class="btn btn-orange" title="Sent to the controller's working memory. It is lost when the bike is switched off until you press Save to Flash in the top bar.">Write global (RAM)</button>
                             <!-- CB-012. No data-requires-link: undoing your own clicking must work
                                  offline too, and it writes nothing to the controller. -->
-                            <button id="ebicsDynamicsRestoreButton" class="btn btn-secondary">Restore global</button>
                         </div>
                     </div>
                     <div class="ebics-global-charts-grid mt-4">
@@ -1054,7 +1075,10 @@
                         <div class="ebics-card-title">Current pedal load</div>
                         <div class="ebics-gauge"><div id="ebicsTorqueGaugeFill" class="ebics-gauge-fill"></div></div>
                         <div class="ebics-gauge-value"><b id="ebicsTorqueKg">0.0</b> kg <span>/ 60 kg</span></div>
-                        <div class="flex gap-2 mt-2"><button id="ebicsTorqueReadButton" class="btn btn-blue">Read live</button></div>
+                        <!-- CB-026: live telemetry, not a settings read — hence its own
+                             wording. The top bar's "Read from bike" loads settings; this asks
+                             the sensor what it sees right now. -->
+                        <div class="flex gap-2 mt-2"><button id="ebicsTorqueReadButton" class="btn btn-secondary btn-sm" title="Asks the sensor for its current reading. Does not change any setting.">↻ Refresh sensor reading</button></div>
                         <p class="form-hint">Firmware is the source of truth for kg once it answers. Until then an estimated default scale is used (740 mV zero, 1620 mV = 60 kg).</p>
                     </section>
                     <section class="ebics-card">
@@ -1084,11 +1108,16 @@
                     </div>
                     <div class="flex items-center gap-2 mt-3 flex-wrap">
                         <label>Reference weight (kg): <input id="ebicsCalRefKg" type="number" min="5" max="30" step="0.1" value="11" style="width:6em"></label>
-                        <button id="ebicsCalStart" class="btn btn-blue">1. Start (no load)</button>
-                        <button id="ebicsCalCapture" class="btn btn-blue">2. Capture load</button>
-                        <button id="ebicsCalSave" data-requires-link class="btn btn-red">3. Save</button>
-                        <button id="ebicsCalCancel" class="btn">Cancel</button>
-                        <button id="ebicsCalRestore" class="btn">Restore default</button>
+                        <!-- CB-026: a three-step PROCEDURE with a weight on the pedal, not a
+                             settings save — so every label says which step it is and the last
+                             one names what it commits. It is the one thing on the eVistDrive
+                             tabs that writes to the bike outside the top bar, and it has to be
+                             obvious why. -->
+                        <button id="ebicsCalStart" class="btn btn-blue btn-sm" title="Step 1 of 3. Captures the resting signal with no load on the pedal.">Step 1 · measure zero</button>
+                        <button id="ebicsCalCapture" class="btn btn-blue btn-sm" title="Step 2 of 3. Measures the signal with the reference weight hanging on the pedal.">Step 2 · measure with weight</button>
+                        <button id="ebicsCalSave" data-requires-link class="btn btn-red btn-sm" title="Step 3 of 3. Commits this calibration to the controller. Rejected unless the bike is at a complete standstill.">Step 3 · store calibration in the bike</button>
+                        <button id="ebicsCalCancel" class="btn btn-secondary btn-sm" title="Abandons a calibration in progress. Nothing already stored is changed.">Abandon</button>
+                        <button id="ebicsCalRestore" class="btn btn-secondary btn-sm" title="Discards a stored calibration and goes back to the factory estimated scale.">Back to factory scale</button>
                     </div>
                 </section>
 
@@ -1130,8 +1159,6 @@
                 <div class="ebics-heading">
                     <div><div class="ebics-kicker">eVistDrive Ride Core</div><h2 class="section-title text-lg">Limits</h2></div>
                     <div class="flex gap-2 flex-wrap">
-                        <button id="ebicsLimitsSyncButton" class="btn btn-blue">Read</button>
-                        <button id="ebicsLimitsApplyButton" data-requires-link class="btn btn-orange" title="Written straight to permanent storage: the controller commits these legacy parameter blocks as soon as it receives them, so there is no separate flash step.">Write (permanent)</button>
                     </div>
                 </div>
                 <div class="ebics-toolbar"><span id="ebicsCompatibilitySourceLimits" class="ebics-source-note">Preview values — read before writing</span></div>
@@ -1156,7 +1183,6 @@
                         <label>Full-charge pack voltage
                             <input id="ebicsSocFullInput" type="number" min="20" max="90" step="0.1" class="form-input w-48"> V
                         </label>
-                        <button id="ebicsSocFullSaveButton" data-requires-link class="btn btn-blue">Save</button>
                     </div>
                 </section>
                 <div class="info-message mt-4"><span>These controls replace the eVistDrive-used electrical, battery and speed fields from Controller Settings. Unused factory bytes remain available only in Debug.</span></div>
@@ -1167,8 +1193,6 @@
                 <div class="ebics-heading">
                     <div><div class="ebics-kicker">eVistDrive Ride Core</div><h2 class="section-title text-lg">Walk assist</h2></div>
                     <div class="flex gap-2 flex-wrap">
-                        <button id="ebicsWalkSyncButton" class="btn btn-blue">Read</button>
-                        <button id="ebicsWalkApplyButton" data-requires-link class="btn btn-orange" title="Sent to the controller's working memory. It is lost when the bike is switched off until you press Save to Flash in the top bar.">Write (RAM)</button>
                     </div>
                 </div>
                 <div class="ebics-metric-grid">
@@ -1204,8 +1228,6 @@
                 <div class="ebics-heading">
                     <div><div class="ebics-kicker">eVistDrive Ride Core</div><h2 class="section-title text-lg">System and protocol</h2></div>
                     <div class="flex gap-2 flex-wrap">
-                        <button id="ebicsSystemSyncButton" class="btn btn-blue">Read</button>
-                        <button id="ebicsSystemApplyButton" data-requires-link class="btn btn-orange" title="Written straight to permanent storage: the controller commits these legacy parameter blocks as soon as it receives them, so there is no separate flash step.">Write (permanent)</button>
                         <button id="ebicsProbeAgainButton" class="btn btn-secondary">Detect again</button>
                     </div>
                 </div>
@@ -1215,7 +1237,6 @@
                 <div class="ebics-card">
                     <div class="ebics-heading">
                         <h3 class="section-title text-base">Device identification</h3>
-                        <button id="evdInfoReadButton" class="btn btn-blue btn-sm">Read device info</button>
                     </div>
                     <div class="form-hint mb-2" id="evdInfoSource">Nothing read yet — press "Read device info".</div>
                     <div class="ebics-two-column">
