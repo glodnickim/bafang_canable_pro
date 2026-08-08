@@ -164,23 +164,22 @@ function sharedFieldGroups() {
         // of its values together — a duration copied without its trigger load is meaningless.
         {
             id: 'extendedBoost',
-            title: 'Hard-push assist — Extended Boost',
-            note: 'A hard push TRIGGERS a timed boost, which then keeps running for as long as '
-                + 'you keep pedalling forward — for driving over a step or a root without '
-                + 'losing momentum. Push above Trigger pedal load and hold it briefly; the '
-                + 'boost then runs for Boost duration, at a current set by how far above the '
-                + 'trigger that push went. Once it has started, easing off the pedal does NOT '
-                + 'cut it short — only the timer or one of the stops below ends it. That is on '
-                + 'purpose, so the boost does not stutter in the dead spots of a pedal stroke. '
-                + 'SAFETY: it only ever runs while you are genuinely still pedalling forward. '
-                + 'The moment you stop pedalling the boost is cancelled — it will not keep the '
-                + 'motor pulling with the cranks stationary. Braking, backpedalling or a fault '
-                + 'also cancel it immediately; motor current then follows the fixed safety-cut '
-                + 'ramp. One push gives one boost: to get another you must let the pedal load '
-                + 'drop back below the trigger and push again — including after a stop, if you '
-                + 'never took the weight off the pedal. Because you are pedalling throughout, '
-                + 'the normal legal speed limit applies, not the low no-pedalling limit. Set '
-                + 'Boost duration to 0 to switch it off.',
+            title: 'Obstacle assist — Extended Boost',
+            note: 'Keeps the motor pulling for a moment AFTER you stop pedalling, for lifting '
+                + 'over steps and rocks. Arm it with a firm push above Trigger pedal load; when '
+                + 'you then stop pedalling, the motor holds the current you were ALREADY '
+                + 'getting for Boost duration, and the normal release ramp takes over after '
+                + 'that. The trigger only ARMS it — it has no effect on how much help you get. '
+                + 'Boost strength scales the held current: 100% keeps exactly what you had. '
+                + 'IMPORTANT — READ THIS: while the boost runs the motor drives with the cranks '
+                + 'STANDING STILL. Within that window only the brake or the timer stops it. '
+                + 'Braking, backpedalling, a fault, leaving the assist level or the bike coming '
+                + 'to a stop all cancel it immediately. Starting to pedal again also ends it at '
+                + 'once and hands back to normal assist, smoothly. An arming that is not used '
+                + 'within about 1.5 seconds expires. In legal mode the boost follows your '
+                + 'normal 25 km/h limit — note that this goes beyond what EPAC allows for '
+                + 'assistance without pedalling, and is a deliberate choice for this bike. Set '
+                + 'Boost duration to 0 to switch it off completely.',
             fields: pick('extended_boost_trigger_load_kg', 'extended_boost_strength_pct',
                 'extended_boost_duration_ms'),
         },
@@ -290,7 +289,7 @@ function sharedFieldList() {
             help: 'A confirmed pedal load at or above this value arms Extended Boost. It uses calibrated pedal load, not the rate at which the signal rises, and the load has to be held for about 30 ms — a single spike from a chain slap or a pothole is ignored. Higher values mean only a deliberate hard push arms the boost; lower values arm it more easily, including when you did not mean to. This one field steps in 0.5 kg rather than 0.1 kg, which is what lets it reach the sensor\'s full 60 kg. Setting it at 60 kg disables the boost in practice — nothing can push past the top of the scale.' },
         { key: 'extended_boost_strength_pct', label: 'Boost strength', unit: '%', min: 0, max: 255, step: 5, minBankSchema: 8,
             help: 'Multiplies the current calculated from the peak load of the latest qualifying pedal push. 100% = exactly that current, 150% = one and a half times it, 255% = the maximum 2.55×. The result is still capped by this level\'s Maximum motor current and by every controller safety limit — speed, power, battery, voltage and temperature.' },
-        { key: 'extended_boost_duration_ms', label: 'Boost duration — 0 = Off', unit: 'ms', min: 0, max: 1000, step: 25, minBankSchema: 8,
+        { key: 'extended_boost_duration_ms', label: 'Boost duration — 0 = Off', unit: 'ms', min: 0, max: 2000, step: 25, minBankSchema: 8,
             help: 'How long the motor may keep pushing after forward pedalling is recognized as stopped. 0 disables Extended Boost completely, which is the default. Start at 200 ms and only increase it once you have confirmed the brake, backward-pedal and limit behaviour on your own bike. The release ramp runs AFTER this time, so the two add up. In legal mode the boost is treated as non-pedal assistance and stops helping above 7 km/h — the cranks are stationary while it runs.' },
         { key: 'power_fall_filter_ms', label: 'Power fall filter', unit: 'ms', min: 0, max: 5000, step: 50,
             help: 'Smooths sudden drops in requested motor power over this many milliseconds — helps assist not visibly dip in the dead spots of each pedal stroke. This is an exponential time constant, not time-to-zero: after one interval about 37% of the previous step remains. Example presets (Aggressive / Normal / Smooth): 100 / 200 / 400 ms. Higher = steadier through the dead spots; lower = assist follows every dip in your pedal stroke.' },
