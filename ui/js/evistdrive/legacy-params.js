@@ -804,25 +804,25 @@ function renderSystemFields() {
             help: 'Number of speed-sensor pulses per wheel revolution. Must match your actual sensor/magnet setup — wrong here means every speed and distance reading (and the speed limit) is scaled incorrectly.' },
         { key: 'motor_max_rotor_rpm', label: 'Off-road Magic number', min: 0, max: 65535, step: 1,
             help: 'Not read by firmware since FW-050 — the off-road speed-limit-bypass gesture (cycle assist level Eco→0→Eco) now uses a fixed sequence instead of a code stored here. Kept in storage for compatibility; editing this field has no effect.' },
-        { key: 'temperature_sensor_type', label: 'Legacy decay base', min: 0, max: 255, step: 1,
-            help: 'Only used by the old Legacy cadence-based pedal-assist calculation, which is compiled in but not reached — the active ride-core assist path is the only one used (since FW-030), and Walk Assist uses its own separate motor-speed controller. Editing this has no effect on normal riding.' },
+        { key: 'temperature_sensor_type', label: 'Decay base (unused)', min: 0, max: 255, step: 1,
+            help: 'Dead setting. It belonged to the old cadence-based pedal-assist calculation, which FW-094 removed from the firmware entirely — no code reads this value any more. The field is still stored and read back only so the controller\'s parameter block keeps its layout. Editing it has no effect on riding.' },
     ].forEach((field) => createField(motor, draft.p1, field));
     [
-        { key: 'full_capacity_range', label: 'Cadence exponent', min: 0, max: 255, step: 1,
-            help: 'Only used by the old Legacy cadence-based pedal-assist calculation, which is compiled in but not reached — the active ride-core assist path is the only one used (FW-030), and Walk Assist uses its own separate motor-speed controller. Editing this has no effect on normal riding.' },
+        { key: 'full_capacity_range', label: 'Cadence exponent (unused)', min: 0, max: 255, step: 1,
+            help: 'Dead setting. It shaped the old cadence-based pedal-assist calculation, which FW-094 removed from the firmware entirely — no code reads this value any more. The field is still stored and read back only so the controller\'s parameter block keeps its layout. Editing it has no effect on riding.' },
         { key: 'throttle_start_voltage', label: 'Throttle start voltage', unit: 'V', min: 0, max: 4.2, step: 0.1,
             help: 'Throttle ADC voltage that reads as "no throttle input". Below this, the throttle contributes nothing — the natural off-point for a disconnected or idle throttle.' },
         { key: 'throttle_max_voltage', label: 'Throttle maximum voltage', unit: 'V', min: 0, max: 4.2, step: 0.1,
             help: 'Throttle ADC voltage that reads as "full throttle". Between Start and here, throttle current ramps linearly up to the level\'s current limit.' },
         {
-            key: 'start_current', label: 'Legacy Extended Boost duration', unit: 'ms', min: 0, max: 10200, step: 40,
+            key: 'start_current', label: 'Old overrun duration (unused)', unit: 'ms', min: 0, max: 10200, step: 40,
             fromNative: (value) => value * 40, toNative: (value) => Math.round(value / 40),
-            help: 'Only used by the old Legacy pedal-assist path (see Cadence exponent above) — not reached by the active ride-core assist path or Walk Assist. Editing this has no effect on normal riding.',
+            help: 'Dead setting. It set how long the old firmware kept pulling after you stopped pedalling ("power drag-on"). FW-094 removed that mechanism entirely. This is NOT the Extended Boost you configure per assist level — that one is a separate, safety-gated feature in the profile settings. Editing this has no effect on riding.',
         },
         { key: 'current_loading_time', label: 'PAS timeout', unit: 's', min: 0.1, max: 25.5, step: 0.1,
-            help: 'How long the pedal sensor can go without a torque/rotation signal before cadence is forced to zero and the reverse-pedalling latch clears. Shared by both the active ride-core assist path and the Legacy path — not Legacy-only despite living among other "Legacy" fields here. Very short values can falsely read as "stopped pedalling" during the normal dead-spots between pedal strokes.' },
-        { key: 'current_shedding_time', label: 'Legacy ramp-end control', min: 0.1, max: 25.5, step: 0.1,
-            help: 'Stored but not read anywhere in the current firmware — dead. Editing this has no effect.' },
+            help: 'LIVE setting — this one does affect riding, despite sitting among the dead fields here. It is how long the pedal sensor may go without a torque/rotation signal before cadence is forced to zero and the reverse-pedalling latch clears. Very short values can falsely read as "stopped pedalling" during the normal dead-spots between pedal strokes.' },
+        { key: 'current_shedding_time', label: 'Ramp-end control (unused)', min: 0.1, max: 25.5, step: 0.1,
+            help: 'Dead setting. Stored and read back, but no firmware code reads it — and none has for several releases. Editing it has no effect on riding.' },
     ].forEach((field) => createField(ride, draft.p1, field));
 }
 
