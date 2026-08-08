@@ -165,17 +165,22 @@ function sharedFieldGroups() {
         {
             id: 'extendedBoost',
             title: 'Hard-push assist — Extended Boost',
-            note: 'Gives extra motor current for a short time when you push HARD on the pedal, '
-                + 'for driving over a step or a root without losing momentum. Push above '
-                + 'Trigger pedal load and hold it briefly; the boost then runs for Boost '
-                + 'duration, and how much current you get depends on how far above the trigger '
-                + 'you pushed. SAFETY: it only ever runs while you are genuinely still '
-                + 'pedalling forward. The moment you stop pedalling it stops too — it will not '
-                + 'keep the motor pulling with the cranks stationary. Braking, backpedalling, a '
-                + 'fault or leaving the assist level stop it instantly as well. One push gives '
-                + 'one boost: to get another, ease off and push again. Because you are pedalling '
-                + 'throughout, the normal legal speed limit applies, not the low no-pedalling '
-                + 'limit. Set Boost duration to 0 to switch it off.',
+            note: 'A hard push TRIGGERS a timed boost, which then keeps running for as long as '
+                + 'you keep pedalling forward — for driving over a step or a root without '
+                + 'losing momentum. Push above Trigger pedal load and hold it briefly; the '
+                + 'boost then runs for Boost duration, at a current set by how far above the '
+                + 'trigger that push went. Once it has started, easing off the pedal does NOT '
+                + 'cut it short — only the timer or one of the stops below ends it. That is on '
+                + 'purpose, so the boost does not stutter in the dead spots of a pedal stroke. '
+                + 'SAFETY: it only ever runs while you are genuinely still pedalling forward. '
+                + 'The moment you stop pedalling the boost is cancelled — it will not keep the '
+                + 'motor pulling with the cranks stationary. Braking, backpedalling or a fault '
+                + 'also cancel it immediately; motor current then follows the fixed safety-cut '
+                + 'ramp. One push gives one boost: to get another you must let the pedal load '
+                + 'drop back below the trigger and push again — including after a stop, if you '
+                + 'never took the weight off the pedal. Because you are pedalling throughout, '
+                + 'the normal legal speed limit applies, not the low no-pedalling limit. Set '
+                + 'Boost duration to 0 to switch it off.',
             fields: pick('extended_boost_trigger_load_kg', 'extended_boost_strength_pct',
                 'extended_boost_duration_ms'),
         },
