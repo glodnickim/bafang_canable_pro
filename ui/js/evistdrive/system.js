@@ -52,10 +52,13 @@ export function updateDiagUI(d) {
 }
 
 // Wire values from assist_extended_boost_cancel_t (inc/assist_extended_boost.h).
+// Indices 9 and 10 are reserved: they belonged to the removed wait-for-pedal-stop design and
+// the firmware has not reported them since FW-095. They stay in the table so every other
+// index keeps its position.
 const EXT_BOOST_CANCEL = [
     'none', 'disabled', 'safety cut', 'backward crank', 'sensor invalid', 'walk assist',
-    'calibration', 'level/bank change', 'motion lost', 'pedalling resumed', 'arming expired',
-    'completed', 'bank config written',
+    'calibration', 'level/bank change', 'motion lost', '(reserved)', '(reserved)',
+    'completed', 'bank config written', 'stopped pedalling',
 ];
 
 let diagTimer = null;

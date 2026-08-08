@@ -164,18 +164,18 @@ function sharedFieldGroups() {
         // of its values together — a duration copied without its trigger load is meaningless.
         {
             id: 'extendedBoost',
-            title: 'Obstacle assist — Extended Boost',
-            note: 'Keeps the motor pushing for a moment AFTER you stop pedalling, for lifting '
-                + 'over steps and rocks. You arm it with a firm push on the pedal; the boost '
-                + 'then reproduces the peak load of that push. The times add up: from the '
-                + 'moment pedalling is recognized as stopped to zero current is Boost duration '
-                + '+ Release duration, and from your last pedal pulse it is roughly '
-                + '200–500 ms + Boost duration + Release duration. Release duration lives in '
-                + '"Power smoothing and release". IN LEGAL MODE the boost counts as '
-                + 'non-pedal assistance, because the cranks are stopped while it runs: it '
-                + 'fades from 5 km/h and gives nothing from 7 km/h. On a technical climb '
-                + 'that is the speed range it is meant for, but do not expect it to help at '
-                + 'speed unless offroad mode is on.',
+            title: 'Hard-push assist — Extended Boost',
+            note: 'Gives extra motor current for a short time when you push HARD on the pedal, '
+                + 'for driving over a step or a root without losing momentum. Push above '
+                + 'Trigger pedal load and hold it briefly; the boost then runs for Boost '
+                + 'duration, and how much current you get depends on how far above the trigger '
+                + 'you pushed. SAFETY: it only ever runs while you are genuinely still '
+                + 'pedalling forward. The moment you stop pedalling it stops too — it will not '
+                + 'keep the motor pulling with the cranks stationary. Braking, backpedalling, a '
+                + 'fault or leaving the assist level stop it instantly as well. One push gives '
+                + 'one boost: to get another, ease off and push again. Because you are pedalling '
+                + 'throughout, the normal legal speed limit applies, not the low no-pedalling '
+                + 'limit. Set Boost duration to 0 to switch it off.',
             fields: pick('extended_boost_trigger_load_kg', 'extended_boost_strength_pct',
                 'extended_boost_duration_ms'),
         },
