@@ -9,14 +9,34 @@ const HIGH = Object.freeze({ count: 48, bytes: 44, fragments: 6 });
 const TAIL = Object.freeze({ count: 19, bytes: 12, fragments: 2, rateHz: 250 });
 
 function modeByte(mode) { return MODE[mode] ?? null; }
+const MODE_NAME = Object.freeze(Object.fromEntries(Object.entries(MODE).map(([k, v]) => [v, k])));
+function statusToBytes({ state, generation, high, flagByte, mode, tail, trigger }) {
+    return [2, state, generation, high, flagByte, mode, tail, trigger];
+}
 function decodeStatus(d) {
     if (!Array.isArray(d) || d.length !== 8 || d[0] !== 2) return null;
     const f = d[4] & 0xff;
     return { schema: d[0], state: d[1], generation: d[2], highCount: d[3],
         exportReady: !!(f & 1), exportBusy: !!(f & 2), restartQualified: !!(f & 4),
-        highComplete: !!(f & 8), tailComplete: !!(f & 16), mode: d[5], tailCount: d[6], triggerEvents: d[7] };
+        highComplete: !!(f & 8), tailComplete: !!(f & 16), mode: d[5], modeName: MODE_NAME[d[5]],
+        tailCount: d[6], triggerEvents: d[7] };
 }
 function stateName(s) { return ({ 1: 'ARMED', 2: 'WAITING_QUALIFICATION', 3: 'HIGH_RATE', 4: 'TAIL', 5: 'COMPLETE' })[s] || 'ERROR'; }
+
+// Whether a status proves a full 48/48 + 19/19 capture is sitting on the controller now.
+function isComplete(s) { return !!s && s.schema === 2 && s.state === 5 && s.highComplete && s.tailComplete; }
+
+// The host-side panel state derived strictly from a decoded firmware STATUS. This is the
+// single renderable state machine; the UI owes nothing to button.disabled.
+function panelStateFromStatus(s) {
+    if (!s || s.schema !== 2) return 'ERROR';
+    if (s.state === 5) return (s.highComplete && s.tailComplete) ? 'COMPLETE' : 'ERROR';
+    if (s.state === 4) return 'TAIL';
+    if (s.state === 3) return 'HIGH_RATE';
+    if (s.state === 2) return 'WAITING_QUALIFICATION';
+    if (s.state === 1) return 'ARMED';
+    return 'ERROR';
+}
 
 class Download {
     constructor(expectedGeneration, expectedMode) { this.expectedGeneration = expectedGeneration; this.expectedMode = expectedMode; this.reset(); }
@@ -55,4 +75,4 @@ class Download {
     snapshot() { return { generation: this.generation, high: this.high.length, tail: this.tail.length, error: this.error, complete: this.complete() }; }
 }
 
-module.exports = { MODE, COMMAND, STATUS_ID, EXPORT, HIGH, TAIL, modeByte, decodeStatus, stateName, Download };
+module.exports = { MODE, MODE_NAME, COMMAND, STATUS_ID, EXPORT, HIGH, TAIL, modeByte, decodeStatus, stateName, isComplete, panelStateFromStatus, statusToBytes, Download };

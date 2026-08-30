@@ -902,6 +902,11 @@ const wss = new WebSocket.Server({ server });
 			qs1Service.newCapture();
 			return true;
 		}
+		if (messageString === 'QS1_NEW_CAPTURE_CONFIRM') {
+			qs1Subscribe(ws);
+			qs1Service.newCaptureConfirmed();
+			return true;
+		}
 		if (messageString.startsWith('QS1_MODE:')) {
 			qs1Subscribe(ws);
 			qs1Service.selectMode(messageString.substring('QS1_MODE:'.length));
