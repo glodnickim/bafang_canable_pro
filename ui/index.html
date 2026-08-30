@@ -1663,6 +1663,40 @@
                     </table>
                 </div>
 
+                <!-- QS-1 MEASURE — normal-user capture panel (ui/js/evistdrive/qs1-panel.js,
+                     driven by the server-side service qs1x.js). Works WITHOUT Start Sniffing:
+                     the service taps canbus.raw_frame_received directly and owns the whole
+                     protocol (STATUS poll, WRITE 0x6031 NEW MEASURE, WRITE 0x6030 DOWNLOAD and
+                     the 48-record export reassembly). The panel never concludes anything from
+                     a button press — every verdict comes from a server-verified STATUS or the
+                     48/48 download result. -->
+                <div id="qs1Panel" class="bg-gray-50 border border-gray-200 rounded-xl p-4 mb-5">
+                    <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
+                        <h2 class="section-title">QS-1X MEASURE</h2>
+                        <div class="flex flex-wrap gap-2">
+                            <button id="qs1DownloadMeasureButton" class="btn btn-success btn-sm whitespace-nowrap">Download Measure</button>
+                            <button id="qs1NewMeasureButton" class="btn btn-primary btn-sm whitespace-nowrap">New Measure</button>
+                        </div>
+                    </div>
+                    <div class="text-xs text-gray-500 font-mono mb-2">
+                        Failed-start capture: 48 FOC-rate samples around the power-ramp edge. Status is polled
+                        automatically (no raw CAN entry needed). <strong>New Measure</strong> re-arms the capture
+                        ring of a finished measurement; <strong>Download Measure</strong> transfers the 48 records
+                        and shows the full/partial verdict. A completed but undownloaded capture is protected —
+                        re-arming it asks for confirmation first.
+                    </div>
+                    <div class="flex items-center gap-3 mb-2 flex-wrap"><label for="qs1Mode" class="text-sm font-semibold">Typ pomiaru:</label><select id="qs1Mode" class="input input-sm"><option value="START">START</option><option value="STOP">STOP</option><option value="RESTART">RESTART</option></select></div>
+                    <div class="flex items-center gap-6 mb-2 flex-wrap">
+                        <span id="qs1Status" class="text-sm font-semibold text-gray-700">—</span>
+                        <span class="text-xs text-gray-500 font-mono">Measure no.: <span id="qs1MeasureNo" class="font-semibold text-gray-700">—</span></span>
+                        <span class="text-xs text-gray-500 font-mono">High-rate: <span id="qs1Samples" class="font-semibold text-gray-700">—/48</span></span>
+                        <span class="text-xs text-gray-500 font-mono">Tail: <span id="qs1Tail" class="font-semibold text-gray-700">—/19</span></span>
+                        <span id="qs1Qualification" class="text-xs text-gray-500 font-mono"></span>
+                    </div>
+                    <div id="qs1ErrorLine" class="text-xs text-red-600 font-mono mb-1"></div>
+                    <div id="qs1ResultLine" class="font-mono text-sm text-green-700"></div>
+                </div>
+
                 <div class="bg-gray-50 border border-gray-200 rounded-xl p-4">
                     <div class="flex items-center justify-between mb-2">
                         <h2 class="section-title">Log</h2>

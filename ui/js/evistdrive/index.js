@@ -24,6 +24,9 @@ import { bindGlobalActions } from './global-actions.js';
 import { bindPresetControls } from './presets.js';
 import { levelFieldDescriptors } from './profiles.js';
 import { tuningFieldDescriptors } from './dynamics.js';
+// QS-1X capture panel. It lives in the Sniffer tab, but — unlike a raw-frame view — it is
+// fed by the server-side service (qs1x.js), so it works without Start Sniffing.
+import { initQs1Panel } from './qs1-panel.js';
 
 // Re-exported for websocket.js, which pushes freshly parsed frames straight at the
 // card that displays them.
@@ -64,6 +67,7 @@ function bindControls() {
     bindGlobalActions(); // CB-017/CB-026: the one Read / Save… / Undo in the top bar
     bindPresetControls({ levelFields: levelFieldDescriptors, tuningFields: tuningFieldDescriptors });
     bindEnginePreviewControls();
+    initQs1Panel();         // QS-1X MEASURE panel in the Sniffer tab (server-driven)
 
     // FW-030/043: the "Ride engine (developer)" card is gone (single ride-core engine).
     // READ_SYSTEM survives because the FW-018 full-charge threshold shares 0x6028.

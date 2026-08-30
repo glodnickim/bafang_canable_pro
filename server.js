@@ -17,6 +17,7 @@ const { generateCanFrameId, bafangIdArrayTo32Bit } = require('./bafang-parser');
 const FwUpdater = require('./fw-updater');
 const Sniffer = require('./sniffer');
 const RideLogger = require('./logger');
+const { Qs1Service } = require('./qs1x');
 
 // --- Globals ---
 let clients = [];
@@ -874,6 +875,45 @@ const wss = new WebSocket.Server({ server });
 	}
 
 	let sniffer;
+
+	// QS-1X capture panel service (qs1x.js). Unlike the sniffer it is intentionally NOT owned by
+	// one tab: it taps canbus.raw_frame_received directly and tolerates a missing canbus link,
+	// so the panel works the moment the UI loads and no one ever starts Start Sniffing. The
+	// service only polls/broadcasts while at least one browser is subscribed.
+	const qs1Subscribers = new Set();
+	const qs1Service = new Qs1Service({ canbus, broadcast: (message) => broadcastToClients(message) });
+	const qs1Subscribe = (ws) => {
+		if (qs1Subscribers.has(ws)) return;
+		qs1Subscribers.add(ws);
+		qs1Service.addSubscriber();
+	};
+	const qs1Unsubscribe = (ws) => {
+		if (qs1Subscribers.delete(ws)) qs1Service.removeSubscriber();
+	};
+	async function handleQs1Commands(ws, messageString) {
+		if (messageString === 'QS1_SUBSCRIBE') { qs1Subscribe(ws); return true; }
+		if (messageString === 'QS1_REFRESH') {
+			qs1Subscribe(ws);
+			qs1Service.refreshNow();
+			return true;
+		}
+		if (messageString === 'QS1_NEW_CAPTURE') {
+			qs1Subscribe(ws);
+			qs1Service.newCapture();
+			return true;
+		}
+		if (messageString.startsWith('QS1_MODE:')) {
+			qs1Subscribe(ws);
+			qs1Service.selectMode(messageString.substring('QS1_MODE:'.length));
+			return true;
+		}
+		if (messageString === 'QS1_DOWNLOAD') {
+			qs1Subscribe(ws);
+			qs1Service.download();
+			return true;
+		}
+		return false;
+	}
 	async function handleStartSniffer(ws,messageString) {
 		if (messageString.startsWith('SNIFFER_START')) {
 			const messageParts = messageString.split(':');
@@ -995,6 +1035,7 @@ const wss = new WebSocket.Server({ server });
 				if (!handled) handled = await handleStartRideLogger(ws, messageString);
 				if (!handled) handled = await handleStopRideLogger(messageString);
 				if (!handled) handled = await handleBackupRestoreCommand(messageString);
+				if (!handled) handled = await handleQs1Commands(ws, messageString);
 
 				if (!handled) {
 					console.warn("Unknown command received from UI (unhandled):", messageString);
@@ -1012,11 +1053,13 @@ const wss = new WebSocket.Server({ server });
     ws.on('close', () => {
         clients = clients.filter(client => client !== ws);
         console.log('WebSocket client disconnected');
+        qs1Unsubscribe(ws);
     });
 
     ws.on('error', (error) => {
         console.error('WebSocket error:', error);
         clients = clients.filter(client => client !== ws);
+        qs1Unsubscribe(ws);
     });
 });
 

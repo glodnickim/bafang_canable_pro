@@ -19,6 +19,10 @@ import { updateInfoUI } from './tab-info.js';
 import { populateHexEditor, handleCustomRaw } from './tab-debug.js';
 import { updateFwUpdateProgress, addFwUpdateLog } from './tab-firmware.js';
 import { addSnifferLog } from './tab-sniffer.js';
+import {
+    qs1NoteStatus, qs1NoteNewCaptureResult,
+    qs1NoteDownloadProgress, qs1NoteDownloadResult,
+} from './evistdrive/qs1-panel.js';
 import { updateRideChart } from './tab-ride-logger.js';
 import {
     startControllerDetection, resetControllerDetection, confirmEbicsController,
@@ -589,6 +593,12 @@ socket.onmessage = (event) => {
         updateWriteControlsGating(); // re-evaluate the Flash button now the file may be gone
     }
     else if (message.startsWith('SNIFFER_ENTRY:')) { addSnifferLog(message.substring('SNIFFER_ENTRY:'.length).trim()); }
+    // QS-1X MEASURE panel pushes (server QS1_* broadcasts; the command direction is browser ->
+    // server, sent via QS1_SUBSCRIBE / QS1_REFRESH / QS1_NEW_CAPTURE / QS1_DOWNLOAD).
+    else if (message.startsWith('QS1_STATUS:')) { qs1NoteStatus(message.substring('QS1_STATUS:'.length).trim()); }
+    else if (message.startsWith('QS1_NEW_CAPTURE_RESULT:')) { qs1NoteNewCaptureResult(message.substring('QS1_NEW_CAPTURE_RESULT:'.length).trim()); }
+    else if (message.startsWith('QS1_DOWNLOAD_PROGRESS:')) { qs1NoteDownloadProgress(message.substring('QS1_DOWNLOAD_PROGRESS:'.length).trim()); }
+    else if (message.startsWith('QS1_DOWNLOAD_RESULT:')) { qs1NoteDownloadResult(message.substring('QS1_DOWNLOAD_RESULT:'.length).trim()); }
     else if (message.startsWith('RIDE_LOGGER_ENTRY:')) { updateRideChart(message.substring('RIDE_LOGGER_ENTRY:'.length).trim()); }
     else { addLog('INFO', message); }
 };
