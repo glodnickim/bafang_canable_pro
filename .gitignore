@@ -7,3 +7,6 @@
 
 /fw
 /logs
+
+# B-2 migration (ADR-004) exclusions - never in git.
+/.claude
