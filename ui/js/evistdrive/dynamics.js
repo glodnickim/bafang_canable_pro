@@ -27,6 +27,15 @@ const TUNING_FIELDS = [
         help: 'Minimum motor current (percent of the level’s current limit) while assist is latched and you are still pedalling forward. Lower values allow very light assistance; higher values keep the motor pulling between pedal strokes. Example presets (Aggressive / Normal / Smooth): 0 / 1 / 2%.' },
     // FW-033/085: RUN torque estimator — averages per-leg peaks out of the power calc
     // over a window of CRANK ANGLE, so it behaves the same at any cadence (0 = off).
+    // FW-129: the ride-feel torque axis. NOT a sensor setting — see the help text, and the
+    // separate "Torque sensor" card, which is where calibration lives.
+    { key: 'assist_torque_full_scale_centikg', label: 'Assist torque full scale', unit: 'kg', min: 20, max: 120, step: 0.5, minTuningSchema: 8,
+        fromNative: (centikg) => (centikg ?? 6000) / 100,
+        toNative: (kg) => Math.round(clamp(kg, 20, 120) * 100),
+        help: 'Pedal load mapped to 100% of the normalized torque range used by eMTB and Torque modes. Lower value makes these modes reach the upper part of their curve earlier — a 30 kg push already asks for everything at 30 kg full scale, but only for half of it at 60 kg. This does NOT recalibrate the torque sensor and does not change the measured kg value anywhere: the reading on the Torque card, the zero, the calibration and the live telemetry are all untouched. It has no effect at all on Power Linear, Power Progressive or Power Curve, which work from rider power rather than from this axis.' },
+    // FW-129: part of the rider-power equation, so it belongs to the whole bike, not a level.
+    { key: 'crank_length_mm', label: 'Crank length', unit: 'mm', min: 150, max: 190, step: 2.5, minTuningSchema: 8,
+        help: 'Crank length used to convert pedal force and cadence into rider power. Rider power is force × crank length × crank speed, so a longer crank means the same push produces more watts — and the Power modes, which set assist as a percentage of your power, ask the motor for proportionally more. Measure from the centre of the bottom bracket to the centre of the pedal axle; it is usually stamped on the back of the crank arm. Does not affect eMTB or Torque, which work from pedal load directly.' },
     { key: 'assist_torque_run_window_deg', label: 'RUN torque smoothing (anti-pulse)', unit: '°', min: 0, max: 360, step: 15,
         help: 'Averages the pedal-load signal used for RUN power/eMTB/torque calculations (not for starting or stopping) over this much of a pedal turn. Because the window is a slice of the crank rotation rather than a fixed time, one setting behaves the same grinding up a climb at 50 rpm and spinning at 110 rpm — a value in milliseconds could never do both. 180° = half a turn = one leg, which cancels the per-leg pulsing; 360° averages a full revolution for the smoothest delivery. Higher values react more slowly to changes in effort. 0 = raw signal. Example presets (Aggressive / Normal / Smooth): 90 / 180 / 270°.' },
 ];
@@ -48,7 +57,7 @@ function ensureTuningDefaults() {
     }
     // FW-032/033/068: an older controller read won't include these fields — backfill defaults.
     ['assist_run_deadband_mv', 'assist_hold_ms', 'assist_min_iq_pct', 'assist_torque_run_window_deg',
-        'assist_start_steps']
+        'assist_start_steps', 'assist_torque_full_scale_centikg', 'crank_length_mm']
         .forEach((key) => {
             if (state.lastTuning[key] == null) state.lastTuning[key] = TUNING_DEFAULTS[key];
         });
@@ -56,9 +65,18 @@ function ensureTuningDefaults() {
 
 export function renderDynamics() {
     ensureTuningDefaults();
+    // FW-129: the two whole-bike settings this card gained need tuning blob v8. On an older
+    // controller the serializer negotiates the version down and they have nowhere to go, so
+    // show them disabled rather than letting the rider set a value that is silently dropped —
+    // the same treatment Profiles gives its bank-schema-gated fields.
+    const tuningSchema = state.lastTuning?.tuning_schema_version ?? 0;
+    const gate = (field) => (field.minTuningSchema && tuningSchema < field.minTuningSchema
+        ? { ...field, disabled: true, factoryDefaultLabel: 'Needs newer controller firmware. Factory default' }
+        : field);
     const groups = [
         { container: el('ebicsDynamicsBoostFields'), fields: TUNING_FIELDS.filter((field) => field.key.startsWith('startup_boost_')) },
         { container: el('ebicsDynamicsLatchFields'), fields: TUNING_FIELDS.filter((field) => field.key.startsWith('assist_start_') || field.key.startsWith('assist_run_') || field.key.startsWith('assist_hold_') || field.key.startsWith('assist_min_')) },
+        { container: el('ebicsDynamicsTorqueAxisFields'), fields: TUNING_FIELDS.filter((field) => field.key === 'assist_torque_full_scale_centikg' || field.key === 'crank_length_mm') },
         { container: el('ebicsDynamicsTorqueRunFields'), fields: TUNING_FIELDS.filter((field) => field.key.startsWith('assist_torque_run_')) },
     ];
     groups.forEach((group) => {
@@ -66,7 +84,7 @@ export function renderDynamics() {
         group.container.innerHTML = '';
         // CB-012: Shift+click a single field to put just that one back.
         group.fields.forEach((field) => fieldInput(group.container, state.lastTuning, {
-            ...field,
+            ...gate(field),
             factoryDefault: TUNING_DEFAULTS[field.key],
             restoreValue: () => {
                 const { source, tuning } = tuningRestoreSource();
@@ -88,6 +106,9 @@ const TUNING_DEFAULTS = Object.freeze({
     assist_start_steps: 4, // FW-068
     assist_run_deadband_mv: 5, assist_hold_ms: 1400, assist_min_iq_pct: 2,
     assist_torque_run_window_deg: 180,
+    // FW-129. These are exactly the values the firmware behaved as before the card, so a
+    // migrated v7 profile feels identical until the rider deliberately changes them.
+    assist_torque_full_scale_centikg: 6000, crank_length_mm: 165,
 });
 
 // What a restore should put back: the values as read when there are any, otherwise the

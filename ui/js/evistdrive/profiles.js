@@ -95,7 +95,7 @@ function modeFields(mode) {
             {
                 key: 'emtb_reference_voltage_mv', label: 'Reference voltage', unit: 'V', min: 12, max: 84, step: 1,
                 fromNative: (value) => Math.round(value / 1000), toNative: (value) => Math.round(value * 1000),
-                help: 'Battery voltage used only to convert the internal current target into the watts shown on the display/diagnostics — it does NOT change how hard the motor actually pushes. Set close to your pack’s real voltage so displayed watts are meaningful. Exception: if "Maximum motor power" below is set (non-zero), that power limit IS computed using this value, so setting it too low makes the power limit trigger earlier than intended. Set it to your pack\'s nominal voltage; a wrong value only makes the displayed watts wrong.',
+                help: 'THIS SETS HOW HARD THE MOTOR PUSHES in eMTB and Torque. The curve those two modes come from is defined as a battery current, and this voltage is what turns that current into a power request — so the mode delivers the same WATTS whatever your pack voltage is, instead of the same amps. Raise it and eMTB/Torque get proportionally stronger; halve it and they get half as strong. Set it to your pack\'s nominal voltage (36 V for a 36 V pack, 48 V for a 48 V pack) and leave it there; use "eMTB sensitivity" or "Torque gain" to change the strength, not this. It also scales the watts shown in diagnostics and, if "Maximum motor power" is set, the point at which that limit bites. It has no effect on Power Linear, Power Progressive or Power Curve.',
             },
         ];
     }
@@ -282,8 +282,13 @@ function sharedFieldList() {
             help: 'How long the smooth-start easing takes, if Smooth start is enabled. Higher values make launch softer but slower; lower values make it more immediate.' },
         { key: 'release_ms', label: 'Release duration — 0 = automatic', unit: 'ms', min: 0, max: 3000, step: 50,
             help: 'Total time of the straight-line fade from whatever assist current is flowing at the moment you stop pedalling down to zero. 650 ms means about 650 ms to zero, whether you were pushing hard or barely at all — there is no extra tail after it. 0 = let this level\'s adaptive Deceleration ramps decide instead (their timing depends on your speed and cadence at the moment you stop). Example presets (Aggressive / Normal / Smooth): 250 / 450 / 650 ms. Higher = a longer, gentler hand-off; lower = assist disappears sooner after you stop.' },
-        { key: 'power_rise_filter_ms', label: 'Power rise filter', unit: 'ms', min: 0, max: 5000, step: 50,
-            help: 'Smooths sudden increases in requested motor power over this many milliseconds, before this level\'s current ramp even sees it. 0 = no smoothing (react immediately). Example presets (Aggressive / Normal / Smooth): 50 / 150 / 300 ms. Higher = calmer, less jumpy response to a hard push; lower = more immediate but can feel twitchy.' },
+        // FW-129B: both power filters are INACTIVE in current firmware. Kept visible rather
+        // than hidden, because the value is still stored and still round-trips — hiding a
+        // field that a saved profile carries is how a setting comes back later and surprises
+        // someone. The label says so, so nobody spends a ride tuning something inert.
+        { key: 'power_rise_filter_ms', label: 'Power rise filter — INACTIVE in this firmware', unit: 'ms', min: 0, max: 5000, step: 50,
+            disabled: true,
+            help: 'NO LONGER USED by the controller. It used to smooth increases in requested motor power. FW-129 made that power the actual request instead of just a ceiling, and a lag there turned out to be a second, hidden soft-start in front of the current ramp: 75 ms after you pressed again it delivered 43 of the 228 units of current your push had earned. How fast power builds is now controlled purely by "Acceleration — low/high speed/cadence" above. The value is still stored so old profiles load unchanged.' },
         // FW-084: Extended Boost. The trigger is a calibrated pedal load in kg, deliberately
         // not a rate of rise — see the section note in sharedFieldGroups().
         { key: 'extended_boost_trigger_load_kg', label: 'Trigger pedal load', unit: 'kg', min: 1, max: 60, step: 0.5, minBankSchema: 8,
@@ -293,8 +298,9 @@ function sharedFieldList() {
             help: 'Multiplies the current calculated from the peak load of the latest qualifying pedal push. 100% = exactly that current, 150% = one and a half times it, 255% = the maximum 2.55×. The result is still capped by this level\'s Maximum motor current and by every controller safety limit — speed, power, battery, voltage and temperature.' },
         { key: 'extended_boost_duration_ms', label: 'Boost duration — 0 = Off', unit: 'ms', min: 0, max: 2000, step: 25, minBankSchema: 8,
             help: 'How long the motor may keep pushing after forward pedalling is recognized as stopped. 0 disables Extended Boost completely, which is the default. Start at 200 ms and only increase it once you have confirmed the brake, backward-pedal and limit behaviour on your own bike. The release ramp runs AFTER this time, so the two add up. In legal mode the boost is treated as non-pedal assistance and stops helping above 7 km/h — the cranks are stationary while it runs.' },
-        { key: 'power_fall_filter_ms', label: 'Power fall filter', unit: 'ms', min: 0, max: 5000, step: 50,
-            help: 'Smooths sudden drops in requested motor power over this many milliseconds — helps assist not visibly dip in the dead spots of each pedal stroke. This is an exponential time constant, not time-to-zero: after one interval about 37% of the previous step remains. Example presets (Aggressive / Normal / Smooth): 100 / 200 / 400 ms. Higher = steadier through the dead spots; lower = assist follows every dip in your pedal stroke.' },
+        { key: 'power_fall_filter_ms', label: 'Power fall filter — INACTIVE in this firmware', unit: 'ms', min: 0, max: 5000, step: 50,
+            disabled: true,
+            help: 'NO LONGER USED by the controller. It used to smooth drops in requested motor power to bridge the dead spots of a pedal stroke. FW-129 made that power the actual request, and the smoothing then kept asking for current the rider was no longer asking for — measured at 5.6 times the rider\'s own input, for seconds after easing off. Dead spots are bridged by "RUN torque smoothing" on the Dynamics tab instead, which averages over CRANK ANGLE and therefore cannot outlive the pedalling. The value is still stored so old profiles load unchanged.' },
     ];
 }
 
@@ -304,7 +310,13 @@ function sharedFieldList() {
 // defaults to eMTB mode, exactly like a fresh controller) — so offline/unread previews show 5
 // distinct, editable lines, and switching banks actually looks different, instead of one shared
 // object that made every level (and both banks) look and edit identically.
-const PROFILE_LEVEL_RATIOS = [100, 200, 320, 420, 520];
+// Halved with the firmware defaults (owner decision, 2026-08-28): FW-129 found that the old
+// 100/200/320/420/520 were never actually delivered — the pre-FW-129 chain could produce only
+// about 46 % of a configured ratio — and fixing that made every Power level 2.17x stronger at
+// the same setting. Halving puts a fresh controller back within a few percent of the assist the
+// bike really used to give. eMTB and Torque are NOT halved: FW-129 did not change their
+// strength, so halving them would make them genuinely weaker rather than equivalent.
+const PROFILE_LEVEL_RATIOS = [50, 100, 160, 210, 260];
 const PROFILE_LEVEL_EMTB = [60, 100, 140, 160, 180];
 const PROFILE_LEVEL_TORQUE = [50, 80, 120, 160, 200];
 function buildProfilePlaceholderBank(modeType) {
@@ -915,9 +927,33 @@ function profilePlotLayout(titleX, titleY) {
     return layout;
 }
 
+/*
+ * FW-129: the crank length is part of the rider-power equation now (power = pedal force ×
+ * crank length × crank speed), so the preview has to use the configured one or the charts
+ * stop matching the bike. 165 mm is the reference the constant above was measured at, and
+ * also the firmware default, so an unread/older controller draws exactly what it used to.
+ */
+function previewCrankLengthMm() {
+    const value = state.lastTuning?.crank_length_mm;
+    return isNumber(value) && value > 0 ? clamp(value, 150, 190) : 165;
+}
+
+/*
+ * FW-129: the pedal load that means "100 %" on the normalized 0..160 axis eMTB and Torque are
+ * defined on. The preview always drew this as a fixed 60 kg — which is what the firmware was
+ * SUPPOSED to do and, before this card, did not: it normalized by the sensor calibration span
+ * instead, so the real curve moved whenever the sensor was calibrated while the chart did not.
+ * Both now read the same setting.
+ */
+function previewAssistTorqueFullScaleKg() {
+    const centikg = state.lastTuning?.assist_torque_full_scale_centikg;
+    return isNumber(centikg) && centikg > 0 ? clamp(centikg / 100, 20, 120) : 60;
+}
+
 export function humanPowerFromLoadKg(loadKg, cadenceRpm = PREVIEW_CADENCE_RPM) {
-    return loadKg * 100 * cadenceRpm * HUMAN_POWER_CENTIKG_RPM_NUMERATOR /
-        (HUMAN_POWER_CENTIKG_RPM_DENOMINATOR * 1000);
+    return loadKg * 100 * cadenceRpm * HUMAN_POWER_CENTIKG_RPM_NUMERATOR *
+        previewCrankLengthMm() /
+        (HUMAN_POWER_CENTIKG_RPM_DENOMINATOR * 1000 * 165);
 }
 
 function loadKgFromHumanPower(humanPowerW, cadenceRpm = PREVIEW_CADENCE_RPM) {
@@ -978,7 +1014,8 @@ function requestedPowerForLevel(level, xValue, chartMode, applyCeiling = true) {
         output = humanPower * supportRatioForPowerMode(level, humanPower) / 100;
     } else {
         const referenceVoltage = Math.max(12000, level.emtb_reference_voltage_mv || 36000);
-        const deltaX160 = loadKg * 160 / 60;
+        // FW-129: was a fixed 60 kg; now the configurable "Assist torque full scale".
+        const deltaX160 = Math.min(160, loadKg * 160 / previewAssistTorqueFullScaleKg());
         let targetX160;
         if (mode === 5) {
             targetX160 = deltaX160 * (level.torque_assist_factor || 0) / 120;

@@ -207,7 +207,7 @@ const BANK_SETTING_FIELDS = [
     { key: 'cadence_comp_enabled', label: 'Cadence compensation', type: 'checkbox' },
     { key: 'wa_cutoff_kmh', label: 'Walk Assist cut-off speed', min: 1, max: 25.5 },
     { key: 'wa_current_pct', label: 'Walk Assist current', min: 1, max: 100 },
-    { key: 'wa_target_rpm', label: 'Walk Assist target rpm', min: 18, max: 60 },
+    { key: 'wa_target_rpm', label: 'Walk Assist target rpm', min: 20, max: 60 }, //FW-130: firmware min is 20
     { key: 'wa_latch_after_release', label: 'Walk Assist latch', type: 'checkbox' },
     { key: 'wa_latch_timeout_s', label: 'Walk Assist latch timeout', min: 1, max: 120 },
 ];

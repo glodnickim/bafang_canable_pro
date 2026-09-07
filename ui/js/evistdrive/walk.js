@@ -19,9 +19,9 @@ export function updateWalkAndLegacy() {
         ['0x6011', 'System voltage', isNumber(p1?.system_voltage) ? `${p1.system_voltage} V` : 'N/A'],
         ['0x6011', 'Battery current limit', isNumber(p1?.current_limit) ? `${p1.current_limit} A` : 'N/A'],
         ['0x6011', 'Stored low-charge current byte', isNumber(p1?.max_current_on_low_charge) ? `${p1.max_current_on_low_charge} A` : 'N/A'],
-        // CB-019: Walk motor current is not listed — the byte travels but firmware never
-        // reads it (assist_modes_get_wa_current_pct has no caller), so showing it here
-        // would suggest a setting that does nothing.
+        // CB-026 / FW-130: Walk motor current is listed again. CB-019 had hidden it because no
+        // firmware code read the byte; FW-130 wired it into the Walk Assist current ceiling.
+        ['0x6020', 'Walk motor current', isNumber(walkBank?.wa_current_pct) ? `${walkBank.wa_current_pct.toFixed(0)} %` : 'N/A'],
         ['0x6020', 'Walk chainring speed', isNumber(walkBank?.wa_target_rpm) ? `${walkBank.wa_target_rpm.toFixed(0)} RPM` : 'N/A'],
         ['0x6012', 'Torque profile rows', p2?.torque_profiles?.length ?? 'N/A'],
     ];

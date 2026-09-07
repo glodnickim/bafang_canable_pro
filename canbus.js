@@ -1022,7 +1022,11 @@ class CanBusService extends EventEmitter {
         // make the whole Dynamics write fail. Fall back to the v5 layout in that case —
         // "Crank movement to start" simply has nowhere to go on that firmware.
         // FW-085: v7 is v6's layout with offset 20 reinterpreted from ms to crank degrees.
-        const version = t.tuning_schema_version >= 7 ? 7 : (t.tuning_schema_version >= 6 ? 6 : 5);
+        // FW-129: v8 is v7's layout again, plus two of the three u16 v6 left reserved
+        // (offset 24 = assist torque full scale in centikg, offset 26 = crank length in mm).
+        // Still 32 B, still the same CRC position, still the same number of frames.
+        const version = t.tuning_schema_version >= 8 ? 8
+            : (t.tuning_schema_version >= 7 ? 7 : (t.tuning_schema_version >= 6 ? 6 : 5));
         const BLOB_LEN = version >= 6 ? 32 : 24;
         const bodyLen = BLOB_LEN - 2;
         const d = new Array(BLOB_LEN).fill(0);
@@ -1042,6 +1046,15 @@ class CanBusService extends EventEmitter {
         u16(20, version >= 7 ? Math.min(t.assist_torque_run_window_deg ?? 180, 360) : 300);
         if (version >= 6) {
             u16(22, Math.round(Math.max(1, Math.min(20, t.assist_start_steps ?? 4))));
+        }
+        // FW-129. On a pre-v8 controller these two bytes are reserved and must stay zero —
+        // that firmware would not read them anyway, and writing a value there would only make
+        // the blob differ from what the controller echoes back. The two settings simply have
+        // nowhere to go below v8, the same way "Crank movement to start" has nowhere to go
+        // below v6.
+        if (version >= 8) {
+            u16(24, Math.round(Math.max(2000, Math.min(12000, t.assist_torque_full_scale_centikg ?? 6000))));
+            u16(26, Math.round(Math.max(150, Math.min(190, t.crank_length_mm ?? 165))));
         }
         let crc = 0xFFFF;
         for (let i = 0; i < bodyLen; i++) {

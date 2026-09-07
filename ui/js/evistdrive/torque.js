@@ -41,6 +41,39 @@ export function updateTorqueCalUI(t) {
     setText('ebicsCalState', CAL_STATE_LABELS[t.calibration_state] ?? String(t.calibration_state));
     setText('ebicsCalError', CAL_ERROR_LABELS[t.calibration_error] ?? String(t.calibration_error));
     setText('ebicsCalPreviewSpan', t.preview_span_native ? `${t.preview_span_native}` : 'N/A');
+    /*
+     * FW-129 D8. Two separate things to say, and they must not be conflated:
+     *
+     *  - legacy_calibration_dropped: the controller found a calibration saved by the OLD
+     *    procedure. That procedure recorded a different quantity (a straight line through the
+     *    calibration point rather than the sensor's gain), and the reference weight it was
+     *    taken with is not part of the record, so there is no honest way to convert it. It was
+     *    dropped and the factory characteristic is in use — which is correct for an
+     *    uncalibrated sensor, and a few percent off from what the rider had. Recalibrating
+     *    takes two minutes and puts it right.
+     *
+     *  - gain_calibration: this controller calibrates the GAIN and keeps the factory curve
+     *    shape. Worth saying out loud, because on the old firmware calibrating with a weight
+     *    could move the light-load reading by ~20 % — people learned not to trust it.
+     */
+    const notice = el('ebicsTorqueCalNotice');
+    if (notice) {
+        if (t.legacy_calibration_dropped) {
+            notice.textContent = 'A calibration saved by an older firmware version was found and '
+                + 'NOT used: it stored a different quantity and cannot be converted honestly. '
+                + 'The factory sensor curve is active right now. Please run the calibration '
+                + 'again with a known weight — the reading is a few percent off until you do.';
+            notice.style.display = '';
+        } else if (t.gain_calibration && t.calibration_source === 1) {
+            notice.textContent = 'Calibrated. This firmware corrects the sensor GAIN and keeps '
+                + 'the measured factory curve shape, so calibrating changes where the scale '
+                + 'sits without reshaping how assist responds.';
+            notice.style.display = '';
+        } else {
+            notice.textContent = '';
+            notice.style.display = 'none';
+        }
+    }
     updateCoastDiag(t); // FW-061
 }
 

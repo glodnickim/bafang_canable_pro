@@ -714,9 +714,14 @@ function setWalkStatus(text, isError = false) {
 
 // Firmware boot defaults (assist_modes.c BANK_WA_*_DEFAULT) — matches what a fresh bank ships
 // with. One independent object PER bank so editing bank 1's placeholder never bleeds into bank 2.
+// FW-130: wa_current_pct 30 -> 25 (BANK_WA_CURRENT_DEFAULT; 25 % resolves to the firmware's hard
+// WA ceiling, i.e. the most force a walk gets), and wa_target_rpm 18 -> 30: 20 was below the
+// firmware minimum anyway, and 30 is the value confirmed on the bike (at 20 the motor cannot
+// reach target under load and runs rough). Firmware minimum is and always was 20.
+// what BANK_WA_TARGET_RPM_MIN has always been — 18 and 19 were silently repaired to 20 by firmware.
 const WALK_FIELD_PLACEHOLDERS = [
-    { wa_current_pct: 30, wa_target_rpm: 18, wa_latch_after_release: false, wa_latch_timeout_s: 30, wa_cutoff_kmh: 7 },
-    { wa_current_pct: 30, wa_target_rpm: 18, wa_latch_after_release: false, wa_latch_timeout_s: 30, wa_cutoff_kmh: 7 },
+    { wa_current_pct: 25, wa_target_rpm: 30, wa_latch_after_release: false, wa_latch_timeout_s: 30, wa_cutoff_kmh: 7 },
+    { wa_current_pct: 25, wa_target_rpm: 30, wa_latch_after_release: false, wa_latch_timeout_s: 30, wa_cutoff_kmh: 7 },
 ];
 
 function renderWalkActiveSummary() {
@@ -754,24 +759,24 @@ function renderWalkFields() {
                 : (isEbicsConnected() ? '— ⚠ not read yet' : '— offline default');
             label.classList.toggle('ebics-stale-warning', !hasData && isEbicsConnected());
         }
-        // CB-019: "Walk motor current" removed. The value travels correctly all the way —
-        // Para1[36] seeds it, the bank stores it in byte 8, the controller reports it back —
-        // but nothing in firmware ever reads it: assist_modes_get_wa_current_pct() has no
-        // caller, and walk_assist_motor.c limits current with fixed constants
-        // (WA_MOTOR_IQ_ABS_MAX, WA_MOTOR_RUN_MAX_IQ). A slider that looks like the main
-        // strength control and moves nothing is worse than no slider.
-        //
-        // The byte itself stays in the blob, untouched: dropping it would change the bank
-        // layout and invalidate every bank already stored in a controller. Whatever was
-        // read is written back unchanged.
+        // CB-026 / FW-130: "Walk motor current" is BACK, because it finally does something.
+        // CB-019 removed it for a good reason — the byte travelled all the way (Para1[36] seeds
+        // it, the bank stores it in byte 8, the controller reports it back) but no firmware code
+        // read it, so the slider moved nothing while the real ceiling was a fixed 40 Iq. FW-130
+        // wired assist_modes_get_wa_current_pct() into the Walk Assist ceiling, so the slider is
+        // now the single control that says how hard Walk Assist may push.
         createField(container, bank, {
-            key: 'wa_target_rpm', label: 'Walk chainring speed', unit: 'RPM', min: 18, max: 60, step: 1,
+            key: 'wa_current_pct', label: 'Walk motor current', unit: '%', min: 1, max: 100, step: 1,
+            help: 'How hard Walk Assist may push, as a percentage of the motor\'s phase-current ceiling. This is the strength control, not a speed: the speed comes from "Walk chainring speed" below. Default 25%, which already reaches the firmware\'s own absolute Walk Assist ceiling — every value from about 23% up gives exactly the same force, so this setting only has room to go DOWN from the default. Getting more force than this needs a firmware change, not a bigger number here.',
+        });
+        createField(container, bank, {
+            key: 'wa_target_rpm', label: 'Walk chainring speed', unit: 'RPM', min: 20, max: 60, step: 1,
             onChange: renderWalkActiveSummary,
-            help: 'Target CHAINRING speed Walk Assist tries to hold (the crank/chainring shaft, not the wheel) — bike walking speed then depends on the gear you\'re in, same as normal pedalling. Range is deliberately narrow (18-60 RPM) to keep this at a safe walking pace.',
+            help: 'Target CHAINRING speed Walk Assist tries to hold (the crank/chainring shaft, not the wheel) — bike walking speed then depends on the gear you\'re in, same as normal pedalling. Range is deliberately narrow (20-60 RPM) to keep this at a safe walking pace. The controller holds this speed by easing the current off as the chainring approaches it, so the actual pace sits a little above the number when the going is easy and a little below it on a slope.',
         });
         createField(container, bank, {
             key: 'wa_cutoff_kmh', label: 'Cut-off speed', unit: 'km/h', min: 1, max: 25.5, step: 0.1,
-            help: 'Above this bike speed, Walk Assist switches off completely — a safety backstop since Walk Assist holds motor speed, not wheel speed, so a high gear could otherwise push the bike faster than you can walk beside it.',
+            help: 'Bike-speed safety backstop. Walk Assist holds motor speed, not wheel speed, so in a high gear the bike could otherwise be pushed faster than you can walk beside it. Power is eased off over the last 1.5 km/h before this number and reaches zero at it, so on a light gear you get a smooth reduction rather than the motor cutting out; a further 1 km/h above it stops Walk Assist outright until you press the button again.',
         });
         createField(container, bank, {
             key: 'wa_latch_after_release', label: 'Continue after releasing Walk button',

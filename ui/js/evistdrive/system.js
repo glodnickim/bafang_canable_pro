@@ -49,6 +49,31 @@ export function updateDiagUI(d) {
     setText('diagExtBoostLeft', dash(d.ext_boost_remaining_ms));
     setText('diagExtBoostCancel', d.ext_boost_cancel_reason === null ? '—'
         : (EXT_BOOST_CANCEL[d.ext_boost_cancel_reason] ?? d.ext_boost_cancel_reason));
+    /*
+     * FW-129 (v6 diagnostics): the unit-domain block. This is the row that answers "why is the
+     * bike pushing this hard", in the order the firmware actually computes it:
+     *
+     *   pedal load (kg)  ->  normalized torque (eMTB/Torque only)  ->  requested motor power
+     *   ->  the two conversion anchors and the crossfade between them  ->  pre-limit current
+     *
+     * Blend is the weight of the MEASURED-duty anchor: 0 % = the launch anchor is carrying the
+     * request (standstill, stall, a slipping start), 100 % = the measured duty is. In ordinary
+     * riding both anchors read almost the same number — that is the design, not a coincidence,
+     * and seeing them diverge is the signal that something is wrong with the duty measurement.
+     *
+     * u_abs is shown next to cadence deliberately: their ratio is the motor's volts per crank
+     * rpm, the one quantity the firmware's launch reference is still only a hypothesis about.
+     */
+    setText('diagAssistLoadKg', d.assist_load_kg === null || d.assist_load_kg === undefined
+        ? '—' : d.assist_load_kg.toFixed(2));
+    setText('diagAssistTorqueX160', dash(d.assist_torque_x160));
+    setText('diagReqMotorPower', dash(d.requested_motor_power_w));
+    setText('diagIqLaunch', dash(d.iq_launch_request));
+    setText('diagIqNormal', dash(d.iq_normal_request));
+    setText('diagLaunchBlend', d.launch_blend_permille === null || d.launch_blend_permille === undefined
+        ? '—' : `${(d.launch_blend_permille / 10).toFixed(0)}%`);
+    setText('diagIqPreLimit', dash(d.iq_pre_limit));
+    setText('diagUabsLive', dash(d.u_abs_live));
 }
 
 // Wire values from assist_extended_boost_cancel_t (inc/assist_extended_boost.h).
