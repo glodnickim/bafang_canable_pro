@@ -18,6 +18,11 @@ const FwUpdater = require('./fw-updater');
 const Sniffer = require('./sniffer');
 const RideLogger = require('./logger');
 const { Qs1Service } = require('./qs1x');
+const { StopTraceService } = require('./stop-trace');
+
+// Opt-in trace for the sniffer's UI -> activeFilters sync path (set SNIFFER_DEBUG=1 before
+// starting the server); mirrors the per-frame trace of the same name in sniffer.js.
+const SNIFFER_DEBUG = process.env.SNIFFER_DEBUG === '1' || process.env.SNIFFER_DEBUG === 'true';
 
 // --- Globals ---
 let clients = [];
@@ -843,7 +848,16 @@ const wss = new WebSocket.Server({ server });
 		return false;
 	}
 
+	// CB-027: rideLogger/sniffer are single sessions shared by the whole server, not
+	// per-connection state. If the owning tab's WebSocket drops without an explicit STOP -
+	// the UI auto-reloads on any disconnect (see ui/js/websocket.js waitForServerThenReload) -
+	// nothing used to unsubscribe the old instance from canbus. It kept listening and kept
+	// writing to its already-open file forever; the next START just overwrote the variable,
+	// so a later STOP could only ever reach the NEW instance. *OwnerWs remembers which
+	// connection is allowed to be cleaned up by which close/error event, so one tab's drop
+	// cannot kill an unrelated tab's active session.
 	let rideLogger;
+	let rideLoggerOwnerWs = null;
 	async function handleStartRideLogger(ws,messageString) {
 		if (messageString.startsWith('RIDE_LOGGER_START')) {
 			const messageParts = messageString.split(':');
@@ -854,7 +868,9 @@ const wss = new WebSocket.Server({ server });
 				ws.send('ERROR: Invalid RIDE_LOGGER_START parameters.');
 				return true;
 			}
+			if (rideLogger) rideLogger.cleanup(); // a previous session left running must not orphan
 			rideLogger = new RideLogger(canbus,liveDashboardEnabled ? ws: null);
+			rideLoggerOwnerWs = ws;
 			rideLogger.intervalTime = intervalTime;
 			if(logToFileEnabled){
 				await rideLogger.setupLogger()
@@ -869,17 +885,19 @@ const wss = new WebSocket.Server({ server });
 		if (messageString.startsWith('RIDE_LOGGER_STOP') && rideLogger) {
 			rideLogger.cleanup()
 			rideLogger = null;
+			rideLoggerOwnerWs = null;
 			return true
 		}
 		return false;
 	}
 
 	let sniffer;
-
-	// QS-1X capture panel service (qs1x.js). Unlike the sniffer it is intentionally NOT owned by
+	let snifferOwnerWs = null;
+	// QS-1 MEASURE panel service (qs1.js). Unlike the sniffer it is intentionally NOT owned by
 	// one tab: it taps canbus.raw_frame_received directly and tolerates a missing canbus link,
 	// so the panel works the moment the UI loads and no one ever starts Start Sniffing. The
 	// service only polls/broadcasts while at least one browser is subscribed.
+	const stopTraceService = new StopTraceService({ canbus, broadcast: broadcastToClients });
 	const qs1Subscribers = new Set();
 	const qs1Service = new Qs1Service({ canbus, broadcast: (message) => broadcastToClients(message) });
 	const qs1Subscribe = (ws) => {
@@ -897,16 +915,16 @@ const wss = new WebSocket.Server({ server });
 			qs1Service.refreshNow();
 			return true;
 		}
-		if (messageString === 'QS1_NEW_CAPTURE') {
-			qs1Subscribe(ws);
-			qs1Service.newCapture();
-			return true;
-		}
-		if (messageString === 'QS1_NEW_CAPTURE_CONFIRM') {
-			qs1Subscribe(ws);
-			qs1Service.newCaptureConfirmed();
-			return true;
-		}
+  		if (messageString === 'QS1_NEW_CAPTURE') {
+  			qs1Subscribe(ws);
+  			qs1Service.newCapture();
+  			return true;
+  		}
+  		if (messageString === 'QS1_NEW_CAPTURE_CONFIRM') {
+  			qs1Subscribe(ws);
+  			qs1Service.newCaptureConfirmed();
+  			return true;
+  		}
 		if (messageString.startsWith('QS1_MODE:')) {
 			qs1Subscribe(ws);
 			qs1Service.selectMode(messageString.substring('QS1_MODE:'.length));
@@ -923,12 +941,21 @@ const wss = new WebSocket.Server({ server });
 		if (messageString.startsWith('SNIFFER_START')) {
 			const messageParts = messageString.split(':');
 			const loggerEnabled = messageParts[1] === 'true'
-			const filteredIds = messageParts[2].split(';');
+			// activeFilters is the ONLY filtering state the client sends now — a semicolon-joined
+			// list of exact IDs, wildcard patterns ("822Dxxxx"), and/or the "ALL TRAFFIC" /
+			// "DEFAULT TRAFFIC" meta tokens, exactly mirroring the GUI's ACTIVE FILTERS column.
+			const activeFilters = (messageParts[2] || '').split(';');
+			if (SNIFFER_DEBUG) console.log(`[CAN FILTER] SNIFFER_START activeFilters received from UI: ${JSON.stringify(activeFilters)}`);
+			if (sniffer) sniffer.cleanup(); // a previous session left running must not orphan
 			sniffer = new Sniffer(canbus,ws);
+			snifferOwnerWs = ws;
+			// Set activeFilters BEFORE the `await` below: setupLogger() is async, and any CAN
+			// frame arriving during that gap would otherwise be evaluated against the
+			// constructor's DEFAULT_TRAFFIC default instead of what the UI actually asked for.
+			if(activeFilters.length)
+				sniffer.activeFilters = new Set(activeFilters)
 			if(loggerEnabled)
 				await sniffer.setupLogger()
-			if(filteredIds.length)
-				sniffer.filteredIds = new Set(filteredIds)
 			return true
 		}
 		return false;
@@ -937,16 +964,18 @@ const wss = new WebSocket.Server({ server });
 		if (messageString.startsWith('SNIFFER_STOP') && sniffer) {
 			sniffer.cleanup()
 			sniffer = null;
+			snifferOwnerWs = null;
 			return true
 		}
 		return false;
 	}
-	async function handleFilteredIdSniffer(messageString) {
-		if (messageString.startsWith('SNIFFER_FILTEREDIDS_SET') && sniffer) {
+	async function handleActiveFiltersSniffer(messageString) {
+		if (messageString.startsWith('SNIFFER_ACTIVEFILTERS_SET') && sniffer) {
 			const messageParts = messageString.split(':');
-			const filteredIds = messageParts[1].split(';');
-			if(filteredIds.length)
-				sniffer.filteredIds = new Set(filteredIds)
+			const activeFilters = (messageParts[1] || '').split(';');
+			if (SNIFFER_DEBUG) console.log(`[CAN FILTER] SNIFFER_ACTIVEFILTERS_SET (live, no restart) activeFilters received from UI: ${JSON.stringify(activeFilters)}`);
+			if(activeFilters.length)
+				sniffer.activeFilters = new Set(activeFilters)
 			return true
 		}
 		return false;
@@ -963,7 +992,6 @@ const wss = new WebSocket.Server({ server });
 		}
 		return false;
 	}
-
 	async function handleBackupRestoreCommand(messageString) {
 		if (!messageString.startsWith('RESTORE_BACKUP:')) return false;
 		const allDataJson = messageString.substring('RESTORE_BACKUP:'.length);
@@ -1035,12 +1063,13 @@ const wss = new WebSocket.Server({ server });
 				if (!handled) handled = await handleStartFwUpload(ws, messageString);
 				if (!handled) handled = await handleStartSniffer(ws, messageString);
 				if (!handled) handled = await handleStopSniffer(messageString);
-				if (!handled) handled = await handleFilteredIdSniffer(messageString);
+				if (!handled) handled = await handleActiveFiltersSniffer(messageString);
 				if (!handled) handled = await handleLogEnabledSniffer(messageString);
 				if (!handled) handled = await handleStartRideLogger(ws, messageString);
 				if (!handled) handled = await handleStopRideLogger(messageString);
 				if (!handled) handled = await handleBackupRestoreCommand(messageString);
 				if (!handled) handled = await handleQs1Commands(ws, messageString);
+				if (!handled) handled = stopTraceService.handle(ws, messageString);
 
 				if (!handled) {
 					console.warn("Unknown command received from UI (unhandled):", messageString);
@@ -1055,16 +1084,36 @@ const wss = new WebSocket.Server({ server });
 		});
 
 
+    // CB-027: stop any sniffer/ride-logger session that belongs to THIS connection, so a
+    // dropped tab (auto-reload, sleep/wake, network hiccup) cannot leave one running forever.
+    // Scoped to *OwnerWs so an unrelated tab closing never touches another tab's session.
+    const cleanupOrphanedSessions = () => {
+        stopTraceService.unsubscribe(ws);
+        qs1Unsubscribe(ws); // browser-driven subscription: a dropped tab costs nothing to forget
+        if (sniffer && snifferOwnerWs === ws) {
+            console.log('Owning connection gone - stopping sniffer that would otherwise orphan.');
+            sniffer.cleanup();
+            sniffer = null;
+            snifferOwnerWs = null;
+        }
+        if (rideLogger && rideLoggerOwnerWs === ws) {
+            console.log('Owning connection gone - stopping ride logger that would otherwise orphan.');
+            rideLogger.cleanup();
+            rideLogger = null;
+            rideLoggerOwnerWs = null;
+        }
+    };
+
     ws.on('close', () => {
         clients = clients.filter(client => client !== ws);
         console.log('WebSocket client disconnected');
-        qs1Unsubscribe(ws);
+        cleanupOrphanedSessions();
     });
 
     ws.on('error', (error) => {
         console.error('WebSocket error:', error);
         clients = clients.filter(client => client !== ws);
-        qs1Unsubscribe(ws);
+        cleanupOrphanedSessions();
     });
 });
 
