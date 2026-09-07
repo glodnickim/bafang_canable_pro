@@ -9,7 +9,7 @@ function decodeStatus(d) {
     if (d.length !== 8 || d[0] !== 1 || d[1] > 3 || d[6] > 4 || d.readUInt16LE(4) > 384) return null;
     return { state: d[1], generation: d[2], available: !!(d[3] & 4), pending: !!(d[3] & 8),
         frozen: !!(d[3] & 16), exporting: !!(d[3] & 1), failed: !!(d[3] & 2),
-        count: d.readUInt16LE(4), reason: d[6], fastMask: d[7] };
+        count: d.readUInt16LE(4), reason: d[6], fastMask: d[7], overrun: !!(d[3] & 32) };
 }
 
 function crc32(buffers) {
@@ -72,6 +72,9 @@ class Download {
         const crc = crc32(blocks);
         if (trailer.toString('ascii', 0, 4) !== 'DONE' || trailer.readUInt32LE(4) !== crc) throw new Error('Zapis uszkodzony: suma kontrolna CRC nie zgadza się.');
         return { schema: 1, generation: this.generation, transport: 'COMPLETE_CRC_OK',
+            irq_timing_present: !!(this.meta[2] & 4),
+            irq_body_max_us: (this.meta[2] & 4) ? this.meta.readUInt16LE(34) : null,
+            irq_body_over_budget: !!(this.meta[2] & 8),
             counts: this.counts, reason: ['NONE', 'STOPPED', 'TIMEOUT', 'FULL', 'NO_TRIGGER'][this.meta[3]],
             crc32: crc.toString(16).toUpperCase().padStart(8, '0') };
     }

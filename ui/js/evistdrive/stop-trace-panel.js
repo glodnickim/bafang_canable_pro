@@ -2,6 +2,7 @@ import { socket } from '../shared.js';
 
 let bound = false;
 let lastAt = 0;
+let automatic = true;
 const el = id => document.getElementById(id);
 function send(command) {
     if (socket?.readyState === WebSocket.OPEN) socket.send(command);
@@ -12,11 +13,16 @@ function disconnected() {
     el('stopTraceHint').textContent = 'Uruchom ponownie serwer CANable i odśwież stronę.';
     el('stopTraceArm').disabled = true;
     el('stopTraceDump').disabled = true;
+    el('stopTraceAuto').disabled = true;
 }
 export function stopTraceNoteStatus(raw) {
     if (!el('stopTracePanel')) return;
     let s; try { s = JSON.parse(raw); } catch { return; }
     lastAt = Date.now();
+    automatic = s.automatic !== false;
+    el('stopTraceAuto').disabled = false;
+    el('stopTraceAuto').textContent = automatic ? 'Wstrzymaj automatyczne pomiary' : 'Wznów automatyczne pomiary';
+    el('stopTraceAutoInfo').textContent = (automatic ? 'Automatyczne logowanie włączone' : 'Automatyczne logowanie wstrzymane') + ' · zapisanych pomiarów: ' + (s.completed || 0);
     el('stopTraceStatus').textContent = s.label;
     el('stopTraceHint').textContent = s.hint;
     el('stopTraceError').textContent = s.error || '';
@@ -39,6 +45,7 @@ export function initStopTracePanel() {
     };
     el('stopTraceArm').onclick = () => action('STOP_TRACE_ARM');
     el('stopTraceDump').onclick = () => action('STOP_TRACE_DUMP');
+    el('stopTraceAuto').onclick = () => send(automatic ? 'STOP_TRACE_AUTO_OFF' : 'STOP_TRACE_AUTO_ON');
     socket.addEventListener('open', () => send('STOP_TRACE_SUBSCRIBE'));
     socket.addEventListener('close', disconnected);
     if (socket.readyState === WebSocket.OPEN) send('STOP_TRACE_SUBSCRIBE');

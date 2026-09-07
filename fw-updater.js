@@ -3,7 +3,27 @@ const { setupLogger, formatRawCanFrameData, delay,delayu } = require('./utils');
 const CHUNK_SIZE = 8; // Bytes per chunk
 const HEADER_SIZE = 16; // The first 16 hex bytes to be excluded from the data transfer
 const delayMs = 2; // Delay between steps (milliseconds, adjust if needed)
-const delayUs = 300; // Delay between chunks (microseconds, adjust if needed)
+const delayUs = 300; // Extra delay between chunks (microseconds, adjust if needed)
+// Minimum wall-clock period per data frame.
+//
+// One 29-bit ID + 8 data bytes is ~150 bits after stuffing, i.e. ~600 us on a
+// 250 kbit/s bus. The official BESST tool paces its 60 833 frames at ~810 us
+// (49.3 s of transfer, measured on a bus sniff of a successful DPC245 flash).
+// Sending faster than the wire can carry only grows the adapter's TX FIFO, and
+// gs_usb does NOT report that overflow: transferOut returning "ok" says USB
+// accepted the frame, not that it reached CAN (echo is disabled, echo_id
+// 0xFFFFFFFF). A dropped frame is invisible to this protocol - block ACKs
+// (x2A**02) confirm a POSITION, never a gap - so the hole surfaces only at the
+// end as a missing final ACK. That is the classic "stops at 99 %".
+//
+// Hence a floor on the period instead of a hopeful delay: the schedule below is
+// absolute, so the average can never come out faster than this.
+const MIN_FRAME_PERIOD_US = 810;
+// After the last chunk the display programs its own flash. BESST holds the
+// session open for ~26 s (00 announce every ~60 ms) and closes it with 01.
+const FLASH_WRITE_WINDOW_MS = 26000;
+const FLASH_WRITE_KEEPALIVE_MS = 60;
+const FLASH_WRITE_LOG_STEP_MS = 5000;
 
 class FwUpdater {
 
@@ -13,6 +33,9 @@ class FwUpdater {
         this.init()
         this.setupCunbus()
         this.delayUs = delayUs;
+        this.minFramePeriodUs = MIN_FRAME_PERIOD_US;
+        this.flashWriteWindowMs = FLASH_WRITE_WINDOW_MS;
+        this.flashWriteKeepaliveMs = FLASH_WRITE_KEEPALIVE_MS;
     }
     init(){
         this.firmwareBuffer = null; // Buffer to hold the firmware file content
@@ -22,6 +45,8 @@ class FwUpdater {
         this.commnad6008ack =    false; // Flag to track if 6008 ACK was received
         this.updateProcessStarted = false; // Flag to track if the update process has started
         this.lastChunkConfirmed =   false; // Flag to track if the last chunk has been confirmed
+        this.lastChunkAckData = null;      // status bytes carried by the final ACK
+        this.lastChunkAckDlc = 0;
         this.firstChunkACK =        false;
         this.lastChunkId = null; // Will be set after the last chunk number is calculated
         this.timeout = 15000; // 15 seconds timeout;
@@ -110,6 +135,13 @@ class FwUpdater {
         //     throw `File is to big ...`;
         // } 
         this.NUM_CHUNKS = Math.ceil(dataLength / CHUNK_SIZE);
+        // The chunk number is four hex digits inside the frame ID, so numbering wraps
+        // above 65535 chunks (= 524 288 B of payload) and the tail of the image would
+        // silently overwrite its beginning. DPC245 (486 664 B / 60 833 chunks) fits.
+        if (this.NUM_CHUNKS > 0xFFFF) {
+            throw `Firmware file too large for this protocol: ${this.NUM_CHUNKS} chunks, `
+                + `maximum is 65535 (${0xFFFF * CHUNK_SIZE + HEADER_SIZE} bytes).`;
+        }
         this.logMessage(`Firmware file loaded. Size: ${this.FIRMWARE_FILE_SIZE} bytes. Data chunks to send: ${this.NUM_CHUNKS}`, 'INFO');
         const fileHeaderData = Array.from(this.firmwareBuffer.slice(0, 15)).map(byte =>byte.toString(16).padStart(2, '0').toUpperCase()).join(' ');
         this.logMessage(`File header data: ${fileHeaderData}`, 'INFO');
@@ -136,6 +168,11 @@ class FwUpdater {
                 this.updateProcessStarted = true;
             }
             if(idHex.includes(`${this.deviceId}2A${this.formatChunkNumber(this.NUM_CHUNKS)}`) || idHex.includes(`${this.deviceId}2A${this.formatChunkNumber(this.NUM_CHUNKS-1)}`)){
+                // The final ACK carries status bytes (DLC 4 on DPC245, all zero on a good
+                // flash) where the block ACKs carry none. It is the only completeness
+                // signal this protocol has, so keep it instead of only raising the flag.
+                this.lastChunkAckData = dataHex;
+                this.lastChunkAckDlc = dlc;
                 this.lastChunkConfirmed = true;
             }
             if(idHex.includes(`${this.deviceId}2A6008`)){
@@ -180,6 +217,16 @@ class FwUpdater {
             }
             tryCount++;
         }while(!sent && tryCount < retries);
+        // Carrying on silently used to punch a hole in the image: this protocol has no
+        // retransmission and no way to report a gap, so a frame that never left the
+        // adapter is discovered only at the very end, as a missing final ACK. Better to
+        // stop here, with the reason, than to write an incomplete firmware.
+        // retries === 0 is the fire-and-forget announce loop; it may miss a beat.
+        if (!sent && retries > 0) {
+            throw new Error(`Frame ID${this.leadingIdNum+id} could not be sent after ${tryCount} `
+                + 'attempt(s) — the update was stopped instead of writing an incomplete image.');
+        }
+        return sent;
     }
     async emitProgress() {
         do{
@@ -277,13 +324,39 @@ class FwUpdater {
             }
         }while(!this.firstChunkACK);
     }
+    // Wall-clock pacing instead of a blind per-frame delay.
+    //
+    // The schedule is ABSOLUTE - frame n of the current run is due at
+    // base + n * period - so a send that takes longer than expected eats its own
+    // slack and the average period can never drop below the floor. That is the
+    // property that keeps the adapter's TX FIFO from growing; a fixed "sleep X us
+    // after each frame" gives period = X + send time, which nobody measured.
+    framePeriodUs(){
+        return Math.max(this.delayUs, this.minFramePeriodUs);
+    }
+    async paceFrame(sentCount, baseMs){
+        const dueMs = baseMs + (sentCount * this.framePeriodUs()) / 1000;
+        const waitMs = dueMs - performance.now();
+        if (waitMs > 0) await delayu(Math.round(waitMs * 1000));
+    }
     async sendDataChunks() {
-        this.logMessage('Step 5: Sending data chunks...', 'INFO');
+        this.logMessage(`Step 5: Sending data chunks (pacing floor ${this.framePeriodUs()} us/frame, `
+            + `BESST reference ~${MIN_FRAME_PERIOD_US} us)...`, 'INFO');
+        const runStartMs = performance.now();
+        // Schedule base. Reset after every ACK checkpoint so the dead time spent
+        // waiting is not turned into credit for a catch-up burst - a burst is exactly
+        // what overflows the FIFO.
+        let baseMs = runStartMs;
+        let sentCount = 0;
+        let firstChunk = this.startSendChunkIndex;
+        let windowChunk = this.startSendChunkIndex;
+        let windowMs = runStartMs;
         for (let i = this.startSendChunkIndex; i < this.NUM_CHUNKS - 1; i++) {
             const chunkId = this.formatChunkNumber(i); // #### incrementing chunk number
             const chunkData = this.getFirmwareChunk(i); // XXXXXXXXXXXXXXXX
             this.lastChunkSendIndex = i;
             await this.sendRawFrameWithRetry(`51${this.chunkNPrefix}${chunkId}`,chunkData);
+            sentCount++;
             this.progress = Math.round((i/this.NUM_CHUNKS)*100);
             if (this.indexAckCheckFct(i)) {
                 this.startTime = Date.now();
@@ -293,10 +366,24 @@ class FwUpdater {
                         throw `Step 5(chunkId:${chunkId}): Timeout reached, exiting loop....`;
                     }
                 }while(!this.doWhileAckCheckFct(i));
+                baseMs = performance.now();
+                sentCount = 0;
             }else
-                await delayu(this.delayUs);
+                await this.paceFrame(sentCount, baseMs);
+            // Measured cadence, so the floor can be checked against reality instead of
+            // assumed. Compare with the ~810 us/frame the official tool achieves.
+            if (i - windowChunk >= 8192) {
+                const now = performance.now();
+                const windowUs = ((now - windowMs) * 1000) / (i - windowChunk);
+                const avgUs = ((now - runStartMs) * 1000) / (i - firstChunk);
+                this.logMessage(`Chunk ${i}/${this.NUM_CHUNKS}: ${windowUs.toFixed(0)} us/frame `
+                    + `(avg ${avgUs.toFixed(0)})`, 'INFO');
+                windowChunk = i;
+                windowMs = now;
+            }
         }
-        this.logMessage('All data chunks (except the last) sent.', 'INFO');
+        const totalUs = ((performance.now() - runStartMs) * 1000) / Math.max(1, (this.NUM_CHUNKS - 1 - firstChunk));
+        this.logMessage(`All data chunks (except the last) sent — ${totalUs.toFixed(0)} us/frame average.`, 'INFO');
     }
     async sendLastPackageAndEndTransfer() {
         this.logMessage('Step 6: Sending last data package and ending transfer...', 'INFO');
@@ -311,13 +398,55 @@ class FwUpdater {
                 throw 'Step 7: Timeout reached, exiting loop....';
             }
         }while(!this.lastChunkConfirmed);
+        // Block ACKs have DLC 0; the closing ACK carries a status word (DPC245: four
+        // zero bytes on a good transfer). Since the protocol cannot report a gap in the
+        // middle, this is the only place a lost frame can still be caught before the
+        // display starts writing a broken image.
+        if (this.lastChunkAckDlc > 0) {
+            this.logMessage(`Final ACK status: ${this.lastChunkAckData}`, 'INFO');
+            if (/[^0]/.test((this.lastChunkAckData || '').replace(/\s/g, ''))) {
+                throw `Step 7: the device rejected the image (final ACK status `
+                    + `${this.lastChunkAckData}). Nothing has been written yet — repeat the update.`;
+            }
+        }
         
     }
+    // Closing sequence, replicated from a bus sniff of the official tool:
+    //
+    //   ~200 ms after the final ACK   85FF3005#01
+    //   ~1 s later                    85FF3005#00      (device answers ..FF3005#01)
+    //   then                          85FF3005#00 every ~60 ms for ~26 s
+    //   then                          85FF3005#01
+    //
+    // Those 26 s are the window in which the display programs its own flash. The old
+    // implementation was delay(3000) -> 01 -> delay(2000), i.e. it dropped the window
+    // entirely and closed the session while the device was still writing.
+    //
+    // Holding the session open cannot do any harm: command 0x3005 is handled only by
+    // the resident bootloader — it does not exist in the application at all (checked on
+    // the DPC245 image: the constant appears nowhere in the APP), so once the display
+    // reboots into the new firmware every one of these announces is simply ignored.
     async announceFirmwareUpgradeEnd() {
         this.logMessage('Step 8: Announcing firmware upgrade end...', 'INFO');
-        await delay(3000);
+        await delay(200);
         await this.sendRawFrameWithRetry("5FF3005","01");
-        await delay(2000);
+        await delay(1000);
+        await this.sendRawFrameWithRetry("5FF3005","00");
+        this.logMessage(`Step 8.1: the display is now writing its flash. Holding the session open for `
+            + `${Math.round(this.flashWriteWindowMs/1000)} s — do NOT disconnect the adapter and do NOT `
+            + 'switch the bike off.', 'INFO');
+        const windowEnd = Date.now() + this.flashWriteWindowMs;
+        let nextLog = Date.now() + FLASH_WRITE_LOG_STEP_MS;
+        while (Date.now() < windowEnd && this.canbus.isConnected()) {
+            await this.sendRawFrameWithRetry("5FF3005","00",0);
+            await delay(this.flashWriteKeepaliveMs);
+            if (Date.now() >= nextLog) {
+                nextLog = Date.now() + FLASH_WRITE_LOG_STEP_MS;
+                this.logMessage(`Step 8.1: ${Math.max(0, Math.round((windowEnd - Date.now())/1000))} s left...`, 'INFO');
+            }
+        }
+        await this.sendRawFrameWithRetry("5FF3005","01");
+        await delay(500);
     }
     async announceFirmwareUpgradeEndOld() {
         this.logMessage('Step 8: Announcing firmware upgrade end...', 'INFO');

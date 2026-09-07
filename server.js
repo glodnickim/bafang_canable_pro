@@ -897,7 +897,7 @@ const wss = new WebSocket.Server({ server });
 	// one tab: it taps canbus.raw_frame_received directly and tolerates a missing canbus link,
 	// so the panel works the moment the UI loads and no one ever starts Start Sniffing. The
 	// service only polls/broadcasts while at least one browser is subscribed.
-	const stopTraceService = new StopTraceService({ canbus, broadcast: broadcastToClients });
+	const stopTraceService = new StopTraceService({ canbus, broadcast: broadcastToClients, isBusy: () => fwUpdateInProgress });
 	const qs1Subscribers = new Set();
 	const qs1Service = new Qs1Service({ canbus, broadcast: (message) => broadcastToClients(message) });
 	const qs1Subscribe = (ws) => {

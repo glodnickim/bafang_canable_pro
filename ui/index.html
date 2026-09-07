@@ -1612,10 +1612,10 @@
                                 </td>
                             </tr>
                             <tr>
-                                <th>Delay (microseconds)</th>
+                                <th>Time per frame (microseconds)</th>
                                 <td>
-                                    <input type="number" id="fwUpdateDelayUsInput" min="100" max="5000" step="100" value="300" class="form-input w-32">
-                                    <small class="form-hint">Lower value = faster chunks sent.</small>
+                                    <input type="number" id="fwUpdateDelayUsInput" min="810" max="5000" step="10" value="810" class="form-input w-32">
+                                    <small class="form-hint">810 &micro;s is the cadence of the official Bafang tool on a 250 kbit/s bus. Lower values are ignored: one frame needs ~600 &micro;s on the wire, and sending faster only overflows the adapter's transmit buffer, which silently drops frames. Raise it if a flash still fails near the end.</small>
                                 </td>
                             </tr>
                             <tr>
@@ -1643,12 +1643,14 @@
             <div class="tab-content" id="tab-sniffer">
                 <section id="stopTracePanel" class="bg-gray-50 border border-gray-200 rounded-xl p-4 mb-5" aria-labelledby="stopTraceTitle">
                     <h2 id="stopTraceTitle" class="section-title">Klik przy zatrzymaniu — STOP-TRACE</h2>
-                    <p class="mb-2">1. Rozpocznij pomiar. 2. Uruchom wspomaganie i przestań pedałować. 3. Po zatrzymaniu pobierz zapis.</p>
+                    <p class="mb-2">Poczekaj na „Gotowy — wykonaj próbę”, uruchom wspomaganie i przestań pedałować. CANable sam zapisze pomiar i przygotuje następny.</p>
                     <p class="mb-2">Ten panel działa bez „Start Sniffing” i bez ustawiania filtrów.</p>
-                    <div class="flex flex-wrap gap-2 mb-2">
+                    <p id="stopTraceAutoInfo" class="mb-2">Automatyczne logowanie włączone</p>
+                    <button id="stopTraceAuto" class="btn btn-secondary mb-2" disabled>Wstrzymaj automatyczne pomiary</button>
+                    <details class="mb-2"><summary>Sterowanie ręczne (opcjonalne)</summary><div class="flex flex-wrap gap-2 mb-2">
                         <button id="stopTraceArm" class="btn btn-primary" disabled>Rozpocznij pomiar</button>
                         <button id="stopTraceDump" class="btn btn-success" disabled>Pobierz zapis</button>
-                    </div>
+                    </div></details>
                     <div role="status" aria-live="polite">
                         <p id="stopTraceStatus" style="font-size:1.3rem;font-weight:700;margin:12px 0">Łączenie ze sterownikiem…</p>
                         <p id="stopTraceHint">Połącz adapter CAN i włącz sterownik.</p>
@@ -1657,7 +1659,7 @@
                     <p id="stopTraceCount" class="text-xs text-gray-500"></p>
                     <p id="stopTraceError" role="alert" style="color:#b42318;overflow-wrap:anywhere"></p>
                     <p id="stopTraceFile" style="font-weight:600;overflow-wrap:anywhere"></p>
-                    <p class="text-xs text-gray-500">Plik zapisuje się automatycznie w logs/stop-trace obok CANable. Następny pomiar odblokuje się po pobraniu poprzedniego.</p>
+                    <p class="text-xs text-gray-500">Pliki zapisują się automatycznie w logs/stop-trace obok CANable. Podczas pobierania poczekaj na gotowość do kolejnej próby.</p>
                 </section>
                 <div class="flex items-center justify-between mb-5 flex-wrap gap-2">
                     <h2 class="section-title text-lg">Sniffer</h2>
