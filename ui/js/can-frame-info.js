@@ -168,6 +168,45 @@ const DIAG_PATTERN_BY_TEXT = new Map(ALL_DIAG_PATTERNS.map((p) => [p.pattern.toU
 const DIAG_PATTERN_BY_CATEGORY = new Map(ALL_DIAG_PATTERNS.map((p) => [p.category, p]));
 export const DIAG_FRAME_PATTERNS_ALL = ALL_DIAG_PATTERNS; // the full tile library
 
+// --- FW-145 continuous Level-4 ride telemetry (0x10400..0x10407) ---------------------------
+// Diagnostic-only OBSERVATION stream: it never controls the motor. Present only in the
+// diagnostic firmware build (CAN_DIAGNOSTICS_ENABLE=1); a normal build is silent on these IDs.
+// Extended frames reach the bus with CAN_EFF_FLAG set, so the on-the-wire form of the block is
+// 800104xx (this is also why the decoder masks the id before matching). Wire schema and timing:
+// motor-controller-firmware/protocol/RIDE_TELEMETRY_CAN.md
+//
+// Deliberately NOT part of ALL_DIAG_PATTERNS, and therefore not part of the Dump Only preset:
+// that preset is for request/response dumps, while this is a continuous ~333 frame/s stream
+// that would swamp the live view it is meant to focus.
+export const RIDE_TELEMETRY_PATTERNS = [
+    {
+        pattern: '800104XX', matchType: 'wildcard', category: 'FW145_RIDE_TELEMETRY',
+        title: 'FW-145 Ride Telemetry (0x10400-0x10407)',
+        description: 'Continuous Level-4 observation stream, diagnostic build only.\n'
+            + 'Seven data frames share one 16-bit control tick (~47.6 Hz snapshot, ~333 frames/s);\n'
+            + '0x10407 META adds schema version, profile bank and the full 32-bit tick.\n'
+            + 'Decode a raw capture with tools/decode_canable_ride_log.py.\n'
+            + 'Note: RAW file logging captures these frames whether or not this filter is active - '
+            + 'filters only gate the live view.',
+        direction: 'Motor -> CANable',
+    },
+];
+
+// Per-frame names, so a concrete id from the block gets its own tooltip rather than the
+// block-level one. Order and meaning follow RIDE_TELEMETRY_CAN.md.
+const RIDE_TELEMETRY_FRAMES = {
+    '80010400': 'CORE - rider load (centikg), FAST/RUN torque deltas',
+    '80010401': 'DEMAND - Iq requested / allowed / ref',
+    '80010402': 'MOTOR - Iq and Id actual, motor ERPS',
+    '80010403': 'BATT - battery voltage/current, displayed SOC',
+    '80010404': 'LIMITS - wheel speed, u_abs, limiter and state flags',
+    '80010405': 'STATE - ride permission, session, QZERO, raw vs conditioned cadence',
+    '80010406': 'ROTOR/PAS - theta, Hall age/state, PAS state snapshot (NOT raw quadrature)',
+    '80010407': 'META - schema version, profile bank, full 32-bit tick, failed-frame count',
+};
+
+const TELEMETRY_BY_TEXT = new Map(RIDE_TELEMETRY_PATTERNS.map((p) => [p.pattern.toUpperCase(), p]));
+
 const CanOperation = { READ_CMD: 0x01, MULTIFRAME_START: 0x04, MULTIFRAME: 0x05, MULTIFRAME_END: 0x06 };
 const DeviceNetworkId = { DRIVE_UNIT: 0x02, BESST: 0x05 };
 const DIAG_CMD_CODE = 0x60;
@@ -229,6 +268,17 @@ export function getFrameTooltip(idHex) {
     const info = diagCategory && DIAG_PATTERN_BY_CATEGORY.get(diagCategory);
     if (info) {
         return `${info.title}\n${info.description}\nDirection: ${info.direction}`;
+    }
+    // FW-145 telemetry: the block tile itself, or any single id inside 0x10400..0x10407.
+    const telemetryTile = TELEMETRY_BY_TEXT.get(id);
+    if (telemetryTile) {
+        return `${telemetryTile.title}\n${telemetryTile.description}\nDirection: ${telemetryTile.direction}`;
+    }
+    const telemetryFrame = RIDE_TELEMETRY_FRAMES[id];
+    if (telemetryFrame) {
+        return `FW-145 Ride Telemetry\n${telemetryFrame}\n`
+            + 'Diagnostic build only; part of the ~47.6 Hz snapshot block 0x10400-0x10407.\n'
+            + 'Direction: Motor -> CANable';
     }
     // Per spec: never present an unconfirmed guess as fact. A filter with no library entry and
     // no user-supplied name/description (see tab-sniffer.js's customFilterMeta layer, checked

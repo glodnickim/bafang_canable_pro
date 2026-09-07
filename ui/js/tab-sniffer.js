@@ -4,7 +4,7 @@ import {
     snifferElements,
     addLog,
 } from './shared.js';
-import { getFrameTooltip, DIAG_FRAME_PATTERNS_ALL, ALL_TRAFFIC_TOKEN, DEFAULT_TRAFFIC_TOKEN } from './can-frame-info.js';
+import { getFrameTooltip, DIAG_FRAME_PATTERNS_ALL, RIDE_TELEMETRY_PATTERNS, ALL_TRAFFIC_TOKEN, DEFAULT_TRAFFIC_TOKEN } from './can-frame-info.js';
 
 function resetDiagStatusUI() {
     snifferElements.diagStatus.className = 'diag-status diag-status--idle';
@@ -409,7 +409,10 @@ const ALL_TRAFFIC_SIGNATURE = new Set([ALL_TRAFFIC_TOKEN]);
 // Every tile a built-in preset or a saved custom preset might ever need — ensured to exist (in
 // Available) once at startup, so e.g. Dump Only never has to create its own tiles the very
 // first time it's clicked, and every one of them always has a proper tooltip.
-const LIBRARY_SEED_TOKENS = [ALL_TRAFFIC_TOKEN, DEFAULT_TRAFFIC_TOKEN, ...DEFAULT_EXCLUDED_PATTERNS, ...DUMP_ONLY_PATTERNS];
+// FW-145 ride telemetry is seeded as an Available tile so it is one drag away with a proper
+// tooltip, but it stays out of DUMP_ONLY_PATTERNS on purpose - see can-frame-info.js.
+const RIDE_TELEMETRY_TOKENS = RIDE_TELEMETRY_PATTERNS.map((p) => p.pattern);
+const LIBRARY_SEED_TOKENS = [ALL_TRAFFIC_TOKEN, DEFAULT_TRAFFIC_TOKEN, ...DEFAULT_EXCLUDED_PATTERNS, ...DUMP_ONLY_PATTERNS, ...RIDE_TELEMETRY_TOKENS];
 
 function ensureLibrarySeeded() {
     LIBRARY_SEED_TOKENS.forEach((token) => {
