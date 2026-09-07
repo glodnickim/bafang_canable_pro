@@ -1,3 +1,4 @@
+const fs = require("fs");
 const fsp = require("fs").promises;
 const path = require("path");
 // Inside a packaged .exe __dirname points at the read-only pkg snapshot, so ride
@@ -113,14 +114,32 @@ async function setupLogger(fileExt = 'log', countFiles = false) {
     
     console.log("New log session started:", logFilePath);
 
-    return async function logToFile(message) {
-      const logEntry = `${message}\n`;
-      try {
-        await fsp.appendFile(logFilePath, logEntry);
-      } catch (err) {
-        console.error("Log write error:", err);
-      }
-    };
+    // ONE persistent handle instead of an open/write/close syscall per line.
+    //
+    // The sniffer writes every received CAN frame here, unconditionally. With the
+    // FW-145 telemetry stream alone adding ~333 frames/s, the old
+    // `await fsp.appendFile(...)` per frame meant ~333 file opens per second: the
+    // event loop spent its time in the filesystem instead of draining the gs_usb
+    // receive queue, so frames were dropped by the adapter before they ever reached
+    // the log. A measured 55.6 s capture kept only 7.1% of the telemetry stream, and
+    // the firmware's own META counter reported failed_frames=0 - proving the loss was
+    // downstream of the controller, in this path.
+    //
+    // A write stream keeps the handle open and batches through Node's internal
+    // buffer, so a log line costs a memcpy rather than a syscall.
+    const stream = fs.createWriteStream(logFilePath, { flags: "a" });
+    stream.on("error", (err) => console.error("Log write error:", err));
+
+    async function logToFile(message) {
+      stream.write(`${message}\n`);
+    }
+
+    // Callers that drop the logger (e.g. SNIFFER_LOG_ENABLE:false sets logToFile to
+    // null) must be able to flush and release the handle; without this the buffered
+    // tail of a capture would be lost and the file left open.
+    logToFile.close = () => new Promise((resolve) => stream.end(resolve));
+
+    return logToFile;
   } catch (err) {
     console.error("Logger setup failed:", err);
     process.exit(1);

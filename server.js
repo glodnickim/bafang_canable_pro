@@ -986,8 +986,12 @@ const wss = new WebSocket.Server({ server });
 			const loggerEnabled = messageParts[1] === 'true'
 			if(loggerEnabled)
 				await sniffer.setupLogger()
-			else
+			else {
+				// Flush and release the handle before dropping the reference,
+				// otherwise the buffered tail of the capture never reaches disk.
+				if (sniffer.logToFile && sniffer.logToFile.close) await sniffer.logToFile.close()
 				sniffer.logToFile = null
+			}
 			return true
 		}
 		return false;
