@@ -24,9 +24,18 @@ const os = require('os');
 const { execFileSync } = require('child_process');
 const { pathToFileURL } = require('url');
 
-const FW = path.join(__dirname, '..', '..', 'EBICS', 'BAFANG_GD32F303RCT6');
+const FW = process.env.EVD_FIRMWARE_DIR
+    || path.join(__dirname, '..', '..', 'motor-controller-firmware');
 const SCHEMA_PATH = path.join(FW, 'protocol', 'fw1267_cal_schema.json');
 const PS_DECODER = path.join(FW, 'tools', 'decode_fw126_cal_dump.ps1');
+// The FW-145 project-ready firmware ships a Python-only tools/ set and deliberately leaves
+// out the whole tools/decode_*.ps1 family. The schema is byte-identical either way, so the
+// JS-side parity still guards this app's decoders; the cross-decoder half reports SKIP
+// instead of failing on a file the current firmware project no longer owns. Point
+// EVD_FIRMWARE_DIR at a tree that has the decoder to get the full parity run back.
+const PS_AVAILABLE = fs.existsSync(PS_DECODER);
+let psSkipped = 0;
+const skipPs = (label) => { psSkipped++; console.log(`  SKIP  ${label}`); };
 
 let failures = 0;
 const check = (ok, label) => { if (!ok) { failures++; console.log(`  FAIL  ${label}`); } };
@@ -179,6 +188,7 @@ function report(over) {
         eq(js.pass, c.want, `G${idx + 1}a. JS verdict: ${c.name}`);
         check(js.crcOk && js.magicOk, `G${idx + 1}b. golden payload is well formed`);
 
+        if (!PS_AVAILABLE) { skipPs(`G${idx + 1}c-q. PowerShell parity`); return; }
         const logFile = path.join(tmp, `case${idx}.log`);
         writeLog(payload, logFile);
         const ps = runPs(logFile);
@@ -232,9 +242,11 @@ function report(over) {
         eq(js.verdict, 'REFUSED', 'H1. JS refuses an unknown schema');
         check(js.hardFail === true, 'H2. ...as a hard fail');
         check(js.fields === undefined, 'H3. ...and decodes no fields from it');
-        const logFile = path.join(tmp, 'future.log');
-        writeLog(bad, logFile);
-        eq(runPs(logFile)[0].dump.verdict, 'REFUSED', 'H4. PowerShell refuses it too');
+        if (PS_AVAILABLE) {
+            const logFile = path.join(tmp, 'future.log');
+            writeLog(bad, logFile);
+            eq(runPs(logFile)[0].dump.verdict, 'REFUSED', 'H4. PowerShell refuses it too');
+        } else skipPs('H4. PowerShell refuses it too');
     }
     {
         // A SUPERSEDED schema is refused just as hard - reading schema 1 with schema 2 offsets
@@ -244,9 +256,11 @@ function report(over) {
         const c = crc16(old, spec.crc.over);
         old[spec.crc.offset] = c & 0xFF; old[spec.crc.offset + 1] = (c >> 8) & 0xFF;
         eq(M.decodeCal(old).verdict, 'REFUSED', 'H5. JS refuses a superseded schema');
-        const logFile = path.join(tmp, 'old.log');
-        writeLog(old, logFile);
-        eq(runPs(logFile)[0].dump.verdict, 'REFUSED', 'H6. PowerShell refuses it too');
+        if (PS_AVAILABLE) {
+            const logFile = path.join(tmp, 'old.log');
+            writeLog(old, logFile);
+            eq(runPs(logFile)[0].dump.verdict, 'REFUSED', 'H6. PowerShell refuses it too');
+        } else skipPs('H6. PowerShell refuses it too');
     }
     {
         const bad = buildPayload(spec, report({}));
@@ -261,14 +275,19 @@ function report(over) {
         const js = M.decodeCal(corrupt);
         check(js.crcOk === false, 'H8. JS reports the CRC mismatch');
         check(js.pass === false, 'H9. ...and a corrupt report never passes');
-        const logFile = path.join(tmp, 'corrupt.log');
-        writeLog(corrupt, logFile);
-        eq(runPs(logFile)[0].dump.crc_ok, false, 'H10. PowerShell reports it too');
+        if (PS_AVAILABLE) {
+            const logFile = path.join(tmp, 'corrupt.log');
+            writeLog(corrupt, logFile);
+            eq(runPs(logFile)[0].dump.crc_ok, false, 'H10. PowerShell reports it too');
+        } else skipPs('H10. PowerShell reports it too');
     }
 
     fs.rmSync(tmp, { recursive: true, force: true });
+    const psNote = PS_AVAILABLE
+        ? '(JS and PowerShell agree on every field)'
+        : `(JS side only - ${psSkipped} PowerShell parity check(s) SKIPPED, no ${PS_DECODER})`;
     console.log(failures === 0
-        ? 'FW-126.7 calibration parity: ALL CHECKS PASSED (JS and PowerShell agree on every field)'
+        ? `FW-126.7 calibration parity: ALL CHECKS PASSED ${psNote}`
         : `FW-126.7 calibration parity: ${failures} CHECK(S) FAILED`);
     process.exit(failures === 0 ? 0 : 1);
 })();

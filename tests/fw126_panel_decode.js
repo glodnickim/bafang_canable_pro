@@ -66,8 +66,10 @@ function crc16(bytes, len) {
 
 // FW-126.7 0x602D fixture, built from protocol/fw1267_cal_schema.json so this file can never
 // disagree with the decoders about an offset. Only VALUES live here.
-const CAL_SPEC = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'EBICS',
-    'BAFANG_GD32F303RCT6', 'protocol', 'fw1267_cal_schema.json'), 'utf8'));
+const FIRMWARE = process.env.EVD_FIRMWARE_DIR
+    || path.join(__dirname, '..', '..', 'motor-controller-firmware');
+const CAL_SPEC = JSON.parse(fs.readFileSync(
+    path.join(FIRMWARE, 'protocol', 'fw1267_cal_schema.json'), 'utf8'));
 
 function buildCalPayload(opts = {}) {
     const d = new Array(CAL_SPEC.length).fill(0);

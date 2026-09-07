@@ -11,7 +11,7 @@ const fs = require('fs');
 const path = require('path');
 
 const FIRMWARE = process.env.EVD_FIRMWARE_DIR
-    || path.join(__dirname, '..', '..', 'EBICS', 'BAFANG_GD32F303RCT6');
+    || path.join(__dirname, '..', '..', 'motor-controller-firmware');
 
 function readIfPresent(file) {
     try { return fs.readFileSync(path.join(FIRMWARE, file), 'utf8'); } catch { return null; }
