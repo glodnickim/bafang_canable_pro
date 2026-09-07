@@ -465,12 +465,14 @@ class BafangCanControllerParser {
     static tuningBlob(packet) {
         // v1 16 B (ramps only), v2 22 B (+latch), v3/v4/v5 24 B (+torque-run filter),
         // v6 32 B (+start steps, FW-068), v7 32 B (FW-085: offset 20 changes unit from
-        // milliseconds to crank degrees; the layout is v6's, byte for byte). All read.
+        // milliseconds to crank degrees; the layout is v6's, byte for byte), v8 32 B
+        // (FW-129: two of v6's three reserved u16 become assist torque full scale and crank
+        // length; same length, same CRC position). All read.
         const d = packet?.data;
         if (!Array.isArray(d) || d.length < 16) {
             return { parseError: true, error: `Invalid tuning blob length ${d?.length}` };
         }
-        if (d[0] !== 0x54 || d[1] !== 0x55 || d[2] < 1 || d[2] > 7) {
+        if (d[0] !== 0x54 || d[1] !== 0x55 || d[2] < 1 || d[2] > 8) {
             return { parseError: true, error: 'Bad tuning blob magic/version' };
         }
         const version = d[2];
@@ -524,6 +526,13 @@ class BafangCanControllerParser {
         // FW-068: crank movement required before assist may start. 0 = written by tooling
         // that predates the field, so show the firmware default rather than "no condition".
         out.assist_start_steps = (version >= 6 && u16(22) >= 1) ? u16(22) : 4;
+        // FW-129: assist torque full scale (centikg) and crank length (mm). On v7 and older
+        // these bytes are the reserved zeros, and 0 would read as "0 kg full scale / 0 mm
+        // crank" — both nonsense, and one of them a division by zero in the preview maths.
+        // Show the firmware defaults instead, which are exactly what that firmware behaves as.
+        out.assist_torque_full_scale_centikg =
+            (version >= 8 && u16(24) >= 1) ? u16(24) : 6000;
+        out.crank_length_mm = (version >= 8 && u16(26) >= 1) ? u16(26) : 165;
         return out;
     }
 
@@ -534,14 +543,17 @@ class BafangCanControllerParser {
         if (!Array.isArray(d) || d.length < 24) {
             return { parseError: true, error: `Invalid diagnostics length ${d?.length}` };
         }
-        if (d[0] !== 0x44 || d[1] !== 0x47 || d[2] < 1 || d[2] > 5) {
+        if (d[0] !== 0x44 || d[1] !== 0x47 || d[2] < 1 || d[2] > 6) {
             return { parseError: true, error: 'Bad diagnostics magic/version' };
         }
         const version = d[2];
         // v1 24 B (peak), v2 32 B (+current), v3 37 B (+torque_run, measured i_q, batt-limit),
         // v4 47 B (FW-057: +cadence compensation, u_abs, pack voltage),
-        // v5 55 B (FW-084: +Extended Boost state). CRC = last 2 B.
-        const BODY = { 1: 22, 2: 30, 3: 35, 4: 45, 5: 53 };
+        // v5 55 B (FW-084: +Extended Boost state),
+        // v6 71 B (FW-129: +the unit-domain block — calibrated pedal load, normalized torque,
+        //          both conversion anchors, the crossfade weight, pre-limit Iq, live motor
+        //          power and live u_abs). CRC = last 2 B.
+        const BODY = { 1: 22, 2: 30, 3: 35, 4: 45, 5: 53, 6: 69 };
         const bodyLen = BODY[version];
         const minLen = bodyLen + 2;
         if (d.length < minLen) {
@@ -604,6 +616,21 @@ class BafangCanControllerParser {
             ext_boost_iq: version >= 5 ? u16(48) : null,   // before the shared limits
             ext_boost_remaining_ms: version >= 5 ? u16(50) : null,
             ext_boost_cancel_reason: version >= 5 ? d[52] : null,
+            // FW-129 v6 unit-domain block. All LIVE (not peak-held) on purpose: the question
+            // it answers is "at THIS operating point, which conversion anchor was carrying the
+            // request and did the handover stay continuous" — a peak-hold would mix samples
+            // taken at different duties and make the crossfade unreadable.
+            assist_load_kg: version >= 6 ? u16(53) / 100 : null,
+            assist_torque_x160: version >= 6 ? u16(55) : null,
+            iq_launch_request: version >= 6 ? u16(57) : null,   // launch-anchor term
+            iq_normal_request: version >= 6 ? u16(59) : null,   // measured-duty term
+            // 0 = launch anchor only, 1000 = measured duty only.
+            launch_blend_permille: version >= 6 ? u16(61) : null,
+            iq_pre_limit: version >= 6 ? u16(63) : null,        // blended, before max_iq_pct
+            requested_motor_power_w: version >= 6 ? u16(65) : null, // live, not peak
+            // Pairs with `cadence` above: their ratio is the motor's volts-per-crank-rpm,
+            // which is what the firmware's launch reference duty is a hypothesis about.
+            u_abs_live: version >= 6 ? u16(67) : null,
         };
         return out;
     }
@@ -704,6 +731,13 @@ class BafangCanControllerParser {
             coast_rejected_implausible: u16(48),
             coast_no_change: u16(50),
             offset_correction_mv: i16(52),
+            // FW-129 D8. Capability bit 0x08 says this controller applies a user calibration
+            // as a GAIN on top of the measured factory characteristic instead of replacing
+            // that characteristic with a straight line through the calibration point. Byte 33
+            // was reserved before and reads 0 on older firmware, so both fields answer "no"
+            // there — which is correct: that firmware has neither the behaviour nor the flag.
+            gain_calibration: (d[3] & 0x08) !== 0,
+            legacy_calibration_dropped: (d[33] & 0x01) !== 0,
         });
     }
 }
