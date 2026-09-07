@@ -43,6 +43,7 @@ function statusLabel(st) {
         case 'COMPLETE': return 'POMIAR GOTOWY — POBIERZ';
         case 'DOWNLOADING': return 'POBIERANIE…';
         case 'DOWNLOADED': return 'POMIAR POBRANY';
+        case 'READY_NEXT': return 'POMIAR POBRANY — MOŻESZ ZACZĄĆ NASTĘPNY';
         case 'ERROR': return 'BŁĄD';
         case 'IDLE': return '—';
         case 'DISCONNECTED': return 'BRAK POŁĄCZENIA';
@@ -55,16 +56,23 @@ function buttonRules(st) {
     if (!st || !st.connected) return { newMeasure: false, download: false, mode: false };
     if (busyNewCapture || busyDownload) return { newMeasure: false, download: false, mode: false };
     const complete = !!st.complete;
-    const undownloaded = complete && st.generation !== lastDownloadedGeneration;
-    // Scenario cannot change while an undownloaded COMPLETE capture is held.
-    const modeEnabled = !complete;
+    const downloaded = Number.isInteger(st.downloadedGeneration) && st.generation === st.downloadedGeneration;
+    const undownloaded = complete && !downloaded;   // a COMPLETE capture not yet carried away by a download
+    // Scenario (NEXT mode) cannot change while an undownloaded COMPLETE capture is held, but
+    // once it is downloaded the selector unlocks so the user can pick the NEXT scenario.
+    const modeEnabled = !undownloaded;
+    const downloadAvailable = complete && undownloaded;
     switch (st.host) {
         case 'ARMED':
         case 'HIGH_RATE':
         case 'TAIL':
             return { newMeasure: false, download: false, mode: modeEnabled };
+        case 'READY_NEXT':
+            // Downloaded capture sitting on the controller: start the NEXT measure (or pick
+            // its scenario) without being re-offered the previous download.
+            return { newMeasure: true, download: false, mode: true };
         case 'COMPLETE':
-            return { newMeasure: true, download: true, mode: modeEnabled };
+            return { newMeasure: true, download: downloadAvailable, mode: modeEnabled };
         case 'MODE_CONFIRMED':
         case 'REARMING':
         case 'WAIT_ARMED':
@@ -75,11 +83,9 @@ function buttonRules(st) {
         case 'ERROR':
             return { newMeasure: false, download: false, mode: false };
         default:
-            return { newMeasure: true, download: complete, mode: modeEnabled };
+            return { newMeasure: true, download: downloadAvailable, mode: modeEnabled };
     }
 }
-
-let lastDownloadedGeneration = null; // generation the server fully downloaded
 
 function bind() {
     if (bound) return true;
@@ -93,6 +99,7 @@ function bind() {
     el.newMeasure  = document.getElementById('qs1NewMeasureButton');
     el.download    = document.getElementById('qs1DownloadMeasureButton');
     el.mode        = document.getElementById('qs1Mode');
+    el.lastMode    = document.getElementById('qs1LastMode');
     el.tail        = document.getElementById('qs1Tail');
     el.qualification = document.getElementById('qs1Qualification');
     bound = true;
@@ -154,9 +161,8 @@ export function qs1NoteDownloadResult(raw) {
     let r;
     try { r = JSON.parse(raw); } catch { r = null; }
     busyDownload = false;
-    if (r && r.success && Number.isInteger(r.generation)) {
-        lastDownloadedGeneration = r.generation;
-    }
+    // The durable downloaded-generation latch lives server-side and is published in every
+    // QS1_STATUS payload; the GUI stays dumb and reads it from there.
     const line = r ? (r.success ? r.message : 'BŁĄD — ' + (r.message || 'niekompletny export')) : 'POBIERANIE: nieznany wynik';
     setResultLine(line, r && !r.success ? 'error' : 'ok');
     if (r) requestRefresh();
@@ -197,15 +203,14 @@ function render() {
     if (el.tail && !busyDownload) {
         el.tail.textContent = `${(st && Number.isInteger(st.tail)) ? st.tail : 0}/19`;
     }
-    // Reflect the latched captured mode (never relabelled by scenario changes).
-    if (el.mode && st) {
-        const current = el.mode.value;
-        if (st.capturedMode && (st.complete || st.host === 'ARMED')) {
-            // Show the capture's own mode, but keep NEXT-mode selectable when not complete.
-            if (!st.complete) el.mode.value = st.nextMode || current;
-        } else if (st.nextMode) {
-            el.mode.value = st.nextMode;
-        }
+    // The <select> is the NEXT-capture scenario (never the finished capture's mode); the
+    // finished capture's mode is shown separately as read-only text (qs1LastMode). The two
+    // must never overwrite each other.
+    if (st && st.nextMode && el.mode && document.activeElement !== el.mode) {
+        el.mode.value = st.nextMode;
+    }
+    if (el.lastMode) {
+        el.lastMode.textContent = (st && st.capturedMode) ? st.capturedMode : '—';
     }
     if (el.qualification) {
         el.qualification.textContent = (st && st.fwState === 'WAITING_QUALIFICATION')

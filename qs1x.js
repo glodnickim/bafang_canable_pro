@@ -21,6 +21,7 @@ const HOST = Object.freeze({
     COMPLETE: 'COMPLETE',
     DOWNLOADING: 'DOWNLOADING',
     DOWNLOADED: 'DOWNLOADED',
+    READY_NEXT: 'READY_NEXT',
     ERROR: 'ERROR',
 });
 
@@ -32,7 +33,7 @@ class Qs1Service {
         this.nextMode = 'START';       // scenario selected for the NEXT capture (user choice)
         this.capturedMode = null;      // mode latched to the current armed/completed capture
         this.capturedGeneration = null;// generation latched at ARMING / COMPLETE
-        this.lastDownloadedGeneration = null; // generation fully downloaded
+        this.downloadedGeneration = null; // durable latch: generation fully downloaded (session-latched)
         this.host = HOST.DISCONNECTED;
         this.errorMessage = '';
         this.downloadState = null;
@@ -83,7 +84,7 @@ class Qs1Service {
         const b = modeByte(name);
         if (b === null) return this._fail('invalid QS mode');
         // Never let scenario selection relabel an existing, undownloaded COMPLETE capture.
-        if (this.status && isComplete(this.status) && this.status.generation !== this.lastDownloadedGeneration) {
+        if (this.status && isComplete(this.status) && this.status.generation !== this.downloadedGeneration) {
             return this._fail('Cannot change scenario while a COMPLETE capture is undownloaded — download or discard it first.');
         }
         if (this.pending) return this._fail('a transaction is running — wait for it to finish.');
@@ -99,7 +100,7 @@ class Qs1Service {
         if (!this.connected()) return this._fail('CAN not connected');
         if (this.pending) return; // an earlier transaction still owns the bus
         if (!this.status || this.status.schema !== 2) return this._fail('no valid STATUS yet — cannot arm');
-        if (isComplete(this.status) && this.status.generation !== this.lastDownloadedGeneration) {
+        if (isComplete(this.status) && this.status.generation !== this.downloadedGeneration) {
             this._setHost(HOST.COMPLETE, 'undownloaded capture');
             this._broadcastResult('QS1_NEW_CAPTURE_RESULT', {
                 success: false, needsConfirm: true,
@@ -123,6 +124,13 @@ class Qs1Service {
         if (!this.status || !isComplete(this.status)) {
             return this._broadcastResult('QS1_DOWNLOAD_RESULT', {
                 success: false, message: 'DOWNLOAD requires a COMPLETE (48/48 + 19/19) capture.',
+            });
+        }
+        if (this.status.generation === this.downloadedGeneration) {
+            this._setHost(HOST.READY_NEXT, '');
+            this._publish();
+            return this._broadcastResult('QS1_DOWNLOAD_RESULT', {
+                success: false, message: 'Ta generacja jest już pobrana (' + this.status.generation + ') — wybierz tryb i zacznij następny pomiar.',
             });
         }
         this._setHost(HOST.DOWNLOADING, '');
@@ -232,7 +240,7 @@ class Qs1Service {
         // Latch captured mode + generation at ARMED.
         this.capturedMode = tx.demanding;
         this.capturedGeneration = status.generation;
-        this.lastDownloadedGeneration = null;
+        this.downloadedGeneration = null;   // a freshly armed capture is not yet downloaded
         this._tx = null;
         this._setHost(HOST.ARMED, '');
         this._publish();
@@ -289,7 +297,7 @@ class Qs1Service {
             // No transaction in flight: derive and render from firmware state (poll path,
             // reconnect path, post-download path). A COMPLETE capture surfaces automatically.
             this._reflectStatus(s);
-            if (isComplete(s) && this.lastDownloadedGeneration !== s.generation) {
+            if (isComplete(s) && this.downloadedGeneration !== s.generation) {
                 if (this.capturedGeneration !== s.generation || this.capturedMode === null) {
                     this.capturedGeneration = s.generation;
                     this.capturedMode = s.modeName;
@@ -338,7 +346,12 @@ class Qs1Service {
 
     _reflectStatus(s) {
         if (!s) return;
-        if (isComplete(s) && s.generation !== this.lastDownloadedGeneration) this._setHost(HOST.COMPLETE, '');
+        // A COMPLETE generation that was already downloaded must NOT flip the host back to
+        // COMPLETE on every STATUS poll; that would re-offer the download and re-lock the
+        // selector. It is held at READY_NEXT so the NEXT scenario stays selectable.
+        const alreadyDownloaded = Number.isInteger(this.downloadedGeneration) && s.generation === this.downloadedGeneration;
+        if (isComplete(s) && alreadyDownloaded) this._setHost(HOST.READY_NEXT, '');
+        else if (isComplete(s) && !alreadyDownloaded) this._setHost(HOST.COMPLETE, '');
         else if (s.state === 5) this._setHost(HOST.COMPLETE, isComplete(s) ? '' : 'COMPLETE — incomplete data');
         else if (s.state === 4) this._setHost(HOST.TAIL, '');
         else if (s.state === 3) this._setHost(HOST.HIGH_RATE, '');
@@ -377,7 +390,7 @@ class Qs1Service {
         const x = this.downloadState ? this.downloadState.snapshot() : { generation: this.status && this.status.generation, high: 0, tail: 0 };
         const gen = Number.isInteger(x.generation) ? x.generation : (this.status ? this.status.generation : null);
         if (ok) {
-            this.lastDownloadedGeneration = gen;
+            this.downloadedGeneration = gen;   // durable session latch — survives STATUS polls
             this._setHost(HOST.DOWNLOADED, '');
         } else {
             this._setHost(HOST.ERROR, message || 'download incomplete.');
@@ -451,6 +464,7 @@ class Qs1Service {
             capturedMode: shownMode,
             generation: shownGen,
             fwGeneration: s ? s.generation : null,
+            downloadedGeneration: Number.isInteger(this.downloadedGeneration) ? this.downloadedGeneration : null,
             high: s ? s.highCount : 0,
             tail: s ? s.tailCount : 0,
             highComplete: s ? s.highComplete : false,

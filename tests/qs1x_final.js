@@ -157,7 +157,7 @@ function driveToStepF(ctx, gen) {
     // ------------------------------------------------------------------ CASE E: reconnect restores COMPLETE from STATUS alone
     {
         const ctx = newService(); const { bus, svc, lastOf } = ctx;
-        svc.lastDownloadedGeneration = null; svc.capturedMode = null; svc.capturedGeneration = null;
+        svc.downloadedGeneration = null; svc.capturedMode = null; svc.capturedGeneration = null;
         svc.refreshNow();
         bus.emit('raw_frame_received', completeStatus());
         const st = lastOf('QS1_STATUS');
@@ -174,7 +174,7 @@ function driveToStepF(ctx, gen) {
         for (let g = 1; g <= 2; g++) {
             svc.status = { schema: 2, state: 5, generation: g, highCount: 48, tailCount: 19, mode: 0, modeName: 'START', highComplete: true, tailComplete: true };
             svc.capturedMode = 'START'; svc.capturedGeneration = g;
-            svc.lastDownloadedGeneration = g;                  // pretend downloaded
+            svc.downloadedGeneration = g;                  // pretend downloaded
             driveToStepF(ctx, g);
             bus.emit('raw_frame_received', armedStatus(g + 1));
             const r = lastOf('QS1_NEW_CAPTURE_RESULT');
@@ -255,6 +255,91 @@ function driveToStepF(ctx, gen) {
         eq(st.host, 'ERROR', 'CASE F: host recovers to ERROR (controls back for retry)');
         ok(svc.pending === null, 'CASE F: no transaction left pending after the timeout');
         ok(!svc._tx, 'CASE F: transaction torn down');
+    }
+
+    // ------------------------------------------------------------------ downloaded-generaton/selector regression (CASE 1-8)
+    // Real-HW evidence (logs/log-2026-08-30-22-57-05-n0.log): after a successful 48/48+19/19
+    // download the controller kept reporting COMPLETE gen 5, which flipped host back to
+    // COMPLETE on every STATUS poll -> the same generation was downloaded twice and the mode
+    // selector stayed locked on START (only 85106031 DLC1 00 was ever written).
+    const downloadedGen5 = { schema: 2, state: 5, generation: 5, highCount: 48, tailCount: 19, mode: 1, modeName: 'STOP', highComplete: true, tailComplete: true };
+    const wireGen5 = () => wire('822A6031', status(5, 5, 48, 0x19, 1, 19, 1));
+
+    // CASE 1: the downloaded latch survives STATUS polls — host stays READY_NEXT, never COMPLETE.
+    {
+        const ctx = newService(); const { bus, svc, lastOf } = ctx;
+        svc.status = Object.assign({}, downloadedGen5); svc.capturedMode = 'STOP'; svc.capturedGeneration = 5; svc.downloadedGeneration = 5;
+        svc.refreshNow();
+        bus.emit('raw_frame_received', wireGen5());
+        const st = lastOf('QS1_STATUS');
+        eq(st.host, 'READY_NEXT', 'CASE 1: downloaded COMPLETE gen stays READY_NEXT (never COMPLETE) after STATUS');
+        eq(st.complete, true, 'CASE 1: complete flag still true');
+        eq(st.downloadedGeneration, 5, 'CASE 1: downloadedGeneration published to the GUI');
+        ok(st.capturedMode === 'STOP', 'CASE 1: captured mode untouched by the same-generation STATUS');
+    }
+
+    // CASE 2: nextMode must survive a STATUS of the already-downloaded capture.
+    {
+        const ctx = newService(); const { bus, svc, lastOf } = ctx;
+        svc.status = Object.assign({}, downloadedGen5); svc.capturedMode = 'STOP'; svc.capturedGeneration = 5; svc.downloadedGeneration = 5;
+        svc.selectMode('RESTART');
+        eq(svc.nextMode, 'RESTART', 'pre: nextMode selected');
+        svc.refreshNow();
+        bus.emit('raw_frame_received', wireGen5());   // firmware still reports mode STOP
+        eq(svc.nextMode, 'RESTART', 'CASE 2: nextMode survives STATUS (status.mode never overwrites it)');
+        const st = lastOf('QS1_STATUS');
+        eq(st.capturedMode, 'STOP', 'CASE 2: captured/last mode is status.mode (STOP)');
+        eq(st.nextMode, 'RESTART', 'CASE 2: published nextMode is RESTART (sections separated)');
+    }
+
+    // CASE 3/4: the selector is unlocked once downloaded — STOP/RESTART both selectable.
+    {
+        const ctx = newService(); const { svc } = ctx;
+        svc.status = Object.assign({}, downloadedGen5); svc.capturedMode = 'STOP'; svc.capturedGeneration = 5; svc.downloadedGeneration = 5;
+        eq(svc.selectMode('STOP'), 1, 'CASE 3: STOP selectable after the capture is downloaded');
+        eq(svc.nextMode, 'STOP', 'CASE 3: nextMode set to STOP');
+        eq(svc.selectMode('RESTART'), 2, 'CASE 4: RESTART selectable after the capture is downloaded');
+        eq(svc.nextMode, 'RESTART', 'CASE 4: nextMode set to RESTART');
+    }
+
+    // CASE 5: undownloaded COMPLETE still rejects scenario change (existing guard intact).
+    {
+        const ctx = newService(); const { svc } = ctx;
+        svc.status = Object.assign({}, downloadedGen5); svc.capturedMode = 'STOP'; svc.capturedGeneration = 5;
+        svc.selectMode('RESTART');
+        eq(svc.nextMode, 'START', 'CASE 5: undownloaded COMPLETE still rejects scenario change');
+    }
+
+    // CASE 6: STOP produces the raw 85106031 DLC1 01 after download (real log only ever had 00).
+    {
+        const ctx = newService(); const { bus, svc } = ctx;
+        svc.status = Object.assign({}, downloadedGen5); svc.capturedMode = 'STOP'; svc.capturedGeneration = 5; svc.downloadedGeneration = 5;
+        svc.selectMode('STOP');
+        bus.sent.length = 0;
+        svc.newCapture();                              // downloaded -> NO discard confirm
+        bus.emit('raw_frame_received', wireGen5());    // STEP A
+        ok(bus.sent.some((x) => x[0] === COMMAND.select && x[1] === '01'), 'CASE 6: STEP C writes STOP as 85106031 DLC1 01');
+    }
+
+    // CASE 7: RESTART produces the raw 85106031 DLC1 02 after download.
+    {
+        const ctx = newService(); const { bus, svc } = ctx;
+        svc.status = Object.assign({}, downloadedGen5); svc.capturedMode = 'STOP'; svc.capturedGeneration = 5; svc.downloadedGeneration = 5;
+        svc.selectMode('RESTART');
+        bus.sent.length = 0;
+        svc.newCapture();
+        bus.emit('raw_frame_received', wireGen5());    // STEP A
+        ok(bus.sent.some((x) => x[0] === COMMAND.select && x[1] === '02'), 'CASE 7: STEP C writes RESTART as 85106031 DLC1 02');
+    }
+
+    // CASE 8: a downloaded generation is never downloadable again (no second 85106030).
+    {
+        const ctx = newService(); const { bus, svc, lastOf } = ctx;
+        svc.status = Object.assign({}, downloadedGen5); svc.capturedMode = 'STOP'; svc.capturedGeneration = 5; svc.downloadedGeneration = 5;
+        svc.download();
+        const r = lastOf('QS1_DOWNLOAD_RESULT');
+        ok(r && r.success === false, 'CASE 8: repeated download of an already-downloaded generation is refused');
+        ok(bus.sent.every((x) => x[0] !== COMMAND.download), 'CASE 8: no second 85106030 emitted');
     }
 
     console.log(failed ? `\n${failed} FAILURES` : '\nALL QS-1X WORKFLOW TESTS PASS');
