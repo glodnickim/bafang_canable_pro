@@ -298,9 +298,21 @@ controllerElements.saveButton.onclick = () => {
 };
 
 controllerElements.calibratePositionButton.onclick = () => {
-    if (confirm("WARNING: Motor will spin!\n\nEnsure chain is removed and bike is secure.\n\nProceed with Position Sensor Calibration?")) {
+    // FW-110 v4 disabled Hall/position calibration in BOTH firmware variants: a WRITE
+    // 0x6200 from this tool is answered with exactly one ERROR_ACK and can never reach
+    // autodetect() (its only caller, src/hall_calibration.c, was removed). Promising
+    // "the motor will spin" was therefore false, and the bare "ERROR ACK" that follows
+    // reads like a hardware fault rather than firmware policy - which is exactly how it
+    // was misread. Say what will actually happen, but still send the request, so a
+    // future firmware that re-enables the function needs no change here.
+    if (confirm(
+        "Position Sensor Calibration is DISABLED in the controller firmware (FW-110 v4).\n\n" +
+        "The controller answers this request with ERROR_ACK and does not calibrate.\n" +
+        "The motor will NOT spin.\n\n" +
+        "Send the request anyway, to see the controller's answer?"
+    )) {
         socket.send("WRITE_SHORT:2:98:0:0000000000");
-        addLog('SAVE_REQ', 'Calibrate Position Sensor');
+        addLog('SAVE_REQ', 'Calibrate Position Sensor - expect ERROR_ACK (disabled in firmware)');
     }
 };
 

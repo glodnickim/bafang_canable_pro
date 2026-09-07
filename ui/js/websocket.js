@@ -214,7 +214,16 @@ socket.onmessage = (event) => {
             switch (parsedEvent.type) {
                 // Normal ACKs
                 case 'normal_ack': if (parsedEvent.data) { addLog("ACK", parsedEvent.data); autoPopup(parsedEvent.data, 'green'); } break;
-                case 'error_ack': if (parsedEvent.data) { addLog("ACK", parsedEvent.data); autoPopup(parsedEvent.data, 'red'); } break;
+                // A bare "ERROR ACK" says nothing about WHAT the controller refused, so a
+                // deliberately unavailable function looks identical to a broken one. The
+                // emitting side already carries cmdCode/subCode - show them.
+                case 'error_ack': if (parsedEvent.data) {
+                    const hex = (v) => Number(v || 0).toString(16).toUpperCase().padStart(2, '0');
+                    const which = parsedEvent.cmdCode !== undefined
+                        ? ` (0x${hex(parsedEvent.cmdCode)}${hex(parsedEvent.subCode)})` : '';
+                    addLog("ACK", parsedEvent.data + which);
+                    autoPopup(parsedEvent.data + which, 'red');
+                } break;
                 // Display Data
                 case 'display_data_1': state.displayData1 = parsedEvent.data; needsDisplayUpdate = true; break;
                 case 'display_data_2': state.displayData2 = parsedEvent.data; needsDisplayUpdate = true; break;
