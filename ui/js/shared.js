@@ -410,11 +410,19 @@ export const snifferElements = {
     stopButton: document.getElementById('snifferStopButton'),
     logArea: document.getElementById('snifferLog'),
     clearButton: document.getElementById('clearSnifferLogButton'),
-    newFilteredIdInput: document.getElementById('newFilteredIdInput'),
-    addFilteredIdButton: document.getElementById('addFilteredIdButton'),
-    filteredIdsListOff: document.getElementById('filteredIdsListOff'),
-    filteredIdsListOn: document.getElementById('filteredIdsListOn'),
+    activeFiltersList: document.getElementById('activeFiltersList'),
+    availableFiltersList: document.getElementById('availableFiltersList'),
+    addFilterButton: document.getElementById('snifferAddFilterButton'),
+    filterModal: document.getElementById('snifferFilterModal'),
     snifferLogToFileCheckbox: document.getElementById('snifferLogToFileCheckbox'),
+    presetDefaultButton: document.getElementById('snifferPresetDefaultButton'),
+    presetAllButton: document.getElementById('snifferPresetAllButton'),
+    presetDumpButton: document.getElementById('snifferPresetDumpButton'),
+    customPresetList: document.getElementById('snifferCustomPresetList'),
+    saveCurrentButton: document.getElementById('snifferSaveCurrentButton'),
+    presetModal: document.getElementById('snifferPresetModal'),
+    filterMode: document.getElementById('snifferFilterMode'),
+    diagStatus: document.getElementById('snifferDiagStatus'),
     zones: document.querySelectorAll('.drop-zone'),
 };
 
@@ -773,6 +781,9 @@ export function enableAppControls(enable) {
     tabContents.forEach(tabContent => {
         tabContent.querySelectorAll('button, input, select, textarea').forEach(ctrl => {
             if (ctrl.id === 'fwUpdateStartButton') return;
+            // FW-126: the report is built from frames already captured, so copying it must keep
+            // working after the bike is unplugged - that is precisely when it gets pasted.
+            if (ctrl.id === 'fw126CopyReportButton' || ctrl.id === 'fw126ClearButton') return;
             if (ctrl.id !== 'connectCanButton' && !(ctrl.closest('#tab-debug') && (ctrl.id === 'sendCustomFrame' || ctrl.id === 'canIdInput' || ctrl.id === 'canDataInput'))) {
                 ctrl.disabled = !enable;
             }
