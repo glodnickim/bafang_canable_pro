@@ -1056,6 +1056,11 @@
                             <div id="ebicsDynamicsLatchFields" class="ebics-field-grid ebics-dynamics-field-grid"></div>
                         </div>
                         <div class="ebics-chart-card">
+                            <div class="ebics-card-title">Torque axis and crank — how your push becomes watts</div>
+                            <p class="text-sm mb-3">Two whole-bike settings that decide what a given push on the pedal <em>means</em>, before any assist level gets to shape it. <strong>Assist torque full scale</strong> is the pedal load that counts as "everything" for <strong>eMTB</strong> and <strong>Torque</strong> — lower it and those modes reach the top of their curve with a lighter push. <strong>Crank length</strong> belongs to the rider-power equation used by <strong>Power Linear</strong>, <strong>Power Progressive</strong> and <strong>Power Curve</strong>: power is force × crank length × crank speed, so a longer crank turns the same push into more watts and those modes ask for proportionally more motor. Neither of these is a sensor setting — they do not recalibrate anything and they never change the kilograms shown on the Torque card. Both need controller firmware with tuning block v8; on older firmware they are shown greyed out.</p>
+                            <div id="ebicsDynamicsTorqueAxisFields" class="ebics-field-grid ebics-dynamics-field-grid"></div>
+                        </div>
+                        <div class="ebics-chart-card">
                             <div class="ebics-card-title">RUN torque smoothing — anti-pulse "left leg / right leg"</div>
                             <p class="text-sm mb-3">A slower estimate of pedal effort used to compute power/eMTB while riding, so the motor follows your average effort instead of each individual leg push. Start, boost and the safety cut stay on the fast signal. The window is measured in <strong>degrees of crank rotation, not milliseconds</strong> — so one setting behaves the same grinding up a climb at 50 rpm and spinning at 110 rpm, which a fixed time could never do. 180° = half a turn = one leg. 0° = off (raw signal). Higher = smoother but slower to react to a change in effort.</p>
                             <div id="ebicsDynamicsTorqueRunFields" class="ebics-field-grid ebics-dynamics-field-grid"></div>
@@ -1106,6 +1111,10 @@
                         <div><span>Last error</span><b id="ebicsCalError">None</b></div>
                         <div><span>Preview full scale</span><b><span id="ebicsCalPreviewSpan">N/A</span> mV</b></div>
                     </div>
+                    <!-- FW-129: says whether a stored calibration from an older firmware was
+                         dropped (it recorded a quantity this firmware cannot convert), and
+                         otherwise that calibration now corrects the sensor GAIN only. -->
+                    <p id="ebicsTorqueCalNotice" class="text-sm mt-2" style="display:none"></p>
                     <div class="flex items-center gap-2 mt-3 flex-wrap">
                         <label>Reference weight (kg): <input id="ebicsCalRefKg" type="number" min="5" max="30" step="0.1" value="11" style="width:6em"></label>
                         <!-- CB-026: a three-step PROCEDURE with a weight on the pedal, not a
@@ -1196,15 +1205,13 @@
                     </div>
                 </div>
                 <div class="ebics-metric-grid">
-                    <!-- CB-019: "Walk motor current" removed. The value is stored in the bank
-                         and reported back correctly, but no firmware code reads it — walk
-                         current is fixed by constants in walk_assist_motor.c. The byte stays
-                         in the blob so stored banks keep their layout; only the control and
-                         the readout are gone. -->
+                    <!-- CB-026 / FW-130: "Walk motor current" is shown and editable again. CB-019
+                         had removed it because no firmware code read the byte; FW-130 wired it
+                         into the Walk Assist current ceiling, so it is now the strength control. -->
                     <div class="ebics-metric"><span>Walk chainring speed</span><b><span id="ebicsWalkSpeed">N/A</span> RPM</b></div>
                 </div>
                 <div id="ebicsWalkStatus" class="placeholder-text">Click Read to load Walk settings from both profile banks.</div>
-                <p class="text-sm mb-3">Both banks are shown at once — no need to pick one first. "Cut-off speed" is the bike speed above which Walk Assist switches off completely: a safety backstop, since Walk Assist holds <b>motor</b> speed, so in a high gear the bike could otherwise be pushed faster than you can walk beside it.</p>
+                <p class="text-sm mb-3">Both banks are shown at once — no need to pick one first. "Cut-off speed" is a bike-speed safety backstop, since Walk Assist holds <b>motor</b> speed, so in a high gear the bike could otherwise be pushed faster than you can walk beside it: power is eased off over the last 1.5 km/h before it and reaches zero at it, and only a further 1 km/h above does Walk Assist stop outright.</p>
                 <div class="ebics-two-column mt-2">
                     <section class="ebics-card">
                         <div class="ebics-card-title">Bank 1 <span id="ebicsWalkBankLabel0" class="form-hint"></span></div>
@@ -1218,7 +1225,7 @@
                 <div class="ebics-toolbar mt-4">
                     <span id="ebicsCompatibilitySourceWalk" class="ebics-source-note">Preview values — read before writing</span>
                 </div>
-                <div class="info-message mt-4"><span>Walk Assist holds <b>motor speed</b>, so the target is set as <b>chainring RPM</b> — the gear you select decides how fast the bike walks. "Walk motor current" is the strength ceiling, not a speed. All Walk settings are banked. Timed run is off by default and stops on another button, brake, error, wheel-speed cut-off or timeout.</span></div>
+                <div class="info-message mt-4"><span>Walk Assist holds <b>motor speed</b>, so the target is set as <b>chainring RPM</b> — the gear you select decides how fast the bike walks. "Walk motor current" is the strength ceiling, not a speed: raise it if starting on a slope feels weak. The speed is held by easing the current off around the target rather than by chasing it, so the actual pace sits slightly above the number on the flat and slightly below it uphill. All Walk settings are banked. Timed run is off by default and stops on another button, brake, error, wheel-speed cut-off or timeout.</span></div>
             </div>
 
             <!-- FW-030: eVistDrive Legacy tab content removed (single ride-core engine) -->
@@ -1295,6 +1302,22 @@
                         <div><span>Extended Boost peak load (live)</span><b><span id="diagExtBoostPeak">—</span> kg</b></div>
                         <div><span>Extended Boost current / time left</span><b><span id="diagExtBoostIq">—</span> / <span id="diagExtBoostLeft">—</span> ms</b></div>
                         <div><span>Extended Boost last cancel</span><b id="diagExtBoostCancel">—</b></div>
+                        <!-- FW-129: the assist chain in the order the firmware computes it —
+                             pedal load, the normalized torque axis (eMTB/Torque only), the
+                             requested power, the two current anchors and the crossfade
+                             between them, then the current before the level's own ceiling.
+                             In ordinary riding "launch" and "measured duty" read almost the
+                             same number: that is the design. Blend 0% means the launch anchor
+                             is carrying the request (standstill, stall, slipping start),
+                             100% means the measured duty is. -->
+                        <div style="opacity:.6;margin-top:6px"><span>— assist chain (live) —</span><b></b></div>
+                        <div><span>Pedal load used for assist</span><b><span id="diagAssistLoadKg">—</span> kg</b></div>
+                        <div><span>Assist torque (eMTB/Torque axis)</span><b><span id="diagAssistTorqueX160">—</span> / 160</b></div>
+                        <div><span>Requested motor power</span><b><span id="diagReqMotorPower">—</span> W</b></div>
+                        <div><span>Iq — launch anchor / measured duty</span><b><span id="diagIqLaunch">—</span> / <span id="diagIqNormal">—</span></b></div>
+                        <div><span>Blend (measured-duty weight)</span><b id="diagLaunchBlend">—</b></div>
+                        <div><span>Iq before the level's ceiling</span><b id="diagIqPreLimit">—</b></div>
+                        <div><span>u_abs (live, pairs with cadence)</span><b id="diagUabsLive">—</b></div>
                         <div style="opacity:.6;margin-top:6px"><span>— peak since last read —</span><b></b></div>
                         <div><span>Cadence (peak)</span><b><span id="diagCadence">N/A</span> rpm</b></div>
                         <div><span>Torque to assist (peak)</span><b><span id="diagTorque">N/A</span> mV</b></div>
@@ -1618,6 +1641,24 @@
 
             <!-- #tab-sniffer =============================================== -->
             <div class="tab-content" id="tab-sniffer">
+                <section id="stopTracePanel" class="bg-gray-50 border border-gray-200 rounded-xl p-4 mb-5" aria-labelledby="stopTraceTitle">
+                    <h2 id="stopTraceTitle" class="section-title">Klik przy zatrzymaniu — STOP-TRACE</h2>
+                    <p class="mb-2">1. Rozpocznij pomiar. 2. Uruchom wspomaganie i przestań pedałować. 3. Po zatrzymaniu pobierz zapis.</p>
+                    <p class="mb-2">Ten panel działa bez „Start Sniffing” i bez ustawiania filtrów.</p>
+                    <div class="flex flex-wrap gap-2 mb-2">
+                        <button id="stopTraceArm" class="btn btn-primary" disabled>Rozpocznij pomiar</button>
+                        <button id="stopTraceDump" class="btn btn-success" disabled>Pobierz zapis</button>
+                    </div>
+                    <div role="status" aria-live="polite">
+                        <p id="stopTraceStatus" style="font-size:1.3rem;font-weight:700;margin:12px 0">Łączenie ze sterownikiem…</p>
+                        <p id="stopTraceHint">Połącz adapter CAN i włącz sterownik.</p>
+                    </div>
+                    <progress id="stopTraceProgress" style="width:100%;height:22px" aria-label="Postęp pobierania" hidden></progress>
+                    <p id="stopTraceCount" class="text-xs text-gray-500"></p>
+                    <p id="stopTraceError" role="alert" style="color:#b42318;overflow-wrap:anywhere"></p>
+                    <p id="stopTraceFile" style="font-weight:600;overflow-wrap:anywhere"></p>
+                    <p class="text-xs text-gray-500">Plik zapisuje się automatycznie w logs/stop-trace obok CANable. Następny pomiar odblokuje się po pobraniu poprzedniego.</p>
+                </section>
                 <div class="flex items-center justify-between mb-5 flex-wrap gap-2">
                     <h2 class="section-title text-lg">Sniffer</h2>
                     <div class="flex gap-2">
@@ -1630,41 +1671,82 @@
                     <table class="param-table">
                         <tbody>
                             <tr>
-                                <th>New Filtered ID</th>
-                                <td colspan="3">
-                                    <div class="flex gap-2">
-                                        <input type="text" id="newFilteredIdInput" placeholder="CAN ID (e.g., 05F06002)" minlength="8" maxlength="8" class="form-input flex-1 max-w-xs">
-                                        <button id="addFilteredIdButton" class="btn btn-primary whitespace-nowrap">Add</button>
-                                    </div>
-                                </td>
-                            </tr>
-                            <tr>
                                 <th><label for="snifferLogToFileCheckbox">Log to file</label></th>
                                 <td colspan="3">
                                     <div class="flex items-center gap-2">
                                         <input type="checkbox" id="snifferLogToFileCheckbox" name="snifferLogToFileCheckbox" class="w-4 h-4 accent-olive">
-                                        <span class="text-xs text-gray-500 font-mono">→ logs\ folder next to the application</span>
+                                        <span class="text-xs text-gray-500 font-mono">→ logs\ folder next to the application — captures every received frame, unaffected by the filters/presets below</span>
                                     </div>
                                 </td>
                             </tr>
                         </tbody>
                     </table>
-                    <table class="param-table param-table--2col">
-                        <tbody>
-                            <tr>
-                                <th class="text-center" >Filters Off</th>
-                                <th class="text-center" colspan="3">Filters On</th>
-                            </tr>
-                            <tr>
-                                <td><ul id="filteredIdsListOff" class="drop-zone"></ul></td>
-                                <td colspan="3"><ul id="filteredIdsListOn" class="drop-zone"></ul></td>
-                            </tr>
-                        </tbody>
-                    </table>
+
+                    <div class="mt-4 mb-2">
+                        <div id="snifferPresetBar" class="flex items-center flex-wrap gap-2">
+                            <span class="text-xs font-semibold text-gray-500">Presets:</span>
+                            <button id="snifferPresetDefaultButton" data-preset-mode="default" class="btn btn-primary btn-sm">Default</button>
+                            <button id="snifferPresetAllButton" data-preset-mode="all" class="btn btn-secondary btn-sm">All Traffic</button>
+                            <button id="snifferPresetDumpButton" data-preset-mode="dump" class="btn btn-secondary btn-sm">Dump Only</button>
+                            <span id="snifferCustomPresetList" class="flex items-center flex-wrap gap-2"></span>
+                            <button id="snifferSaveCurrentButton" class="btn btn-secondary btn-sm">+ Save Current</button>
+                        </div>
+                        <div class="flex items-center justify-between flex-wrap gap-2 mt-2">
+                            <span id="snifferFilterMode" class="text-xs text-gray-500 font-mono">Mode: Default</span>
+                            <span id="snifferDiagStatus" class="diag-status diag-status--idle">DIAG: —</span>
+                        </div>
+                    </div>
+                    <p class="text-xs text-gray-500 mb-2">A preset only rearranges the tiles below, the same way dragging one by hand does — it sets Active Filters to exactly its own rule(s) and parks everything else in Available. Default = <span class="font-mono">DEFAULT TRAFFIC</span> (hides the spammy 0x32xx background telemetry; unknown IDs stay visible). All Traffic = <span class="font-mono">ALL TRAFFIC</span> (everything, including IDs never seen before). Dump Only = the confirmed eVistDrive Ride Diagnostics dump tiles plus the QS-1 command/status/export tiles. Active Filters combine as OR, so e.g. <span class="font-mono">DEFAULT TRAFFIC</span> plus one exact ID shows normal traffic plus that one background frame. Save Current stores today's Active Filters as your own named preset.</p>
+
+                    <div class="sniffer-filter-columns sniffer-filter-columns--2col">
+                        <div class="sniffer-filter-column">
+                            <div class="sniffer-filter-column-title">Active Filters</div>
+                            <div class="sniffer-filter-column-subtitle">Show matching frames</div>
+                            <ul id="activeFiltersList" class="drop-zone"></ul>
+                        </div>
+                        <div class="sniffer-filter-column">
+                            <div class="sniffer-filter-column-title">Available Filters</div>
+                            <div class="sniffer-filter-column-subtitle">Filters not currently used</div>
+                            <ul id="availableFiltersList" class="drop-zone"></ul>
+                        </div>
+                    </div>
+                    <div class="mt-2" style="text-align:right">
+                        <button id="snifferAddFilterButton" class="btn btn-secondary btn-sm">+ Add Filter</button>
+                    </div>
+                </div>
+
+                <!-- FW-126 TEST — read-only measurement panel (ui/js/evistdrive/fw126-test.js).
+                     An ADDITION to the sniffer, never a replacement: the raw log above/below is
+                     unchanged and the filters/presets are untouched in both directions. Frames
+                     reach this panel through a server-side tap that sits beside the RAW file
+                     write (sniffer.js _forwardFw126Frame), so a preset hiding 8001024x from the
+                     live view cannot starve the measurement.
+                     The ONLY frame this panel can transmit is the read 0511602D, DLC 0. -->
+                <div id="fw126Panel" class="bg-gray-50 border border-gray-200 rounded-xl p-4 mb-5">
+                    <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
+                        <h2 class="section-title">FW-126 TEST <span class="text-xs text-gray-500 font-mono">read-only</span></h2>
+                        <div class="flex flex-wrap gap-2">
+                            <button id="fw126GetResultButton" class="btn btn-success btn-sm whitespace-nowrap">Get FW-126 Result</button>
+                            <button id="fw126ReadCalButton" class="btn btn-primary btn-sm whitespace-nowrap">Read CAL 0x602D</button>
+                            <button id="fw126CopyReportButton" class="btn btn-secondary btn-sm whitespace-nowrap">Copy FW-126 Report</button>
+                            <button id="fw126ClearButton" class="btn btn-secondary btn-sm whitespace-nowrap">Clear</button>
+                        </div>
+                    </div>
+                    <div class="text-xs text-gray-500 font-mono mb-2">
+                        Press <strong>Start Sniffing</strong> first — this panel is fed by the sniffer's receive path,
+                        so nothing arrives while it is stopped. Capture itself is independent of the filters below.
+                        <strong>Read CAL 0x602D</strong> returns the FW-126.7 calibration result: the phase-current
+                        zero measured inside the neutral dwell of the first assist start after power-on.
+                        Take one start, let it go quiet, then read it — calibration runs once per power cycle.
+                        The CH3 sweep (0x10240–0x10246) and the 0x602E campaign no longer exist in the
+                        firmware; those are decoded here only so older logs still read.
+                    </div>
+                    <div id="fw126Status" class="text-xs text-gray-500 font-mono mb-2">aggregate frames: 0   |   complete blocks: 0</div>
+                    <div id="fw126Output" style="height:340px" class="log"></div>
                 </div>
 
                 <!-- QS-1 MEASURE — normal-user capture panel (ui/js/evistdrive/qs1-panel.js,
-                     driven by the server-side service qs1x.js). Works WITHOUT Start Sniffing:
+                     driven by the server-side service qs1.js). Works WITHOUT Start Sniffing:
                      the service taps canbus.raw_frame_received directly and owns the whole
                      protocol (STATUS poll, WRITE 0x6031 NEW MEASURE, WRITE 0x6030 DOWNLOAD and
                      the 48-record export reassembly). The panel never concludes anything from
@@ -1685,7 +1767,7 @@
                         and shows the full/partial verdict. A completed but undownloaded capture is protected —
                         re-arming it asks for confirmation first.
                     </div>
-                    <div class="flex items-center gap-3 mb-2 flex-wrap"><label for="qs1Mode" class="text-sm font-semibold">Typ pomiaru:</label><select id="qs1Mode" class="input input-sm"><option value="START">START</option><option value="STOP">STOP</option><option value="RESTART">RESTART</option></select></div>
+                    <div class="flex items-center gap-3 mb-2 flex-wrap"><label for="qs1Mode" class="text-sm font-semibold">Typ pomiaru:</label><select id="qs1Mode" class="input input-sm"><option value="START">START</option><option value="STOP">STOP</option><option value="RESTART">RESTART</option></select><span class="text-xs text-gray-500 font-mono">Ostatni pomiar (tryb): <span id="qs1LastMode" class="font-semibold text-gray-700">—</span></span></div>
                     <div class="flex items-center gap-6 mb-2 flex-wrap">
                         <span id="qs1Status" class="text-sm font-semibold text-gray-700">—</span>
                         <span class="text-xs text-gray-500 font-mono">Measure no.: <span id="qs1MeasureNo" class="font-semibold text-gray-700">—</span></span>
@@ -1703,6 +1785,41 @@
                         <button id="clearSnifferLogButton" class="btn btn-secondary btn-sm">Clear Log</button>
                     </div>
                     <div id="snifferLog" style="height:700px" class="log"></div>
+                </div>
+
+                <!-- Shared Save/Edit dialog for custom CAN filter presets (tab-sniffer.js openPresetFormModal) -->
+                <div id="snifferPresetModal" class="preset-modal-overlay" hidden>
+                    <div class="preset-modal" role="dialog" aria-modal="true" aria-labelledby="snifferPresetModalTitle">
+                        <h3 id="snifferPresetModalTitle" class="preset-modal-title">Save CAN Filter Preset</h3>
+                        <label for="snifferPresetModalName">Name</label>
+                        <input type="text" id="snifferPresetModalName" class="preset-modal-name" maxlength="60" autocomplete="off">
+                        <label for="snifferPresetModalDescription">Description</label>
+                        <textarea id="snifferPresetModalDescription" class="preset-modal-description" maxlength="300" rows="3"></textarea>
+                        <p class="preset-modal-error"></p>
+                        <div class="preset-modal-actions">
+                            <button type="button" class="btn btn-secondary btn-sm preset-modal-cancel">Cancel</button>
+                            <button type="button" class="btn btn-primary btn-sm preset-modal-save">Save</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- + Add Filter dialog (tab-sniffer.js openAddFilterModal) — the one way to create a
+                     new filter tile; it lands in Available, never activates itself automatically. -->
+                <div id="snifferFilterModal" class="preset-modal-overlay" hidden>
+                    <div class="preset-modal" role="dialog" aria-modal="true" aria-labelledby="snifferFilterModalTitle">
+                        <h3 id="snifferFilterModalTitle" class="preset-modal-title">Add CAN Filter</h3>
+                        <label for="snifferFilterModalPattern">ID / Pattern</label>
+                        <input type="text" id="snifferFilterModalPattern" class="preset-modal-name" maxlength="8" autocomplete="off" placeholder="e.g. 82F833xx">
+                        <label for="snifferFilterModalName">Name (optional)</label>
+                        <input type="text" id="snifferFilterModalName" class="preset-modal-name" maxlength="60" autocomplete="off">
+                        <label for="snifferFilterModalDescription">Description (optional)</label>
+                        <textarea id="snifferFilterModalDescription" class="preset-modal-description" maxlength="300" rows="3"></textarea>
+                        <p class="preset-modal-error"></p>
+                        <div class="preset-modal-actions">
+                            <button type="button" class="btn btn-secondary btn-sm filter-modal-cancel">Cancel</button>
+                            <button type="button" class="btn btn-primary btn-sm filter-modal-save">Add</button>
+                        </div>
+                    </div>
                 </div>
             </div>
 

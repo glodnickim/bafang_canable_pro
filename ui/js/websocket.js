@@ -1,3 +1,4 @@
+import { stopTraceNoteStatus } from './evistdrive/stop-trace-panel.js';
 // websocket.js — ES Module
 import {
     state, socket,
@@ -18,7 +19,8 @@ import { updateGearsUIM820 } from './tab-gears-m820.js';
 import { updateInfoUI } from './tab-info.js';
 import { populateHexEditor, handleCustomRaw } from './tab-debug.js';
 import { updateFwUpdateProgress, addFwUpdateLog } from './tab-firmware.js';
-import { addSnifferLog } from './tab-sniffer.js';
+import { addSnifferLog, updateSnifferDiagStatus } from './tab-sniffer.js';
+import { fw126NoteFrame } from './evistdrive/fw126-test.js';
 import {
     qs1NoteStatus, qs1NoteNewCaptureResult,
     qs1NoteDownloadProgress, qs1NoteDownloadResult,
@@ -593,8 +595,13 @@ socket.onmessage = (event) => {
         updateWriteControlsGating(); // re-evaluate the Flash button now the file may be gone
     }
     else if (message.startsWith('SNIFFER_ENTRY:')) { addSnifferLog(message.substring('SNIFFER_ENTRY:'.length).trim()); }
-    // QS-1X MEASURE panel pushes (server QS1_* broadcasts; the command direction is browser ->
+    else if (message.startsWith('SNIFFER_DIAG_STATUS:')) { updateSnifferDiagStatus(message.substring('SNIFFER_DIAG_STATUS:'.length).trim()); }
+    // FW-126 TEST panel tap: a capture, not a view - it bypasses the sniffer's display filters
+    // by design (sniffer.js _forwardFw126Frame) and never reaches the visible log.
+    else if (message.startsWith('FW126_FRAME:')) { fw126NoteFrame(message.substring('FW126_FRAME:'.length).trim()); }
+    // QS-1 MEASURE panel pushes (server QS1_* broadcasts; the command direction is browser ->
     // server, sent via QS1_SUBSCRIBE / QS1_REFRESH / QS1_NEW_CAPTURE / QS1_DOWNLOAD).
+    else if (message.startsWith('STOP_TRACE_STATUS:')) { stopTraceNoteStatus(message.substring('STOP_TRACE_STATUS:'.length)); }
     else if (message.startsWith('QS1_STATUS:')) { qs1NoteStatus(message.substring('QS1_STATUS:'.length).trim()); }
     else if (message.startsWith('QS1_NEW_CAPTURE_RESULT:')) { qs1NoteNewCaptureResult(message.substring('QS1_NEW_CAPTURE_RESULT:'.length).trim()); }
     else if (message.startsWith('QS1_DOWNLOAD_PROGRESS:')) { qs1NoteDownloadProgress(message.substring('QS1_DOWNLOAD_PROGRESS:'.length).trim()); }

@@ -949,9 +949,243 @@ h3.section-subtitle:first-of-type { margin-top: 0; }
     box-shadow: 0 1px 2px rgba(0,0,0,0.06);
     transition: transform 0.1s, opacity 0.1s;
     user-select: none;
+    position: relative;
 }
 .item:active  { cursor: grabbing; }
 .item.dragging { opacity: 0.4; transform: scale(0.9); }
+/* ALL TRAFFIC / DEFAULT TRAFFIC — system meta-filters, not CAN IDs; visually distinct so they
+   don't read as just another hex tile. */
+.item.item--meta { background: #eff6ff; border-color: #93c5fd; font-weight: 700; }
+
+/* Filter-chip tooltip: CSS-only, driven by the data-tooltip attribute set in
+   createFilteredIdItem() (tab-sniffer.js) — never an extra child element, so it can never
+   collide with the `.item span` selector that reads the chip's ID text back out. */
+.item[data-tooltip] { cursor: help; }
+.item[data-tooltip]::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    left: 50%; bottom: 100%;
+    transform: translateX(-50%);
+    margin-bottom: 8px;
+    background: #1f2937; color: #f9fafb;
+    padding: 8px 10px;
+    border-radius: 6px;
+    font-size: 11px; font-weight: 400; line-height: 1.4;
+    white-space: pre-line;
+    width: max-content; max-width: 260px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.35);
+    visibility: hidden; opacity: 0;
+    transition: opacity 0.15s ease-out, visibility 0s linear 0.15s;
+    pointer-events: none;
+    z-index: 20;
+}
+.item[data-tooltip]:hover::after,
+.item[data-tooltip]:focus-visible::after {
+    visibility: visible; opacity: 1; transition-delay: 0s, 0s;
+}
+
+.sniffer-filter-columns {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 8px;
+}
+.sniffer-filter-column {
+    flex: 1 1 220px;
+    min-width: 220px;
+}
+.sniffer-filter-column-title {
+    font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #6b7280;
+    text-align: center;
+    margin-bottom: 4px;
+}
+.sniffer-filter-column-hint {
+    font-size: 11px;
+    color: #6b7280;
+    text-align: center;
+    margin-top: 4px;
+}
+.sniffer-filter-column-subtitle {
+    font-size: 11px;
+    color: #6b7280;
+    text-align: center;
+    margin-bottom: 6px;
+}
+.sniffer-filter-columns--2col .sniffer-filter-column {
+    flex: 1 1 320px;
+}
+/* ACTIVE FILTERS = empty means "show nothing", never silently reinterpreted as All Traffic —
+   the empty drop-zone says so explicitly instead of just looking blank. */
+#activeFiltersList:empty::after {
+    content: "No active filters — live CAN frames are hidden.\A Drag a filter here or choose a preset.";
+    display: block;
+    width: 100%;
+    white-space: pre-line;
+    font-size: 12px;
+    color: #92400e;
+    text-align: center;
+    padding: 6px 4px;
+}
+
+/* Diag status pill (sniffer.js SNIFFER_DIAG_STATUS -> updateSnifferDiagStatus). */
+.diag-status {
+    font-family: 'SF Mono', Consolas, Monaco, 'Andale Mono', 'Ubuntu Mono', monospace;
+    font-size: 12px; font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 6px;
+}
+.diag-status--idle       { background: #f3f4f6; color: #6b7280; }
+.diag-status--active     { background: #dbeafe; color: #1e40af; }
+.diag-status--complete   { background: #dcfce7; color: #166534; }
+.diag-status--incomplete { background: #fef3c7; color: #92400e; }
+
+/* Diag badges inline in the live sniffer log (addSnifferLog in tab-sniffer.js) — presentation
+   only, the raw CAN data text next to them is untouched. */
+.diag-badge {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.02em;
+}
+.diag-badge--request { background: #1e3a8a; color: #bfdbfe; }
+.diag-badge--start    { background: #065f46; color: #a7f3d0; }
+.diag-badge--data     { background: #374151; color: #d1d5db; }
+.diag-badge--end      { background: #7c2d12; color: #fed7aa; }
+
+/* ====== SNIFFER CUSTOM PRESETS ====== */
+/* One chip = a "load" button (its name) glued to a small "..." menu trigger, so clicking the
+   name always loads the preset and the menu never fires that by accident (see tab-sniffer.js
+   createPresetChip / togglePresetMenu). */
+.preset-chip {
+    display: inline-flex;
+    align-items: stretch;
+    position: relative;
+}
+.preset-chip-load {
+    border-top-right-radius: 0 !important;
+    border-bottom-right-radius: 0 !important;
+}
+.preset-chip-menu-btn {
+    border: 1px solid transparent;
+    background: #6b7280;
+    color: #fff;
+    width: 20px;
+    border-top-right-radius: 6px;
+    border-bottom-right-radius: 6px;
+    border-left: 1px solid rgba(255,255,255,0.25);
+    cursor: pointer;
+    font-size: 12px;
+    line-height: 1;
+    padding: 0;
+}
+.preset-chip-menu-btn:hover { background: #4b5563; }
+.preset-chip.preset-chip--active .preset-chip-menu-btn { background: #1d4ed8; }
+.preset-chip.preset-chip--active .preset-chip-menu-btn:hover { background: #1e40af; }
+.preset-chip-menu {
+    position: absolute;
+    top: 100%; right: 0;
+    margin-top: 4px;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+    min-width: 170px;
+    z-index: 30;
+    padding: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.preset-chip-menu[hidden] { display: none; }
+.preset-chip-menu-item {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    border: none;
+    border-radius: 5px;
+    padding: 6px 8px;
+    font-size: 12px;
+    color: #1f2937;
+    cursor: pointer;
+}
+.preset-chip-menu-item:hover { background: #f3f4f6; }
+.preset-chip-menu-item.preset-chip-menu-item--danger { color: #b91c1c; }
+.preset-chip-menu-item.preset-chip-menu-item--danger:hover { background: #fef2f2; }
+
+/* Same CSS-only hover tooltip as filter chips (.item[data-tooltip] above), scoped to the
+   preset "load" button instead so a preset's description shows on hover without needing a
+   sibling element (data-tooltip is set only when the preset actually has a description). */
+.preset-chip-load[data-tooltip] { cursor: help; }
+.preset-chip-load[data-tooltip]::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    left: 0; bottom: 100%;
+    margin-bottom: 8px;
+    background: #1f2937; color: #f9fafb;
+    padding: 8px 10px;
+    border-radius: 6px;
+    font-size: 11px; font-weight: 400; line-height: 1.4;
+    white-space: pre-line;
+    width: max-content; max-width: 260px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.35);
+    visibility: hidden; opacity: 0;
+    transition: opacity 0.15s ease-out, visibility 0s linear 0.15s;
+    pointer-events: none;
+    z-index: 20;
+}
+.preset-chip-load[data-tooltip]:hover::after,
+.preset-chip-load[data-tooltip]:focus-visible::after {
+    visibility: visible; opacity: 1; transition-delay: 0s, 0s;
+}
+
+/* Save/Edit preset dialog (tab-sniffer.js openPresetFormModal). */
+.preset-modal-overlay {
+    position: fixed; inset: 0;
+    background: rgba(15, 23, 42, 0.45);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 1000;
+    padding: 16px;
+}
+.preset-modal-overlay[hidden] { display: none; }
+.preset-modal {
+    background: #fff;
+    border-radius: 10px;
+    padding: 20px;
+    width: 380px;
+    max-width: 100%;
+    box-shadow: 0 16px 40px rgba(0,0,0,0.3);
+}
+.preset-modal-title { margin: 0 0 12px; font-size: 15px; font-weight: 700; color: #111827; }
+.preset-modal label {
+    display: block;
+    font-size: 11px; font-weight: 600;
+    color: #6b7280;
+    margin: 10px 0 4px;
+}
+.preset-modal-name, .preset-modal-description {
+    width: 100%; box-sizing: border-box;
+    border: 1px solid #d1d5db; border-radius: 6px;
+    padding: 6px 8px;
+    font-size: 13px;
+    font-family: inherit;
+}
+.preset-modal-description { resize: vertical; }
+.preset-modal-error {
+    color: #b91c1c;
+    font-size: 11px;
+    min-height: 14px;
+    margin: 8px 0 0;
+}
+.preset-modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 16px;
+}
 
 /* ====== CHARTS ====== */
 .chart-placeholder {
