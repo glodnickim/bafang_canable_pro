@@ -180,6 +180,7 @@ class Sniffer {
     }
 
     async setupLogger(){
+        await this.closeLogger()
         this.logToFile = await setupLogger()
     }
 
@@ -314,6 +315,13 @@ class Sniffer {
         }
     }
 
+    async closeLogger(){
+        const current = this.logToFile;
+        this.logToFile = null;
+        if (current && current.close)
+            await current.close();
+    }
+
     rawFrameRecived = (rawFrame)=>{
         const { idHex, dataHex, dlc, timestamp } = formatRawCanFrameData(rawFrame);
         if (idHex === "INVALID") {
@@ -412,6 +420,7 @@ class Sniffer {
             }
         }
         this.logMessage(`Stoping sniffer...`);
+        this.closeLogger();
     }
 }
 

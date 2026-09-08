@@ -1612,10 +1612,17 @@
                                 </td>
                             </tr>
                             <tr>
-                                <th>Time per frame (microseconds)</th>
+                                <th>Send window (frames)</th>
                                 <td>
-                                    <input type="number" id="fwUpdateDelayUsInput" min="810" max="5000" step="10" value="810" class="form-input w-32">
-                                    <small class="form-hint">810 &micro;s is the cadence of the official Bafang tool on a 250 kbit/s bus. Lower values are ignored: one frame needs ~600 &micro;s on the wire, and sending faster only overflows the adapter's transmit buffer, which silently drops frames. Raise it if a flash still fails near the end.</small>
+                                    <input type="number" id="fwUpdateWindowInput" min="0" max="32" step="1" value="4" class="form-input w-32">
+                                    <small class="form-hint">How many frames may be waiting for the adapter to confirm
+                                        them before we pause. The transfer then paces itself to whatever the CAN bus
+                                        actually carries, so there is no timing to guess.
+                                        <b>4 is the default and suits almost everything.</b>
+                                        Try 2 if an update keeps failing on the same device, or 8 if the transfer is
+                                        unusually slow &mdash; both were measured as only marginally different.
+                                        1 is much slower (one round trip per frame) and 0 disables the window
+                                        entirely, falling back to the old fixed 300&nbsp;&micro;s delay.</small>
                                 </td>
                             </tr>
                             <tr>

@@ -811,7 +811,7 @@ const wss = new WebSocket.Server({ server });
 		if (messageString.startsWith('FW_UPDATE_START:')) {
 			const messageParts = messageString.split(':');
 			const modePart = messageParts[1];
-			const delayPart = messageParts[2];
+			const windowPart = messageParts[2];
 			const base64Content = messageParts[3];
 			const buffer = Buffer.from(base64Content, 'base64');
 
@@ -833,7 +833,10 @@ const wss = new WebSocket.Server({ server });
 			}
 
 			const fwUpdater = new FwUpdater(canbus,ws);
-			fwUpdater.delayUs = parseInt(delayPart) || 300;
+			// Frames allowed in flight before waiting on a transmit confirmation.
+			// 0 keeps the old fixed-delay pacing; anything else paces off the echoes.
+			const sendWindow = parseInt(windowPart);
+			fwUpdater.maxInFlight = Number.isFinite(sendWindow) ? sendWindow : 4;
 			// Awaited so the flag covers the whole flash: liveness probing and auto-recovery
 			// both stand down while it is set, and a flash is too delay-sensitive to have the
 			// handle pulled out from under it. startUpdateProcedure swallows its own errors.
@@ -986,12 +989,8 @@ const wss = new WebSocket.Server({ server });
 			const loggerEnabled = messageParts[1] === 'true'
 			if(loggerEnabled)
 				await sniffer.setupLogger()
-			else {
-				// Flush and release the handle before dropping the reference,
-				// otherwise the buffered tail of the capture never reaches disk.
-				if (sniffer.logToFile && sniffer.logToFile.close) await sniffer.logToFile.close()
-				sniffer.logToFile = null
-			}
+			else
+				await sniffer.closeLogger()
 			return true
 		}
 		return false;

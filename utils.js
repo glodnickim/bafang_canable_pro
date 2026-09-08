@@ -114,30 +114,44 @@ async function setupLogger(fileExt = 'log', countFiles = false) {
     
     console.log("New log session started:", logFilePath);
 
-    // ONE persistent handle instead of an open/write/close syscall per line.
-    //
-    // The sniffer writes every received CAN frame here, unconditionally. With the
-    // FW-145 telemetry stream alone adding ~333 frames/s, the old
-    // `await fsp.appendFile(...)` per frame meant ~333 file opens per second: the
-    // event loop spent its time in the filesystem instead of draining the gs_usb
-    // receive queue, so frames were dropped by the adapter before they ever reached
-    // the log. A measured 55.6 s capture kept only 7.1% of the telemetry stream, and
-    // the firmware's own META counter reported failed_frames=0 - proving the loss was
-    // downstream of the controller, in this path.
-    //
-    // A write stream keeps the handle open and batches through Node's internal
-    // buffer, so a log line costs a memcpy rather than a syscall.
+    // A single persistent handle for the whole session instead of an
+    // open+write+close syscall per line. The sniffer writes every received CAN
+    // frame here, unconditionally; at FW-145 telemetry rates (~333 frames/s) the
+    // old fsp.appendFile(...) per frame saturated the libuv threadpool and stalled
+    // the USB transfers - a measured 55.6 s capture kept only 7.1% of the stream
+    // while the firmware's own META counter reported failed_frames=0, proving the
+    // loss was downstream of the controller, in this path.
     const stream = fs.createWriteStream(logFilePath, { flags: "a" });
     stream.on("error", (err) => console.error("Log write error:", err));
 
+    // Shared across all in-flight writes, so a burst of fire-and-forget calls
+    // does not pile up one 'drain' listener each.
+    let drain = null;
+
+    // Resolves immediately while the stream buffer has room, and only waits
+    // when it is full, so callers that do not await stay non-blocking and
+    // callers that do await get backpressure instead of unbounded queueing.
     async function logToFile(message) {
-      stream.write(`${message}\n`);
+      if (stream.destroyed || stream.writableEnded) return;
+      if (!stream.write(`${message}\n`)) {
+        if (!drain) {
+          drain = new Promise((resolve) =>
+            stream.once("drain", () => {
+              drain = null;
+              resolve();
+            })
+          );
+        }
+        await drain;
+      }
     }
 
     // Callers that drop the logger (e.g. SNIFFER_LOG_ENABLE:false sets logToFile to
     // null) must be able to flush and release the handle; without this the buffered
     // tail of a capture would be lost and the file left open.
-    logToFile.close = () => new Promise((resolve) => stream.end(resolve));
+    logToFile.close = function close() {
+      return new Promise((resolve) => stream.end(resolve));
+    };
 
     return logToFile;
   } catch (err) {

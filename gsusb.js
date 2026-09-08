@@ -1225,12 +1225,37 @@ struct gs_device_filter {
      */
     onUSBPollData(data) {
         try {
-            const dv = new DataView(data.buffer);
-            this._emitEvent("canpacket",dv);
-            this.frame.fromBuffer(dv);
-            if ( this._acceptMessage(this.frame)) {
-                this._emitEvent("frame", this.frame);
-            };
+            const len = this.frameLength;
+            // The firmware packs several frames into one bulk transfer when it is busy,
+            // so walk the whole buffer instead of reading only the first frame. Honour
+            // the Buffer's own offset too: node-usb hands out views into a larger pooled
+            // ArrayBuffer, and reading from its start would decode the wrong bytes.
+            if ( data.byteLength > len ) {
+                this.multiFrameTransfers = (this.multiFrameTransfers || 0) + 1;
+            }
+            for ( let off = 0; off + len <= data.byteLength; off += len ) {
+                const dv = new DataView(data.buffer, data.byteOffset + off, len);
+                this._emitEvent("canpacket",dv);
+                // A fresh frame per message: this object is handed to listeners, and a
+                // shared instance is overwritten by the next frame before they are done.
+                const frame = new CanFrame(len);
+                frame.fromBuffer(dv);
+                // A transmit confirmation for a frame we sent, not bus traffic. Keep it
+                // off the main path so listeners are not flooded with their own sends.
+                if ( frame.frameType === "echo" ) {
+                    this._emitEvent("echo", frame);
+                    continue;
+                }
+                // A controller/bus error report, not a Bafang message. Passing it on
+                // as a normal frame meant the parser tried to read it as one.
+                if ( frame.frameType === "error" ) {
+                    this._emitEvent("canerror", frame);
+                    continue;
+                }
+                if ( this._acceptMessage(frame)) {
+                    this._emitEvent("frame", frame);
+                }
+            }
         } catch(e) {
             console.log("Failed to process usb data", e);
         }

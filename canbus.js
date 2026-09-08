@@ -54,6 +54,9 @@ class CanBusService extends EventEmitter {
         this.canDevice = new GSUsb();
         this.isStarted = false;
         this.frameLength = 20;
+        // Rotating gs_usb echo id, see sendFrame(). Kept in the range a host driver
+        // uses, because some firmwares treat it as an index into their TX contexts.
+        this.echoId = 0;
         // New multiFrameBuffers structure: keyed by "source-target-cmd-sub"
         this.multiFrameBuffers = {};
         // Still need timeouts, keyed the same way
@@ -81,6 +84,11 @@ class CanBusService extends EventEmitter {
         // sent N times. Auto-recovery reconnects on its own, which makes that a loop.
         this.canDevice.on('frame', (frame) => this._handleFrameReceived(frame));
         this.canDevice.on('error', (err) => this._handleCanError(err));
+        // Transmit confirmations, kept off the receive path but available for
+        // anything that wants to see what we actually put on the wire (the
+        // firmware updater's echo-based pacing depends on 'raw_frame_sent').
+        this.canDevice.on('echo', (frame) => this.emit('raw_frame_sent', frame));
+        this.canDevice.on('canerror', (frame) => this.emit('raw_frame_error', frame));
     }
 
     getConnectedDeviceName() {
@@ -134,8 +142,8 @@ class CanBusService extends EventEmitter {
             console.log(`[CanBusService] CAN device started successfully at ${BAFANG_CAN_BITRATE} bps. Device: ${this.connectedDeviceName}`);
             this.emit('can_status', true, `CAN device connected (${this.connectedDeviceName}).`);
 
-            // 'frame' / 'error' are bound once in the constructor — see the note there.
-            // A fresh connection starts with a clean liveness slate.
+            // 'frame' / 'error' / 'echo' / 'canerror' are bound once in the constructor —
+            // see the note there. A fresh connection starts with a clean liveness slate.
             this.lastRxAt = Date.now();
             this.lastTxOkAt = 0;
             this.probeNowRequested = false;
@@ -1142,7 +1150,14 @@ class CanBusService extends EventEmitter {
             frameToSend.can_dlc = dataBytes.length; 
             for (let i = 0; i < dataBytes.length; i++) 
                 frameToSend.data.setUint8(i, dataBytes[i]); 
-            frameToSend.echo_id = 0xFFFFFFFF; frameToSend.channel = 0; frameToSend.flags = 0; frameToSend.reserved = 0; 
+            // gs_usb echoes every transmitted frame back carrying whatever echo_id we
+            // supplied, and 0xFFFFFFFF is the value reserved for "received from the bus".
+            // Sending that made our own transmissions arrive indistinguishable from real
+            // traffic: fully parsed and fanned out to every listener, and the transmit
+            // confirmation was lost. The device echoes either way - gs_usb has no no-echo
+            // mode - but a rotating id makes the echo recognisable and droppable.
+            this.echoId = (this.echoId + 1) % 10;
+            frameToSend.echo_id = this.echoId; frameToSend.channel = 0; frameToSend.flags = 0; frameToSend.reserved = 0; 
             //console.log(`Sending CAN frame: ID=${idHex}, Data=[${dataBytes.map(b => b.toString(16).padStart(2,'0')).join(',')}]`);
             const success = await this.canDevice.writeCANFrame(frameToSend);
             if (!success) {
