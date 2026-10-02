@@ -536,6 +536,175 @@ class BafangCanControllerParser {
         return out;
     }
 
+    /*
+     * ASSIST PIPELINE V2 DIAGNOSTICS (0x6029 v7).
+     *
+     * SAME 71 BYTES AS v6, DIFFERENT MEANINGS. The packet is at its length, so the slots whose
+     * mechanisms were removed with the legacy pipeline - Extended Boost, the launch/measured-duty
+     * crossfade, cadence compensation - were reused rather than appended. That is exactly why
+     * simply widening the version check would have been the wrong fix: v6's names over v7's bytes
+     * would report the AUTO factor as "Extended Boost current" and the reactive assist term as
+     * "cadence compensation", and both would look like perfectly plausible numbers.
+     *
+     * Every removed mechanism is reported as NULL here, never as 0. Zero is a measurement; "this
+     * controller has no such mechanism" is not one, and a diagnostics view that cannot tell those
+     * apart is how a rider spends an afternoon tuning something that does not exist.
+     *
+     * Field map and units: protocol/RIDE_DIAGNOSTICS_6029.md in motor-controller-firmware.
+     */
+    /*
+     * TQ-06 G53 DIAGNOSTICS (0x6029 v8, 71 B) and v9 (77 B, TASK-EVD-TQ-06-G1 / ADR-013).
+     * Field map: protocol/RIDE_DIAGNOSTICS_6029.md (v8 and v9 sections) in motor-controller-firmware.
+     * v8 replaced the AP2 estimator/profile slots with read-only G53/native state, so it gets its
+     * own names here, never v7's. v9 = v8 + byte 34 bit1 (hard trip latched) + bytes 69..74.
+     */
+    static rideDiagnosticsV8(d, u16, i16, version) {
+        const v9 = version >= 9;
+        return {
+            version,
+            ride_engine: d[3],
+            peak_cadence_rpm: d[4],
+            assist_permitted: (d[5] & 0x01) !== 0,
+            forward_valid: (d[5] & 0x02) !== 0,
+            safety_cut: (d[5] & 0x04) !== 0,
+            torque_fault: (d[5] & 0x08) !== 0,
+            direction_inhibit: (d[5] & 0x10) !== 0,
+            real_stop: (d[5] & 0x20) !== 0,
+            service_cut: (d[5] & 0x40) !== 0,
+            pwm_on: (d[5] & 0x80) !== 0,
+            peak_d7ec_rider: u16(6),
+            peak_rider_power_w: u16(8),
+            peak_support_ratio_pct: u16(10),
+            peak_motor_power_w: u16(12),
+            peak_requested_battery_current_ma: u16(14),
+            peak_iq_request: u16(16),
+            peak_iq_setpoint: u16(18),
+            speed_x100: u16(20),
+            pas_idle_ms: u16(22),
+            d7ec_rider: u16(24),
+            final_iq_allowed: i16(26),
+            iq_setpoint_now: i16(28),
+            d7ec_envelope: u16(30),
+            measured_iq: i16(32),
+            battery_limiting: (d[34] & 0x01) !== 0,
+            battery_trip_latched: v9 ? (d[34] & 0x02) !== 0 : null,
+            d7ec_accel: u16(35),
+            e1e8_output: u16(37),
+            peak_u_abs: u16(39),
+            pack_voltage_mv: u16(41),
+            cadence_now: d[43],
+            power_limited: (d[44] & 0x01) !== 0,
+            battery_limited: (d[44] & 0x02) !== 0,
+            phase_limited: (d[44] & 0x04) !== 0,
+            voltage_limited: (d[44] & 0x08) !== 0,
+            thermal_limited: (d[44] & 0x10) !== 0,
+            speed_limited: (d[44] & 0x20) !== 0,
+            limiter_zeroed: (d[44] & 0x40) !== 0,
+            g53_normal_permission: (d[44] & 0x80) !== 0,
+            g53_pas_direction: d[45] >= 128 ? d[45] - 256 : d[45],
+            boundary_ax: u16(46),
+            rider_input_native: u16(48),
+            m2aa: u16(50),
+            fis_mode: d[52] & 0x0F,
+            zero_policy_quiet: (d[52] & 0x10) !== 0,
+            pedal_load_kg: u16(53) / 100,
+            raw_pa6_adc: u16(55),
+            release_ticks_16k: u16(57),
+            final_iq_ceiling: i16(59),
+            bde8_q50: d[61],
+            e1e8_state: d[62],
+            iq_request_before_limits: i16(63),
+            requested_motor_power_w: u16(65),
+            u_abs_live: u16(67),
+            // v9: the G53 battery-current limiter. null on v8 = "not reported", never 0.
+            g1_q12: v9 ? u16(69) : null,
+            g1: v9 ? u16(69) / 4096 : null,
+            limiter_feedback_a: v9 ? i16(71) / 100 : null,
+            hard_trip_count: v9 ? u16(73) : null,
+        };
+    }
+
+    static rideDiagnosticsV7(d, u16, i16) {
+        return {
+            version: d[2],
+            ride_engine: d[3],
+            // ---- peak-hold since the last read ----
+            cadence_for_assist: d[4],
+            rider_demand_peak_permille: u16(6),
+            human_power_w: u16(8),
+            support_ratio_pct: u16(10),
+            motor_power_w: u16(12),
+            requested_battery_current_ma: u16(14),
+            iq_request: i16(16),
+            iq_setpoint: i16(18),
+            u_abs: u16(39),
+            // ---- flags ----
+            without_rotation_active: (d[5] & 0x01) !== 0,   // v7: assist PERMITTED by the lifecycle
+            pedaling_active: (d[5] & 0x02) !== 0,
+            brake_active: (d[5] & 0x04) !== 0,
+            torque_fault: (d[5] & 0x08) !== 0,
+            backward_detected: (d[5] & 0x10) !== 0,
+            calibration_active: (d[5] & 0x20) !== 0,
+            comms_lost: (d[5] & 0x40) !== 0,
+            pwm_on: (d[5] & 0x80) !== 0,
+            // ---- live ----
+            speed_x100: u16(20),
+            pas_idle_ms: u16(22),
+            rider_demand_permille: u16(24),
+            iq_request_now: i16(26),
+            iq_setpoint_now: i16(28),
+            assist_base_permille: u16(30),
+            measured_iq: i16(32),
+            battery_limiting: (d[34] & 0x01) !== 0,
+            assist_dynamic_permille: u16(35),
+            rider_aggression_permille: u16(37),
+            pack_voltage_mv: u16(41),
+            cadence_now: d[43],
+            // Which stage of the ONE limiter chain was binding this tick, plus the two
+            // lifecycle segments. Together they answer "why is it not giving me more".
+            power_limited: (d[44] & 0x01) !== 0,
+            battery_limited: (d[44] & 0x02) !== 0,
+            phase_limited: (d[44] & 0x04) !== 0,
+            voltage_limited: (d[44] & 0x08) !== 0,
+            thermal_limited: (d[44] & 0x10) !== 0,
+            speed_limited: (d[44] & 0x20) !== 0,
+            start_active: (d[44] & 0x40) !== 0,
+            release_active: (d[44] & 0x80) !== 0,
+            pas_state: d[45],
+            load_state_permille: u16(46),
+            auto_factor_permille: u16(48),          // 0 calm .. 1000 strong
+            assist_response_permille: u16(50),
+            profile_id: d[52],
+            assist_load_kg: u16(53) / 100,
+            effort_permille: u16(55),
+            attack_ms: u16(57),
+            release_ms: u16(59),
+            max_power_w: u16(61),
+            iq_pre_limit: u16(63),                  // before the limiter chain
+            requested_motor_power_w: u16(65),
+            u_abs_live: u16(67),
+            // ---- mechanisms this firmware does not have. NULL, never 0. ----
+            torque_for_assist_mv: null,
+            fast_pressure: null,
+            run_pressure: null,
+            cadence_comp_permille: null,
+            cadence_comp_enabled: null,
+            precomp_motor_power_w: null,
+            ext_boost_qualifying: null,
+            ext_boost_armed: null,
+            ext_boost_active: null,
+            ext_boost_arm_expired: null,
+            ext_boost_peak_load_kg: null,
+            ext_boost_iq: null,
+            ext_boost_remaining_ms: null,
+            ext_boost_cancel_reason: null,
+            assist_torque_x160: null,
+            iq_launch_request: null,
+            iq_normal_request: null,
+            launch_blend_permille: null,
+        };
+    }
+
     // FW-015/017: ride-core diagnostics (0x6029) — v1 24 B (peak only) or v2 32 B
     // (peak + flags byte + current pas_idle_ms/pressure/iq_request/iq_setpoint), CRC16-CCITT.
     static rideDiagnostics(packet) {
@@ -543,7 +712,7 @@ class BafangCanControllerParser {
         if (!Array.isArray(d) || d.length < 24) {
             return { parseError: true, error: `Invalid diagnostics length ${d?.length}` };
         }
-        if (d[0] !== 0x44 || d[1] !== 0x47 || d[2] < 1 || d[2] > 6) {
+        if (d[0] !== 0x44 || d[1] !== 0x47 || d[2] < 1 || d[2] > 9) {
             return { parseError: true, error: 'Bad diagnostics magic/version' };
         }
         const version = d[2];
@@ -553,7 +722,12 @@ class BafangCanControllerParser {
         // v6 71 B (FW-129: +the unit-domain block — calibrated pedal load, normalized torque,
         //          both conversion anchors, the crossfade weight, pre-limit Iq, live motor
         //          power and live u_abs). CRC = last 2 B.
-        const BODY = { 1: 22, 2: 30, 3: 35, 4: 45, 5: 53, 6: 69 };
+        //          v7 71 B (Assist Pipeline V2: the same length and CRC, and NEW MEANINGS for
+        //          every slot whose mechanism went away with the legacy pipeline. Decoded on
+        //          its own below - see protocol/RIDE_DIAGNOSTICS_6029.md in the firmware.)
+        // v8 71 B (TQ-06 G53 map) and v9 77 B (TASK-EVD-TQ-06-G1: + G53 PI #1 g1, limiter feedback,
+        //          hard-trip count) are decoded by rideDiagnosticsV8 below.
+        const BODY = { 1: 22, 2: 30, 3: 35, 4: 45, 5: 53, 6: 69, 7: 69, 8: 69, 9: 75 };
         const bodyLen = BODY[version];
         const minLen = bodyLen + 2;
         if (d.length < minLen) {
@@ -566,6 +740,8 @@ class BafangCanControllerParser {
         }
         const u16 = (o) => d[o] | (d[o + 1] << 8);
         const i16 = (o) => { const v = u16(o); return v >= 32768 ? v - 65536 : v; };
+        if (version >= 8) return BafangCanControllerParser.rideDiagnosticsV8(d, u16, i16, version);
+        if (version >= 7) return BafangCanControllerParser.rideDiagnosticsV7(d, u16, i16);
         const out = {
             version,
             ride_engine: d[3],
