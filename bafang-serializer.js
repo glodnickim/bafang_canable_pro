@@ -245,7 +245,8 @@ function prepareParameter0WriteData(canbusInstance, value) {
              }
         }
 
-        new_pkg[63] = calculateChecksum(new_pkg.slice(0, 63));
+        // M560 contract §3: P0[63] is a flag, not a checksum.
+        new_pkg[63] = 0;
 
         writeLongParameter(canbusInstance, DeviceNetworkId.DRIVE_UNIT, CanWriteCommandsList.Parameter0, new_pkg)
 

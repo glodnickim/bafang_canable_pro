@@ -13,7 +13,7 @@ import {
     startRampContainer, startRampPlaceholder,
     pasCurvesContainerM820, pasCurvesPlaceholderM820,
     startRampContainerM820, startRampPlaceholderM820,
-    torqueMvToKg, torqueKgToMv, TORQUE_FULL_SCALE_KG,
+    torqueMvToKg, TORQUE_FULL_SCALE_KG,
 } from './shared.js';
 
 export function updateGearsUI() {
@@ -106,18 +106,18 @@ export function updateGearsUI() {
         const inputRatio = document.createElement('input');
         inputRatio.type = 'number';
         inputRatio.min = 0;
-        inputRatio.max = TORQUE_FULL_SCALE_KG;
-        inputRatio.step = 0.1;
+        inputRatio.max = 1000;
+        inputRatio.step = 1;
         inputRatio.value = (p0.assist_ratio_levels[internalIndex] && typeof p0.assist_ratio_levels[internalIndex].assist_ratio_level === 'number')
-                               ? torqueMvToKg(p0.assist_ratio_levels[internalIndex].assist_ratio_level) : '';
-        inputRatio.placeholder = `0-${TORQUE_FULL_SCALE_KG} kg`;
-        inputRatio.title = `Stored as native mV (${p0.assist_ratio_levels[internalIndex]?.assist_ratio_level ?? 'N/A'} mV); sent unchanged unless edited`;
+                               ? p0.assist_ratio_levels[internalIndex].assist_ratio_level : '';
+        inputRatio.placeholder = '0-1000';
+        inputRatio.title = 'Assist ratio (0-1000 %)';
         inputRatio.dataset.internalType = 'p0';
         inputRatio.dataset.internalIndex = internalIndex.toString();
         inputRatio.dataset.param = 'assist_ratio_level';
         inputRatio.addEventListener('change', handleAssistInputChange);
         cellinputassistRatio.appendChild(inputRatio);
-        cellinputassistRatio.append(' kg');
+        cellinputassistRatio.append(' %');
 
         const cellAccel = row.insertCell();
         const inputAccel = document.createElement('input');
@@ -467,9 +467,7 @@ export function handleAssistInputChange(event) {
     const internalType = input.dataset.internalType;
     const internalIndex = parseInt(input.dataset.internalIndex, 10);
     const param = input.dataset.param;
-    let value = (param === 'assist_ratio_level')
-        ? torqueKgToMv(parseFloat(input.value))
-        : parseInt(input.value, 10);
+    let value = parseInt(input.value, 10);
     if (value === null) value = NaN;
 
     if (isNaN(internalIndex) || !param || isNaN(value)) {
@@ -518,7 +516,7 @@ export function handleAssistInputChange(event) {
         }
         targetObject[targetArrayName][internalIndex][targetParamName] = value;
         console.log(`Updated ${internalType.toUpperCase()} Internal Assist Index ${internalIndex}, Param ${targetParamName} to ${value}`);
-        if (gearsElements.autoCorrectionCheckbox && gearsElements.autoCorrectionCheckbox.checked) {
+        if (param !== 'assist_ratio_level' && gearsElements.autoCorrectionCheckbox && gearsElements.autoCorrectionCheckbox.checked) {
             const toDisplay = (v) => (param === 'assist_ratio_level') ? torqueMvToKg(v) : v;
             for (let i = (internalIndex + 1); i < 9; i++) {
                 if (targetObject[targetArrayName][i] && targetObject[targetArrayName][i][targetParamName] < value) {
