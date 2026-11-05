@@ -49,6 +49,9 @@ socket.onopen = () => {
 let reconnectPoll = null;
 function waitForServerThenReload() {
     if (reconnectPoll) return;
+    // Browser build: there is no server to come back, the page itself answers './', so
+    // this would reload forever after a failed start and wipe the error off the screen.
+    if (window.WEBUSB_BUILD) return;
     let attempt = 0;
     reconnectPoll = setInterval(async () => {
         attempt += 1;

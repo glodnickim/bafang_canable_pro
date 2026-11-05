@@ -1376,3 +1376,18 @@ h3.section-subtitle:first-of-type { margin-top: 0; }
     letter-spacing: 0;
     vertical-align: middle;
 }
+
+/* Narrow screens (phone, browser build): wrap the tab bar into rows so all tabs are
+   visible, and the status row so it cannot widen the page past the screen, which also
+   pushed the fixed WebUSB panel's buttons off the edge. */
+@media (max-width: 640px) {
+    .tab-buttons {
+        flex-wrap: wrap !important;
+        overflow-x: visible !important;
+        row-gap: 2px;
+    }
+    .tab-button { padding: 6px 10px; }
+    :has(> #canDeviceName) { flex-wrap: wrap; }
+    #canDeviceName { margin-left: 0; text-align: left; }
+    #controllerFlavorBadge { max-width: 100%; white-space: normal; }
+}
