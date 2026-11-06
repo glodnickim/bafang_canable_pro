@@ -20,6 +20,25 @@
 - Run `npm install` in terminal to download all dependencies
 - Run `node server.js` in terminal
 
+## Or run it in the browser, no install
+
+The same app runs in the browser and talks to the CANable over WebUSB: Chrome or Edge on
+Windows, Linux, macOS or Android (with a USB OTG cable). iPhone and Firefox have no WebUSB.
+It is published from the `evistdrive` branch at
+[glodnickim.github.io/bafang_canable_pro](https://glodnickim.github.io/bafang_canable_pro/).
+After the first visit it opens without internet and can be installed from the browser menu.
+
+**Logging a whole ride:** press **Ride log**. The page reloads, the adapter only listens
+(nothing is sent on the bus) and every CAN frame is saved on the device, with no filtering,
+until you press **Stop**. Keep the page on screen; it keeps the screen on, and a red bar
+means frames stopped or storage failed. Afterwards open **Logs** to save or share the
+files. A file is split every 32 MB (`can-trace-p001.log`, `-p002`, ...).
+
+Technically: `ui/webusb/` runs `server.js` in a worker; logs go to the browser's Origin
+Private File System about once a second. `can-trace` IDs are 29-bit, without the leading 8
+that the sniffer log shows. `CAN_LISTEN_ONLY=1 node server.js` gives the same silent mode
+in the Node build. Firmware updates from the browser are not tested on our hardware yet.
+
 ## eVistDrive Ride Core interface
 
 The source build adds a second set of tabs for controllers running eVistDrive Ride Core

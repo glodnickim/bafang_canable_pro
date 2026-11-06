@@ -95,7 +95,10 @@ class CanBusService extends EventEmitter {
         return this.connectedDeviceName;
     }
 
-     async init(knownDeviceName = null) { // Accept knownDeviceName
+     // listenOnly opens the adapter in gs_usb listen-only mode: it cannot transmit
+     // anything, not even the CAN-level acknowledgement, so it never disturbs the bus.
+     // Default from CAN_LISTEN_ONLY=1 (the browser build's ride mode sets it).
+     async init(knownDeviceName = null, { listenOnly = process.env.CAN_LISTEN_ONLY === '1' } = {}) { // Accept knownDeviceName
         if (this.isStarted) {
             console.log('[CanBusService] CAN device already initialized.');
             // If already started, ensure connectedDeviceName is consistent
@@ -111,7 +114,7 @@ class CanBusService extends EventEmitter {
 
         try {
             // GSUsb.start() internally finds the device
-            const startResult = await this.canDevice.start(BAFANG_CAN_BITRATE, 0);
+            const startResult = await this.canDevice.start(BAFANG_CAN_BITRATE, listenOnly ? GSUsb.GS_DEVICE_FLAGS.listenOnly : 0);
 
             if (!startResult || !startResult.ok) {
                 this.connectedDeviceName = null; // Clear name on failure
@@ -139,7 +142,13 @@ class CanBusService extends EventEmitter {
 
             this.frameLength = this.canDevice.frameLength || 20;
             this.isStarted = true;
-            console.log(`[CanBusService] CAN device started successfully at ${BAFANG_CAN_BITRATE} bps. Device: ${this.connectedDeviceName}`);
+            // noTransmit holds even when the adapter lacks listen-only: in ride mode this
+            // tool sends nothing of its own (no reads, no multi-frame ACKs).
+            this.noTransmit = listenOnly;
+            this.listenOnly = listenOnly && (this.canDevice.device_flags & GSUsb.GS_DEVICE_FLAGS.listenOnly) !== 0;
+            if (listenOnly && !this.listenOnly)
+                console.warn('[CanBusService] The adapter does not support listen-only mode; it will acknowledge frames on the bus.');
+            console.log(`[CanBusService] CAN device started successfully at ${BAFANG_CAN_BITRATE} bps${this.listenOnly ? ' (listen-only)' : ''}. Device: ${this.connectedDeviceName}`);
             this.emit('can_status', true, `CAN device connected (${this.connectedDeviceName}).`);
 
             // 'frame' / 'error' / 'echo' / 'canerror' are bound once in the constructor —
@@ -209,7 +218,7 @@ class CanBusService extends EventEmitter {
      * @param {object} originalParsedFrame - The parsed frame of the segment being acknowledged.
      */
     async _sendAck(originalParsedFrame) {
-        if (!this.isStarted) return; // Don't send if not connected
+        if (!this.isStarted || this.noTransmit) return; // Don't send if not connected, or in ride mode
 
         try {
             const ackIdArr = generateCanFrameId(
@@ -1125,6 +1134,8 @@ class CanBusService extends EventEmitter {
     // --- sendFrame (Low-level sender - Unchanged) ---
     async sendFrame(commandString) { /* ... */
         if (!this.isStarted) throw new Error('CAN device not connected/started.'); 
+        // Listen-only: the adapter would drop it anyway; fail at once instead of waiting for an echo.
+        if (this.noTransmit) throw new Error('Ride mode (listen-only): this tool sends nothing.');
         try { 
             const parts = commandString.split('#'); 
             if (parts.length !== 2) 
