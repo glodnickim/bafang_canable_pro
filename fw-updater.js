@@ -1,5 +1,6 @@
 const { setupLogger, formatRawCanFrameData, delay,delayu } = require('./utils');
 const { monitorEventLoopDelay, PerformanceObserver } = require('perf_hooks');
+const os = require('node:os');
 // --- Configuration Constants ---
 const CHUNK_SIZE = 8; // Bytes per chunk
 const HEADER_SIZE = 16; // The first 16 hex bytes to be excluded from the data transfer
@@ -43,6 +44,7 @@ class FwUpdater {
         this.lastChunkConfirmed =   false; // Flag to track if the last chunk has been confirmed
         this.lastChunkAckData = null;      // status bytes carried by the final ACK
         this.lastChunkAckDlc = 0;
+        this.finalAckAt = null;
         this.firstChunkACK =        false;
         this.lastChunkId = null; // Will be set after the last chunk number is calculated
         this.timeout = 15000; // 15 seconds timeout;
@@ -59,7 +61,21 @@ class FwUpdater {
         this.echoCount = 0;              // Frames the adapter confirms it transmitted
         this.errorFrameCount = 0;        // CAN controller/bus error reports
         this.echoWaiter = null;          // Resolves the in-flight window wait
+        this.lastComplaintChunk = null;  // Chunk the device named when refusing a block
+        this.chunkEchoPending = null;
+        this.chunkEchoTimeoutMs = 1000;
+        this.strictChunkEcho = false;
+        this.requireFourByteFinalAck = false;
+        this.hmiPendingEchoes = new Map();
+        this.hmiWriteError = null;
+        this.hmiSendWindow = 2;
+        this.frameTrace = new Array(768);
+        this.frameTraceNext = 0;
+        this.frameTraceCount = 0;
         this.lastErrorFrameId = 0;
+        this.dataPhaseStarted = false;   // set once the first data chunk is about to go out
+        this.controllerFrames = 0;       // frames whose source is the motor controller (node 2)
+        this.controllerLastSeenAt = null;
         this.leadingIdNum = "8"; // The leading number for the ID, e.g., 8 for 82F83200
         this.chunksACKObject = {}; // Object to track ACKs for each 
         this.chunksACKObjectplus1 = {}; //
@@ -89,7 +105,12 @@ class FwUpdater {
     }
     setupForHMI(){
         this.deviceId = '3'; //HMI
-        this.upgradeEndHoldMs = 30000; // Measured against the official tool on a DPC245
+        // USB completion is not CAN completion. Track each frame in a bounded
+        // window; drain all echoes at block boundaries and before the final frame.
+        this.strictChunkEcho = true;
+        this.maxInFlight = this.hmiSendWindow;
+        this.requireFourByteFinalAck = true; // DPC245 capture; other displays have no capture
+        this.upgradeEndHoldMs = 34000; // Successful BESST capture, 2026-09-14
         this.indexAckCheckFct = (i) => (i - 1) % 256 === 0 && i!==2;
         this.chunk0Prefix = 'C';
         this.chunkNPrefix = 'D';
@@ -102,10 +123,12 @@ class FwUpdater {
     }
     setupForDPC18(){
         this.setupForHMI();
+        this.requireFourByteFinalAck = false;
         this.indexAckCheckFct = (i) => (i - 1) % 4096 === 0 && i!==2;
     }
     setupForDPE160(){
         this.setupForHMI();
+        this.requireFourByteFinalAck = false;
         this.indexAckCheckFct = (i) => ((i - 1) % 256 === 0 && i!==2) || (i + 127) % 256 === 0;
     }
     setupForHubControler(){
@@ -163,17 +186,32 @@ class FwUpdater {
         // The adapter reports "ok" for a USB write even when it cannot put the frame on
         // the bus - measured: 1500 writes accepted, 3 frames actually transmitted. The
         // echo is the only real confirmation, so count them and compare per block.
-        this.onRawFrameSent = () => {
-            this.echoCount++;
+        this.onRawFrameSent = (frame) => {
+            this.recordFrameTrace('TX-ECHO', frame);
+            const id = (frame.can_id >>> 0).toString(16).toUpperCase();
+            if (id.startsWith(`${this.leadingIdNum}51${this.chunkNPrefix}`)) this.echoCount++;
+            const pending = this.chunkEchoPending;
+            if (pending && id === pending.id) pending.confirmed = true;
+            const queued = this.hmiPendingEchoes.get(id);
+            if (queued) {
+                queued.echo = true;
+                if (queued.usbDone) this.hmiPendingEchoes.delete(id);
+            }
             if (this.echoWaiter) this.echoWaiter();
         };
         this.onRawFrameError = (frame) => {
+            this.recordFrameTrace('CAN-ERROR', frame);
             this.errorFrameCount++;
             this.lastErrorFrameId = frame.can_id;
+            if (this.errorFrameCount <= 3) {
+                const { dataHex } = formatRawCanFrameData(frame);
+                this.logMessage(`CAN error ID:0x${frame.can_id.toString(16)} Data:${dataHex} decoded:${JSON.stringify(frame.errors || {})}`, 'WARN');
+            }
         };
         this.onRawFrame = (rawFrame) => {
             if(this.end)
                 return;
+            this.recordFrameTrace('RX', rawFrame);
             const { idHex, dataHex, dlc, timestamp } = formatRawCanFrameData(rawFrame);
             if (idHex === "INVALID") {
                 console.warn("Received invalid frame object, skipping.");
@@ -188,6 +226,22 @@ class FwUpdater {
             // What the device sends is sparse (a few hundred frames per update),
             // so recording all of it costs nothing and shows what we ignore.
             this.logMessage(`RX ${idHex} DLC:${dlc} Data:${dataHex}`, 'RX', false);
+            const efid = rawFrame.can_id & 0x1FFFFFFF;
+            if (((efid >>> 24) & 0x1F) === 2) {
+                this.controllerFrames++;
+                this.controllerLastSeenAt = Date.now();
+            }
+            // 13FF3000 is what the DPC245 bootloader sends when it starts: zero once on entry,
+            // then its elapsed milliseconds every 10 s (captures 2026-10-08 and 2026-10-09).
+            // Zero again after the data phase began means the display restarted - lost power
+            // or reset - and everything it had taken is gone. Waiting out the ACK timeout
+            // would only hide that behind a generic "Timeout reached".
+            if (this.strictChunkEcho && this.dataPhaseStarted && efid === 0x13FF3000
+                && /^[0 ]*$/.test(dataHex) && !this.transferError) {
+                this.transferError = `HMI restarted during the transfer (bootloader start frame 13FF3000 `
+                    + `after chunk 0x${this.formatChunkNumber(Math.max(0, this.lastChunkSendIndex))}).`
+                    + this.controllerResetHint(Math.max(0, this.lastChunkSendIndex - 255), this.lastChunkSendIndex);
+            }
             // 2B (rather than 2A) is the device reporting a problem. Without this we
             // would sit in a wait loop until its timeout with no idea why.
             if(idHex.includes(`${this.deviceId}2B`)){
@@ -206,6 +260,7 @@ class FwUpdater {
                 // signal this protocol has, so keep it instead of only raising the flag.
                 this.lastChunkAckData = dataHex;
                 this.lastChunkAckDlc = dlc;
+                this.finalAckAt = performance.now();
                 this.lastChunkConfirmed = true;
             }
             if(idHex.includes(`${this.deviceId}2A6008`)){
@@ -213,6 +268,15 @@ class FwUpdater {
             }
             if(this.lastChunkSendIndex >= 0 && idHex.includes(`${this.deviceId}2A${this.formatChunkNumber(this.lastChunkSendIndex)}`)){
                 this.chunksACKObject[this.lastChunkSendIndex] = true; // Mark this chunk as acknowledged
+            }
+            // Any other numbered report from the device during the data phase is it
+            // naming the chunk it took issue with - the only clue to where in the block
+            // things went wrong, and worth comparing against where our worst stall was.
+            if(this.lastChunkSendIndex >= 0 && dlc === 8
+               && idHex.includes(`${this.deviceId}2A`)
+               && !idHex.includes(`${this.deviceId}2A${this.formatChunkNumber(this.lastChunkSendIndex+1)}`)
+               && !idHex.includes(`${this.deviceId}2A4001`) && !idHex.includes(`${this.deviceId}2A6008`)){
+                this.lastComplaintChunk = parseInt(idHex.slice(-4), 16);
             }
             if(this.lastChunkSendIndex >= 0 && idHex.includes(`${this.deviceId}2A${this.formatChunkNumber(this.lastChunkSendIndex+1)}`)){
                 this.chunksACKObjectplus1[this.lastChunkSendIndex] = true; // Mark this chunk as acknowledged
@@ -228,6 +292,44 @@ class FwUpdater {
         this.canbus.on('raw_frame_sent', this.onRawFrameSent);
         this.canbus.on('raw_frame_error', this.onRawFrameError);
         this.canbus.on('raw_frame_received', this.onRawFrame);
+    }
+
+    // HMI data frames carry the chunk number where other frames carry a command, so chunk
+    // 0x3005 goes out as 051D3005 - command 0x3005 addressed to node 3. eVistDrive controller
+    // firmware with the FW-132 rule restarts on any 0x3005 not addressed to broadcast, and its
+    // restart drops the display supply (2026-10-08 trace: controller silent 1.28 s, then the
+    // display came back in its bootloader). BESST did not hit it because no controller was
+    // talking on the bus in its capture. Returns '' when the hint does not apply.
+    controllerResetHint(firstChunk, lastChunk) {
+        if (!this.controllerFrames || firstChunk > 0x3005 || lastChunk < 0x3005) return '';
+        const silentMs = this.controllerLastSeenAt === null ? null : Date.now() - this.controllerLastSeenAt;
+        return ' Likely cause: the motor controller is on this bus and this block contains chunk 0x3005 '
+            + '(frame 051D3005); controller firmware that restarts on an addressed 0x3005 resets there '
+            + 'and cuts the display supply'
+            + (silentMs !== null && silentMs > 500 ? ` (controller silent for the last ${silentMs} ms)` : '')
+            + '. Fix the controller firmware (honour 0x3005 only when addressed to node 2) '
+            + 'before flashing the display with the controller connected.';
+    }
+
+    recordFrameTrace(direction, frame) {
+        // Keep the bounded trace in RAM; format/write only after a failed attempt.
+        // GSUsb creates a separate CanFrame for each received frame.
+        this.frameTrace[this.frameTraceNext] = {
+            direction, frame, hostNs: process.hrtime.bigint(),
+            chunk: this.lastChunkSendIndex,
+        };
+        this.frameTraceNext = (this.frameTraceNext + 1) % this.frameTrace.length;
+        this.frameTraceCount = Math.min(this.frameTraceCount + 1, this.frameTrace.length);
+    }
+    dumpFrameTrace() {
+        const start = (this.frameTraceNext - this.frameTraceCount + this.frameTrace.length) % this.frameTrace.length;
+        const origin = this.frameTrace[start]?.hostNs;
+        this.logMessage(`Failure trace: last ${this.frameTraceCount} CAN events; host relative us and adapter timestamps follow in the log file.`, 'INFO');
+        for (let i = 0; i < this.frameTraceCount; i++) {
+            const e = this.frameTrace[(start + i) % this.frameTrace.length];
+            const { idHex, dataHex, dlc } = formatRawCanFrameData(e.frame);
+            this.logMessage(`host_us=${(e.hostNs - origin) / 1000n} adapter_us=${e.frame.timestamp_us ?? 'unknown'} ${e.direction} ${idHex} DLC:${dlc} Data:${dataHex} host_chunk=${e.chunk}`, 'TRACE', false);
+        }
     }
 
     // Called when the procedure ends, however it ended. Without this the updater stays
@@ -246,7 +348,41 @@ class FwUpdater {
             this.onRawFrameError = null;
         }
     }
-    async sendRawFrameWithRetry(id,data,retries = 3){
+    async waitForHmiWindow(limit) {
+        if (this.hmiWriteError) throw this.hmiWriteError;
+        while (this.hmiPendingEchoes.size >= limit) {
+            if (!this.canbus.isConnected()) throw new Error('CAN link lost while draining HMI transmit window.');
+            for (const [id, entry] of this.hmiPendingEchoes) {
+                if (Date.now() >= entry.deadline) throw new Error(`No USB/CAN completion for HMI frame ${id}; update stopped with an incomplete transmit window.`);
+            }
+            await this.waitForEcho();
+            if (this.hmiWriteError) throw this.hmiWriteError;
+        }
+    }
+    async queueHmiChunk(id, data) {
+        await this.waitForHmiWindow(this.hmiSendWindow);
+        const fullId = `${this.leadingIdNum}${id}`.toUpperCase();
+        const entry = { deadline: Date.now() + this.chunkEchoTimeoutMs, usbDone: false, echo: false };
+        this.hmiPendingEchoes.set(fullId, entry);
+        // Submit in chunk order, but do not serialize USB completion with the next
+        // submission. A slot is released only after BOTH USB and matching CAN echo.
+        // Observe every rejection immediately; do not retry an ambiguous write.
+        const done = () => { if (this.echoWaiter) this.echoWaiter(); };
+        try {
+            Promise.resolve(this.canbus.sendRawFrame(fullId, data)).then(ok => {
+                if (!ok) throw new Error(`USB write failed for HMI frame ${fullId}.`);
+                entry.usbDone = true;
+                if (entry.echo) this.hmiPendingEchoes.delete(fullId);
+            }).catch(error => {
+                this.hmiWriteError = error;
+            }).finally(done);
+        } catch (error) {
+            this.hmiWriteError = error;
+            throw error;
+        }
+        return true;
+    }
+    async sendRawFrameWithRetry(id,data,retries = 3, pipeline = false){
         // Every step of the flash funnels through here, so one check covers all of them.
         // Without it a link that dies mid-flash is only noticed at the next ACK checkpoint
         // — up to 255 chunks later — or at a step timeout 15 s on, and the failure reads
@@ -254,11 +390,28 @@ class FwUpdater {
         if (!this.canbus.isConnected()) {
             throw new Error('CAN link lost during the firmware update — the adapter stopped responding.');
         }
+        if (pipeline && this.strictChunkEcho) return this.queueHmiChunk(id, data);
         let sent = false;
         let tryCount = 0;
         //this.logMessage(`Sending ID:${this.leadingIdNum+id}`, 'SENT');
         do{
+            const fullId = `${this.leadingIdNum}${id}`.toUpperCase();
+            const waitForChunk = this.strictChunkEcho && /^51[CDE][0-9A-F]{4}$/i.test(id);
+            const pending = waitForChunk ? { id: fullId, confirmed: false } : null;
+            if (pending) this.chunkEchoPending = pending;
+            try {
             sent = await this.canbus.sendRawFrame(this.leadingIdNum+id,data);
+            if (sent && pending) {
+                const deadline = Date.now() + this.chunkEchoTimeoutMs;
+                while (!pending.confirmed) {
+                    if (!this.canbus.isConnected()) throw new Error('CAN link lost while waiting for HMI chunk transmission.');
+                    if (Date.now() >= deadline) throw new Error(`No CAN transmit confirmation for HMI frame ${pending.id}; update stopped before sending another chunk.`);
+                    await this.waitForEcho();
+                }
+            }
+            } finally {
+                if (pending && this.chunkEchoPending === pending) this.chunkEchoPending = null;
+            }
             if (!sent) {
                 this.logMessage(`sendFrame returned false for ID${this.leadingIdNum+id}`, 'ERROR');
                 await delay(delayMs);
@@ -372,6 +525,7 @@ class FwUpdater {
         return chunkData;
     }
     async sendFirstChunk() {
+        this.dataPhaseStarted = true;
         const chunkId0 = this.formatChunkNumber(0); // #### incrementing chunk number
         const chunkData0 = this.getFirmwareChunk(0); // XXXXXXXXXXXXXXXX
         await this.sendRawFrameWithRetry(`51${this.chunk0Prefix}${chunkId0}`,chunkData0);
@@ -381,8 +535,11 @@ class FwUpdater {
         await this.sendRawFrameWithRetry(`51${this.chunkNPrefix}${chunkId1}`,chunkData1);
         this.startTime = Date.now();
         this.logMessage('Step 4.1: Waiting for acknowledgment of the first chunk...', 'INFO');
+        // Poll finely: the data chunks have to follow this ACK quickly (BESST sends
+        // chunk 2 within 1 ms). A timer poll can round up to the Windows tick, and in the
+        // browser build a 35 ms gap here got the transfer rejected from chunk 2 on.
         do{
-            await delay(20);
+            await delayu(this.delayUs);
             if (this.transferError) {
                 throw `Step 4.1: ${this.transferError}`;
             }
@@ -395,13 +552,28 @@ class FwUpdater {
     // timeout so a dropped echo cannot wedge the transfer.
     waitForEcho() {
         return new Promise((resolve) => {
-            const done = () => { clearTimeout(timer); this.echoWaiter = null; resolve(); };
-            const timer = setTimeout(done, this.echoWaitMs);
-            this.echoWaiter = done;
+            // Windows timers can round a 5 ms wait up to a scheduler tick. Yield
+            // to USB callbacks while checking a monotonic deadline instead.
+            const deadline = process.hrtime.bigint() + BigInt(Math.round(this.echoWaitMs * 1e6));
+            let settled = false;
+            const finish = (timedOut) => {
+                if (settled) return;
+                settled = true;
+                this.echoWaiter = null;
+                resolve(timedOut);
+            };
+            this.echoWaiter = () => finish(false);
+            const poll = () => {
+                if (settled) return;
+                if (process.hrtime.bigint() >= deadline) { finish(true); return; }
+                setImmediate(poll);
+            };
+            setImmediate(poll);
         });
     }
     async sendDataChunks() {
         this.logMessage('Step 5: Sending data chunks...'
+            + (this.strictChunkEcho ? ` (HMI: pipelined USB/CAN window ${this.hmiSendWindow}, no extra inter-chunk delay)` : '')
             + (this.debugStallMs ? ` (DEBUG: ${this.debugStallMs}ms stall armed at chunk ${this.debugStallAtChunk})` : ''), 'INFO');
         // Throughput accounting. The interesting number is not the overall rate but
         // how it splits between putting frames on the wire and blocking on the
@@ -435,6 +607,8 @@ class FwUpdater {
         const gapCounts = [0, 0, 0, 0];
         let prevSendNs = process.hrtime.bigint();
         let blockMaxGapUs = 0, runMaxGapUs = 0, markMaxGapUs = 0, runMaxLagNs = 0;
+        let blockWorstGapAt = -1, blockFirstChunk = this.startSendChunkIndex;
+        let blockStartNs = process.hrtime.bigint(), blockIndex = 0;
         let lastSentIndex = this.startSendChunkIndex - 1;
         // Split the cycle: time spent inside the USB write, versus time waiting to be
         // given the loop back afterwards. A stall in the first is the transfer itself
@@ -452,9 +626,9 @@ class FwUpdater {
             this.lastChunkSendIndex = i;
             lastSentIndex = i;
             const sendFromNs = process.hrtime.bigint();
-            await this.sendRawFrameWithRetry(`51${this.chunkNPrefix}${chunkId}`,chunkData);
+            await this.sendRawFrameWithRetry(`51${this.chunkNPrefix}${chunkId}`,chunkData,3,this.strictChunkEcho);
             this.progress = Math.round((i/this.NUM_CHUNKS)*100);
-            if (this.maxInFlight > 0) {
+            if (this.maxInFlight > 0 && !this.strictChunkEcho) {
                 // Sliding window: keep the pipe full but never let the adapter's queue
                 // run away, which is what a fixed delay cannot know how to avoid.
                 let guard = 0;
@@ -471,7 +645,7 @@ class FwUpdater {
                 const gapUs = Number(nowNs - prevSendNs) / 1000;
                 prevSendNs = nowNs;
                 for (let b = 0; b < gapBuckets.length; b++) if (gapUs > gapBuckets[b]) gapCounts[b]++;
-                if (gapUs > blockMaxGapUs) blockMaxGapUs = gapUs;
+                if (gapUs > blockMaxGapUs) { blockMaxGapUs = gapUs; blockWorstGapAt = i; }
                 if (gapUs > markMaxGapUs) markMaxGapUs = gapUs;
                 if (gapUs > runMaxGapUs) runMaxGapUs = gapUs;
             }
@@ -481,6 +655,7 @@ class FwUpdater {
                 await delay(this.debugStallMs);   // counted in the next gap on purpose
             }
             if (this.indexAckCheckFct(i)) {
+                if (this.strictChunkEcho) await this.waitForHmiWindow(1);
                 const waitFromNs = process.hrtime.bigint();
                 this.startTime = Date.now();
                 do{
@@ -489,10 +664,20 @@ class FwUpdater {
                         throw `Step 5(chunkId:${chunkId}): ${this.transferError}`;
                     }
                     if (Date.now() - this.startTime > this.timeout) {
-                        throw `Step 5(chunkId:${chunkId}): Timeout reached, exiting loop....`;
+                        throw `Step 5(chunkId:${chunkId}): Timeout reached, exiting loop....`
+                            + (this.strictChunkEcho ? this.controllerResetHint(i - 255, i) : '');
                     }
                 }while(!this.doWhileAckCheckFct(i));
-                ackWaitNs += process.hrtime.bigint() - waitFromNs;
+                const ackDoneNs = process.hrtime.bigint();
+                ackWaitNs += ackDoneNs - waitFromNs;
+                // Whole-run figures average one block against tens of thousands of chunks,
+                // so log the first blocks on their own: failing and passing runs compare directly.
+                if (blockIndex < 3) {
+                    const n = i - blockFirstChunk + 1;
+                    this.logMessage(`Block ${blockIndex} (chunks ${blockFirstChunk}..${i}): `
+                        + `cycle ${(Number(waitFromNs - blockStartNs) / 1000 / n).toFixed(0)} us/chunk, `
+                        + `ACK after ${(Number(ackDoneNs - waitFromNs) / 1e6).toFixed(1)} ms`, 'RATE');
+                }
                 // The ACK is cumulative: its payload says the device has committed
                 // everything below (i+1)*8. If it reports less, the block we just
                 // streamed never landed and the device is still sitting further
@@ -525,7 +710,14 @@ class FwUpdater {
                         + `worst single USB write in this block ${blockMaxSendUs.toFixed(0)}us, `
                         + `adapter confirmed ${confirmedSoFar}/${sentSoFar} frames transmitted so far `
                         + `(shortfall ${shortfall}; 1-2 is echo still in flight, more means dropped), `
-                        + `CAN error frames in this block ${this.errorFrameCount - blockStartErrors}`, 'WARN');
+                        + `CAN error frames in this block ${this.errorFrameCount - blockStartErrors}`
+                        + `, block spans ${blockFirstChunk}..${i}`
+                        + `, worst stall at chunk ${blockWorstGapAt} (position ${blockWorstGapAt - blockFirstChunk + 1})`
+                        + (this.lastComplaintChunk !== null
+                            ? `, device complained about chunk 0x${this.lastComplaintChunk.toString(16).toUpperCase()} `
+                              + `(position ${((this.lastComplaintChunk - blockFirstChunk) & 0xFFFF) + 1}) `
+                              + `-> stall came ${blockWorstGapAt - blockFirstChunk <= ((this.lastComplaintChunk - blockFirstChunk) & 0xFFFF) ? 'BEFORE' : 'AFTER'} the complaint`
+                            : ', device named no chunk'), 'WARN');
                     if (sameSpotResends > this.maxBlockResends || resends > this.maxTotalResends
                         || resumeAt < this.startSendChunkIndex || resumeAt > i) {
                         throw `Step 5(chunk ${i}): device rejected the block at ${resumeAt}, ${behindChunks} chunk(s) behind`
@@ -541,13 +733,18 @@ class FwUpdater {
                 }
                 this.lastAckWriteAddress = null;
                 blockStartErrors = this.errorFrameCount;
+                blockFirstChunk = i + 1;
+                blockIndex++;
+                blockStartNs = process.hrtime.bigint();
+                blockWorstGapAt = -1;
+                this.lastComplaintChunk = null;
                 blockMaxGapUs = 0;
                 blockMaxSendUs = 0;
                 gcBlockMaxMs = 0;
                 if (loopLag.max > runMaxLagNs) runMaxLagNs = loopLag.max;
                 loopLag.reset();   // per-block window, so a rejection reports its own lag
                 prevSendNs = process.hrtime.bigint(); // the ACK wait is not a stall
-            }else
+            }else if (!this.strictChunkEcho)
                 await delayu(this.delayUs);
             if (i - markIndex >= this.rateReportEvery) {
                 const nowNs = process.hrtime.bigint();
@@ -565,6 +762,7 @@ class FwUpdater {
                 markMaxGapUs = 0;
             }
         }
+        if (this.strictChunkEcho) await this.waitForHmiWindow(1);
         } finally {
         const sentCount = Math.max(1, lastSentIndex + 1 - this.startSendChunkIndex);
         const done = lastSentIndex >= this.NUM_CHUNKS - 2;
@@ -590,16 +788,16 @@ class FwUpdater {
             `Adapter confirmed transmitting ${this.echoCount - baseEcho}/${sentCount} chunk frames `
             + `(peak in-flight shortfall ${maxShortfall})`
             + (sentCount - (this.echoCount - baseEcho) > 2
-                ? ` - ${sentCount - (this.echoCount - baseEcho)} FRAME(S) NEVER REACHED THE BUS`
-                : ' - nothing dropped by the adapter'), 'RATE');
+                ? ` - ${sentCount - (this.echoCount - baseEcho)} transmit confirmation(s) missing`
+                : ' - transmit echoes accounted for; device acceptance is checked separately'), 'RATE');
         // How often the firmware packed several frames into one USB transfer. Before
         // the multi-frame fix in onUSBPollData every one of these lost all but the
         // first frame, so a non-zero count here means the fix is doing real work.
         const packed = this.canbus.canDevice && this.canbus.canDevice.multiFrameTransfers;
         if (packed) this.logMessage(`USB transfers carrying more than one frame: ${packed}`, 'RATE');
         const errs = this.errorFrameCount - baseErrors;
-        this.logMessage(`CAN error frames reported by the controller: ${errs}`
-            + (errs ? ` (last id 0x${this.lastErrorFrameId.toString(16).toUpperCase()}; `
+        this.logMessage(`CAN error frames: ${errs} during data transfer, ${this.errorFrameCount} in the whole session (${baseErrors} before data)`
+            + (this.errorFrameCount ? ` (last id 0x${this.lastErrorFrameId.toString(16).toUpperCase()}; `
                     + `set CAN_VERBOSE_ERRORS=1 to decode them)` : ''), 'RATE');
         }
     }
@@ -619,7 +817,11 @@ class FwUpdater {
                 throw 'Step 7: Timeout reached, exiting loop....';
             }
         }while(!this.lastChunkConfirmed);
-        // Block ACKs have DLC 0; the closing ACK carries a status word (DPC245: four
+        if (this.requireFourByteFinalAck && (this.lastChunkAckDlc !== 4 ||
+            (this.lastChunkAckData || '').replace(/\s/g, '') !== '00000000')) {
+            throw new Error(`HMI final ACK is not the successful four-byte status: DLC ${this.lastChunkAckDlc}, data ${this.lastChunkAckData}`);
+        }
+        // The closing ACK carries a status word (DPC245: four
         // zero bytes on a good transfer). Since the protocol cannot report a gap in the
         // middle, this is the only place a lost frame can still be caught before the
         // display starts writing a broken image.
@@ -632,23 +834,26 @@ class FwUpdater {
         }
         
     }
-    // Closing sequence, replicated from a bus sniff of the official tool:
-    //
-    //   ~200 ms after the final ACK   85FF3005#01
-    //   ~1 s later                    85FF3005#00      (device answers ..FF3005#01)
-    //   then                          85FF3005#00 every ~60 ms for ~26 s
-    //   then                          85FF3005#01
-    //
-    // Those 26 s are the window in which the display programs its own flash. The old
-    // implementation was delay(3000) -> 01 -> delay(2000), i.e. it dropped the window
-    // entirely and closed the session while the device was still writing.
-    //
-    // Holding the session open cannot do any harm: command 0x3005 is handled only by
-    // the resident bootloader — it does not exist in the application at all (checked on
-    // the DPC245 image: the constant appears nowhere in the APP), so once the display
-    // reboots into the new firmware every one of these announces is simply ignored.
+    // HMI closing is based on the 2026-09-14 BESST capture, confirmed by
+    // successful startup after a manual power cycle. Other modes retain their
+    // previous ending sequence. A final ACK does not prove application startup.
     async announceFirmwareUpgradeEnd() {
         this.logMessage('Step 8: Announcing firmware upgrade end...', 'INFO');
+        if (this.strictChunkEcho) {
+            // Verified successful BESST session: final zero status, ~200 ms, 3005#01,
+            // then 3005#00 for 34 s. User confirmed startup after a power cycle.
+            // Do not reproduce BESST's repeated 4000 requests to enter the updater.
+            const elapsed = this.finalAckAt === null ? 0 : performance.now() - this.finalAckAt;
+            await delay(Math.max(0, 200 - elapsed));
+            await this.sendRawFrameWithRetry('5FF3005', '01');
+            const until = performance.now() + this.upgradeEndHoldMs;
+            while (performance.now() < until) {
+                await this.sendRawFrameWithRetry('5FF3005', '00');
+                await delay(this.upgradeEndKeepaliveMs);
+            }
+            this.logMessage('HMI accepted the firmware. Session finished; power-cycle the display if it has not started. Automatic startup has not been verified.', 'INFO');
+            return;
+        }
         if (this.upgradeEndHoldMs <= 0) {
             // Devices we have no capture for keep the timing they always had.
             await delay(3000);
@@ -731,6 +936,12 @@ class FwUpdater {
         this.hostReadyLoop = this.announceHostReady().catch((e) => this.logMessage(`Host-ready announce stopped: ${e.message || e}`, 'ERROR'));
         try {
             await this.checkForControllerReady();
+            if (this.strictChunkEcho && this.controllerFrames > 0 && this.NUM_CHUNKS > 0x3005) {
+                this.logMessage(`The motor controller is talking on the bus (${this.controllerFrames} frames so far). `
+                    + 'eVistDrive controller firmware that restarts on an addressed 0x3005 will reset at HMI chunk '
+                    + `0x3005 (~${Math.round(0x3005 / this.NUM_CHUNKS * 100)}%) and cut the display supply. `
+                    + 'If the update stops there, that is the cause.', 'WARN');
+            }
             await delay(20);
             if(this.readyIdSent.includes('4000')){
                 await this.send6008Id();
@@ -759,6 +970,28 @@ class FwUpdater {
         }
     }
 
+    raisePriority() {
+        try {
+            const previous = os.getPriority();
+            os.setPriority(os.constants.priority.PRIORITY_HIGH);
+            this.previousPriority = previous;
+            this.logMessage(`Process priority raised to HIGH for the update (was ${previous})`, 'INFO');
+        } catch (error) {
+            this.previousPriority = undefined;
+            this.logMessage(`Could not raise process priority: ${error.message}`, 'WARN');
+        }
+    }
+
+    restorePriority() {
+        if (this.previousPriority === undefined) return;
+        try {
+            os.setPriority(this.previousPriority);
+        } catch (error) {
+            this.logMessage(`Could not restore process priority: ${error.message}`, 'WARN');
+        }
+        this.previousPriority = undefined;
+    }
+
     async startUpdateProcedure(fileBuffer,mode="CONTROLER") {
         const startTime = performance.now();
         this.logToFile = await setupLogger();
@@ -775,6 +1008,7 @@ class FwUpdater {
                     + 'Reconnect the adapter and try again. Note this checks the USB adapter only '
                     + '— it cannot tell whether the bike is switched on.';
             }
+            this.raisePriority();
             let succeeded = false;
             for (let attempt = 1; attempt <= this.maxUpdateAttempts; attempt++) {
                 try {
@@ -804,7 +1038,9 @@ class FwUpdater {
             this.logMessage(error, 'ERROR');
             this.logMessage('Firmware update failed or was not completed.', 'ERROR');
         } finally {
+            this.restorePriority();
             this.end = true
+            if (!ok) this.dumpFrameTrace();
             const endTime = performance.now();
             const timeInSeconds = (endTime - startTime) / 1000;
             this.cleanup(); // stop listening to the bus, whatever the outcome
