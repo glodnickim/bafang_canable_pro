@@ -167,8 +167,8 @@ onmessage = (e) => {
         break;
     case 'getLog':
         NodeShim.logs.read(m.session, m.name).then(
-            (blob) => postMessage({ type: 'log', session: m.session, name: m.name, share: !!m.share, blob }),
-            (err) => postMessage({ type: 'logError', message: err.message }));
+            (blob) => postMessage({ type: 'log', session: m.session, name: m.name, share: !!m.share, batch: m.batch, blob }),
+            (err) => postMessage({ type: 'logError', batch: m.batch, message: err.message }));
         break;
     case 'deleteSession':
         NodeShim.logs.removeSession(m.session).then(

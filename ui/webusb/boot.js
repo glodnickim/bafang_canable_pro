@@ -129,6 +129,17 @@ function setRideMode(on) {
 const RIDE = rideModeOn();
 let stopRequested = false;
 
+// Set across the reload that ends a ride, so the page opens on the logs just recorded.
+const RIDE_DONE_KEY = RIDE_KEY + '-done';
+function takeRideDone() {
+    try {
+        const done = localStorage.getItem(RIDE_DONE_KEY) === '1';
+        localStorage.removeItem(RIDE_DONE_KEY);
+        return done;
+    } catch (e) { return false; }
+}
+let rideJustEnded = takeRideDone();
+
 function startRide() {
     if (!confirm('Ride log: the page reloads and reopens the adapter listen-only.\n\n'
         + 'Every CAN frame is saved on this device until you press Stop. Settings cannot be read or '
@@ -147,6 +158,7 @@ function finishStop() {
     if (!stopRequested) return;
     stopRequested = false;
     setRideMode(false);
+    try { localStorage.setItem(RIDE_DONE_KEY, '1'); } catch (e) { /* private mode */ }
     location.reload();
 }
 
@@ -197,7 +209,8 @@ function buildPanel() {
         background: transparent; color: #fff; cursor: pointer; }
       #webusb-logs .session { margin-top: 8px; padding-top: 6px; border-top: 1px solid #374151; }
       #webusb-logs .session:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
-      #webusb-logs .row { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
+      #webusb-logs .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
+      #webusb-logs .row button.primary { background: #2563eb; color: #fff; border-color: #60a5fa; }
       #webusb-logs .row button { font: inherit; padding: 1px 8px; margin-left: 4px; border-radius: 4px; border: 1px solid #60a5fa;
         background: transparent; color: #bfdbfe; cursor: pointer; }
       #webusb-logs .note { color: #9ca3af; }
@@ -294,6 +307,14 @@ function showLogs(sessions, status) {
         ui.logs.appendChild(note);
     }
     if (!total) { ui.logs.appendChild(document.createTextNode('No logs yet.')); return; }
+    const finished = rideJustEnded ? sessions.find((s) => !s.current && s.files.length) : null;
+    rideJustEnded = false;
+    if (finished) {
+        const note = document.createElement('div');
+        note.className = 'note';
+        note.textContent = 'Ride log finished. Save all puts the whole session in one zip file.';
+        ui.logs.appendChild(note);
+    }
     for (const s of sessions) {
         if (!s.files.length) continue;
         const box = document.createElement('div');
@@ -304,6 +325,11 @@ function showLogs(sessions, status) {
         const size = s.files.reduce((n, f) => n + f.bytes, 0);
         title.textContent = `${s.session}${s.current ? ' (this session)' : ''} · ${formatBytes(size)}`;
         head.appendChild(title);
+        const saveAllBtn = document.createElement('button');
+        saveAllBtn.textContent = 'Save all';
+        saveAllBtn.classList.toggle('primary', s === finished);
+        saveAllBtn.onclick = () => saveAll(s, saveAllBtn);
+        head.appendChild(saveAllBtn);
         if (!s.current) {
             const del = document.createElement('button');
             del.textContent = 'Delete';
@@ -348,11 +374,63 @@ async function saveLog(m) {
             console.warn('[webusb] share failed, saving instead:', e.message);
         }
     }
+    download(m.blob, fileName);
+}
+
+function download(blob, fileName) {
     const link = document.createElement('a');
-    link.href = URL.createObjectURL(m.blob);
+    link.href = URL.createObjectURL(blob);
     link.download = fileName;
     link.click();
-    setTimeout(() => URL.revokeObjectURL(link.href), 10000);
+    // Long enough for a large file to be handed over on a slow phone.
+    setTimeout(() => URL.revokeObjectURL(link.href), 60000);
+}
+
+// Files of "Save all" are requested one at a time and come back through the same
+// 'log' / 'logError' messages, matched by batch number.
+const batches = new Map();
+let nextBatch = 1;
+function fetchLog(session, name) {
+    return new Promise((resolve, reject) => {
+        const batch = nextBatch++;
+        batches.set(batch, { resolve, reject });
+        worker.postMessage({ type: 'getLog', session, name, batch });
+    });
+}
+function settleBatch(m) {
+    const waiting = batches.get(m.batch);
+    batches.delete(m.batch);
+    if (!waiting) return;
+    if (m.type === 'log') waiting.resolve(m.blob); else waiting.reject(new Error(m.message));
+}
+
+let zipStoreLoaded = null;
+function loadZipStore() {
+    zipStoreLoaded = zipStoreLoaded || new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = 'webusb/zip-store.js';
+        script.onload = () => resolve(self.ZipStore);
+        script.onerror = () => { zipStoreLoaded = null; reject(new Error('zip-store.js did not load')); };
+        document.head.appendChild(script);
+    });
+    return zipStoreLoaded;
+}
+
+async function saveAll(session, button) {
+    const label = button.textContent;
+    button.disabled = true;
+    button.textContent = 'Preparing...';
+    try {
+        const { zipStore } = await loadZipStore();
+        const files = [];
+        for (const f of session.files) files.push({ name: f.name, blob: await fetchLog(session.session, f.name) });
+        download(await zipStore(files), `${session.session}.zip`);
+    } catch (e) {
+        alert(`Log: ${e.message}`);
+    } finally {
+        button.disabled = false;
+        button.textContent = label;
+    }
 }
 
 // --- installable app, offline start ---------------------------------------------
@@ -404,13 +482,19 @@ function start() {
     worker.onmessage = (e) => {
         const m = e.data;
         switch (m.type) {
-        case 'ready': markReady(); break;
+        case 'ready':
+            markReady();
+            if (rideJustEnded) {
+                ui.logs.hidden = false;
+                worker.postMessage({ type: 'listLogs' });
+            }
+            break;
         case 'fail': showState('- failed to start, see the browser console'); markFailed(new Error(m.message)); break;
         case 'msg': if (clients.has(m.id)) clients.get(m.id).deliver(m.data); break;
         case 'devices': showDevices(m.count); break;
         case 'logs': showLogs(m.sessions, m.status); break;
-        case 'log': saveLog(m); break;
-        case 'logError': alert(`Log: ${m.message}`); break;
+        case 'log': if (m.batch) settleBatch(m); else saveLog(m); break;
+        case 'logError': if (m.batch) settleBatch(m); else alert(`Log: ${m.message}`); break;
         case 'stats': showRideStats(m); break;
         case 'flushed': if (stopRequested) finishStop(); break;
         }

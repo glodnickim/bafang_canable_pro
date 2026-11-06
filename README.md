@@ -31,8 +31,9 @@ After the first visit it opens without internet and can be installed from the br
 **Logging a whole ride:** press **Ride log**. The page reloads, the adapter only listens
 (nothing is sent on the bus) and every CAN frame is saved on the device, with no filtering,
 until you press **Stop**. Keep the page on screen; it keeps the screen on, and a red bar
-means frames stopped or storage failed. Afterwards open **Logs** to save or share the
-files. A file is split every 32 MB (`can-trace-p001.log`, `-p002`, ...).
+means frames stopped or storage failed. After **Stop** the page opens **Logs**: **Save all**
+gives the whole session as one `.zip` file, or save and share single files. A file is split
+every 32 MB (`can-trace-p001.log`, `-p002`, ...).
 
 Technically: `ui/webusb/` runs `server.js` in a worker; logs go to the browser's Origin
 Private File System about once a second. `can-trace` IDs are 29-bit, without the leading 8
