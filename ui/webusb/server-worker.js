@@ -115,6 +115,7 @@ async function refreshDevices() {
 // Every frame the adapter confirms it put on the bus (its echo: the real bus order of
 // what we sent) and every frame received, with a timestamp. This is the full capture:
 // no ID filter and no merging of repeated frames.
+let canbus = null;
 const traffic = { rx: 0, tx: 0, lastRxAt: 0 };
 function traceCanTraffic(canbus) {
     const lines = NodeShim.logs.open('logs/can-trace.log');
@@ -131,6 +132,9 @@ function traceCanTraffic(canbus) {
     };
     canbus.on('raw_frame_sent', (f) => add('TX', f));
     canbus.on('raw_frame_received', (f) => add('RX', f));
+    canbus.on('can_status', (connected, message) => {
+        lines.push(`# ${new Date().toISOString()} t=${((performance.now() - t0) / 1000).toFixed(4)} adapter ${connected ? 'connected' : 'disconnected'}: ${message || ''}`);
+    });
 }
 
 // For the ride-mode banner: frames so far, bytes stored, and whether storage works.
@@ -160,6 +164,9 @@ onmessage = (e) => {
     case 'refresh':
         refreshDevices();
         break;
+    case 'note':
+        console.log('[webusb] ' + m.text);
+        break;
     case 'listLogs':
         NodeShim.logs.list().then(
             (sessions) => postMessage({ type: 'logs', sessions, status: NodeShim.logs.status() }),
@@ -178,6 +185,9 @@ onmessage = (e) => {
     case 'flush':
         NodeShim.logs.flush().then(() => postMessage({ type: 'flushed' }));
         break;
+    case 'release':
+        releaseAdapter();
+        break;
     case 'stats':
         postStats();
         break;
@@ -185,6 +195,21 @@ onmessage = (e) => {
 };
 
 function postLogList() { onmessage({ data: { type: 'listLogs' } }); }
+
+async function releaseAdapter() {
+    if (canbus) {
+        let timer;
+        try {
+            await Promise.race([
+                canbus.close(),
+                new Promise((resolve) => { timer = setTimeout(resolve, 2000); }),
+            ]);
+        } catch (e) { console.warn('[webusb] release:', e); }
+        finally { clearTimeout(timer); }
+    }
+    await NodeShim.logs.flush();
+    postMessage({ type: 'released' });
+}
 
 async function start() {
     await NodeShim.logs.ready();
@@ -194,7 +219,7 @@ async function start() {
     // Modules live at the repository root, two levels above this file.
     await NodeShim.preload('../../', MODULES);
     NodeShim.require('./server');
-    const canbus = NodeShim.require('./canbus');
+    canbus = NodeShim.require('./canbus');
     traceCanTraffic(canbus);
     // server.js turns a failed connect into a bare FOUND status; the reason only reaches
     // the console. In a browser that reason is usually WebUSB specific (another tab or

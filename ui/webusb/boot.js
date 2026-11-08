@@ -128,6 +128,8 @@ function setRideMode(on) {
 }
 const RIDE = rideModeOn();
 let stopRequested = false;
+let startRequested = false;
+let rideDisconnected = false;
 
 // Set across the reload that ends a ride, so the page opens on the logs just recorded.
 const RIDE_DONE_KEY = RIDE_KEY + '-done';
@@ -141,18 +143,28 @@ function takeRideDone() {
 let rideJustEnded = takeRideDone();
 
 function startRide() {
+    if (startRequested) return;
     if (!confirm('Ride log: the page reloads and reopens the adapter listen-only.\n\n'
         + 'Every CAN frame is saved on this device until you press Stop. Settings cannot be read or '
         + 'written meanwhile. Keep this page on screen (it keeps the screen on).')) return;
     setRideMode(true);
+    startRequested = true;
+    setTimeout(finishStart, 3000); // Do not hang if closing the adapter stalls.
+    if (worker) worker.postMessage({ type: 'release' });
+    else finishStart();
+}
+function finishStart() {
+    if (!startRequested) return;
+    startRequested = false;
     location.reload();
 }
 function stopRide() {
     stopRequested = true;
     ui.rideStop.disabled = true;
     ui.rideText.textContent = 'Saving...';
-    worker.postMessage({ type: 'flush' });
-    setTimeout(finishStop, 3000); // flush answers in well under a second; do not hang
+    setTimeout(finishStop, 3000); // Allow the stop sequence and log flush before reloading.
+    if (worker) worker.postMessage({ type: 'release' });
+    else finishStop();
 }
 function finishStop() {
     if (!stopRequested) return;
@@ -169,7 +181,7 @@ function formatBytes(n) {
     return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 function showRideStats(m) {
-    if (stopRequested) return;
+    if (stopRequested || rideDisconnected) return;
     const t = Math.max(0, Math.floor((Date.now() - m.since) / 1000));
     const clock = `${Math.floor(t / 3600)}:${two(Math.floor(t / 60) % 60)}:${two(t % 60)}`;
     const quiet = m.lastRxAt ? Math.floor((Date.now() - m.lastRxAt) / 1000) : null;
@@ -241,7 +253,7 @@ function buildPanel() {
     const ride = document.createElement('div');
     ride.id = 'webusb-ride-banner';
     ride.hidden = true;
-    ride.innerHTML = '<span id="webusb-ride-text">RIDE LOG starting...</span><button id="webusb-ride-stop">Stop</button>';
+    ride.innerHTML = '<span id="webusb-ride-text">RIDE LOG starting...</span><button id="webusb-ride-reconnect" hidden>Reconnect</button><button id="webusb-ride-stop">Stop</button>';
     document.body.append(panel, logs, fw, ride);
 
     Object.assign(ui, {
@@ -252,10 +264,12 @@ function buildPanel() {
         logs, fwBanner: fw,
         rideBanner: ride,
         rideText: ride.querySelector('#webusb-ride-text'),
+        rideReconnect: ride.querySelector('#webusb-ride-reconnect'),
         rideStop: ride.querySelector('#webusb-ride-stop'),
     });
     ui.rideBtn.onclick = startRide;
     ui.rideStop.onclick = stopRide;
+    ui.rideReconnect.onclick = selectAdapter;
     ui.rideBtn.hidden = RIDE;
     ui.select.onclick = selectAdapter;
     ui.logBtn.onclick = () => {
@@ -273,15 +287,25 @@ function showState(text, isError = false) {
 function showDevices(count) {
     ui.select.hidden = count > 0;
     showState(count ? '' : '- no adapter allowed yet');
+    if (RIDE) {
+        rideDisconnected = count === 0;
+        ui.rideReconnect.hidden = !rideDisconnected;
+        if (!stopRequested) {
+            ui.rideText.textContent = rideDisconnected ? 'ADAPTER DISCONNECTED - recording paused, tap Reconnect' : 'RIDE LOG waiting for frames';
+            ui.rideBanner.classList.toggle('warn', rideDisconnected);
+        }
+    }
 }
 
 async function selectAdapter() {
     try {
-        await navigator.usb.requestDevice({ filters: USB_FILTERS });
+        const device = await navigator.usb.requestDevice({ filters: USB_FILTERS });
+        if (worker) worker.postMessage({ type: 'note', text: `requestDevice succeeded: ${device.productName}` });
     } catch (e) {
         // Closing the chooser is a NotFoundError too ("No device selected"); anything
         // else rejects without a chooser ever appearing, and used to fail silently.
         console.warn('[webusb] requestDevice:', e.name, e.message);
+        if (worker) worker.postMessage({ type: 'note', text: `requestDevice failed: ${e.name}: ${e.message}` });
         if (e.name === 'NotFoundError' && /no device selected/i.test(e.message)) return;
         let hint = '';
         if (e.name === 'SecurityError' || e.name === 'NotAllowedError' || e.name === 'NotFoundError')
@@ -496,7 +520,8 @@ function start() {
         case 'log': if (m.batch) settleBatch(m); else saveLog(m); break;
         case 'logError': if (m.batch) settleBatch(m); else alert(`Log: ${m.message}`); break;
         case 'stats': showRideStats(m); break;
-        case 'flushed': if (stopRequested) finishStop(); break;
+        case 'flushed': break;
+        case 'released': finishStart(); finishStop(); break;
         }
     };
     worker.onerror = (e) => {

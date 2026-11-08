@@ -288,6 +288,7 @@ class WebUsbDeviceAdapter {
 }
 
 const usbModule = {
+    usb: new EventEmitter(),
     WebUSB: class {
         async requestDevice() {
             const dev = selectedDevice || knownDevices[0];
@@ -658,8 +659,12 @@ globalThis.NodeShim = {
     },
     // The adapters the browser currently allows, refreshed on plug/unplug.
     setDevices(list) {
+        const previous = knownDevices;
         knownDevices = list.slice();
         if (selectedDevice && !knownDevices.includes(selectedDevice)) selectedDevice = null;
+        // Hotplug handlers must see the updated list when they check presence.
+        for (const d of previous) if (!knownDevices.includes(d)) usbModule.usb.emit('detach', legacyDeviceView(d));
+        for (const d of knownDevices) if (!previous.includes(d)) usbModule.usb.emit('attach', legacyDeviceView(d));
     },
     registerBuiltin(name, mod) { builtins[name] = mod; },
     setPipelinedWrites(n) { pipelinedWrites = Math.max(0, n | 0); },

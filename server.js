@@ -1392,6 +1392,10 @@ const wss = new WebSocket.Server({ server });
 				const started = await canbus.init(detectedCanDeviceName);
 				if (started === true) {
 					autoConnectFailures = 0;
+					// init() broadcast CONNECTED while a recovery that had given up still read
+					// 'failed', so the status stayed LINK_LOST over a working link. Clear it.
+					if (!recoveryTimer && recoveryState === 'failed') clearRecoveryState();
+					broadcastCanDeviceStatus();
 				} else if (++autoConnectFailures === AUTO_CONNECT_BACKOFF_MS.length) {
 					console.warn('Auto-connect keeps failing. The adapter is listed but not answering —');
 					console.warn('unplug the CANable, wait a few seconds and plug it back in.');
