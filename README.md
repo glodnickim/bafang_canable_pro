@@ -34,6 +34,10 @@ until you press **Stop**. Keep the page on screen; it keeps the screen on, and a
 means frames stopped or storage failed. After **Stop** the page opens **Logs**: **Save all**
 gives the whole session as one `.zip` file, or save and share single files. A file is split
 every 32 MB (`can-trace-p001.log`, `-p002`, ...).
+If the adapter drops off USB during the ride (on Android it then has to be picked again),
+the bar says **ADAPTER DISCONNECTED** with a **Reconnect** button: press it, pick the adapter,
+and recording continues in the same files. `can-trace` marks the gap with
+`# ... adapter disconnected` / `connected` lines.
 
 Technically: `ui/webusb/` runs `server.js` in a worker; logs go to the browser's Origin
 Private File System about once a second. `can-trace` IDs are 29-bit, without the leading 8
