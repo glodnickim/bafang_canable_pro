@@ -1,8 +1,6 @@
 // CB-019 host test: the help bubble must state factory default and allowed range,
 // formatted the way the field is shown (not in raw native units).
 'use strict';
-const fs = require('fs');
-const path = require('path');
 let failures = 0;
 const check = (ok, label) => { if (!ok) { failures++; console.log(`  FAIL  ${label}`); } };
 
@@ -36,13 +34,8 @@ check(load.includes('Factory default for Bank 1 / ECO: 0.7 kg.'),
     `default must be shown in kg, got: ${load}`);
 check(load.includes('Allowed range: 0-22.5 kg.'), 'range must carry the unit');
 check(!load.toLowerCase().includes('mv'), 'mV must never leak into a Start condition bubble');
-const profilesSource = fs.readFileSync(
-    path.join(__dirname, '..', 'ui', 'js', 'evistdrive', 'profiles.js'), 'utf8');
-check(profilesSource.includes('kgWithOneDecimal(value).toFixed(1)'),
-    'Start condition kg inputs must visibly keep exactly one decimal place');
-check(!profilesSource.includes('start_rise_kg') &&
-    !profilesSource.includes('start_rise_window_ms'),
-    'removed rise-detector fields must not be rendered');
+// (The Profiles level editor whose kg inputs this block used to inspect was removed with the
+// V3 cleanup; the bubble assembly above is still shared by every remaining field.)
 
 // A checkbox has no range and reads On/Off, not true/false.
 const box = tooltipDetails({

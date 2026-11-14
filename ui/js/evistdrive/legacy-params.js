@@ -11,7 +11,7 @@
 //   renderLimpSocChart .. renderLimitsFields    Limits card
 //   renderWalkFields, syncWalkData              Walk card
 //   renderSystemFields                          System card
-//   renderLegacy*Table, renderErrors            Walk card's legacy cross-reference
+//   renderErrors                                System card's error list
 //   writeLegacyBlocks / restoreLegacyDraft      what the top bar's save and undo call
 //
 // The factory Controller/Assist tabs still own these blocks too; this module writes
@@ -19,8 +19,7 @@
 import {
     state, socket, addLog, waitFor, delay,
     sendCustomFrame, encodeToHex,
-    wheelDiameterTable, uiToInternalAssistMap,
-    torqueMvToKg, torqueKgToMv, LEGACY_TORQUE_LINEAR_MAX_KG,
+    wheelDiameterTable,
     errorDescriptions, errorRecommendations, helpBadge, isEbicsConnected,
 } from '../shared.js';
 // Shared write-then-confirm helpers, so every 'Save to flash' button behaves identically.
@@ -32,11 +31,6 @@ import {
     chartHost, frozenAxis, drawEditable, handleTraces, fieldHandle, handleEditor,
 } from './editable-chart.js';
 
-const LEVEL_NAMES = ['ECO', 'TOUR', 'SPORT', 'SPORT+', 'BOOST'];
-const LEVEL_MAP = uiToInternalAssistMap[5];
-const P2_LEVEL_PROPERTIES = [
-    'start_torque_value', 'max_torque_value', 'return_torque_value', 'max_current', 'min_current',
-];
 const LIMP_FLOOR_PCT = 30;
 const LIMP_STAGE2_PCT = 15;
 const LIMP_DISABLED = 0xFF;
@@ -51,8 +45,10 @@ function previewP0() {
     return {
         par0_value_offset_0: 0,
         acceleration_levels: Array.from({ length: 9 }, (_, index) => ({ acceleration_level: clamp(2 + Math.floor(index / 2), 1, 7) })),
-        assist_ratio_levels: loadsKg.map((kg) => ({ assist_ratio_level: torqueKgToMv(kg) })),
-        assist_ratio_upper_limit: torqueKgToMv(60),
+        // P0 holds the assist RATIO in percent (firmware), not a pressure threshold. The model
+        // panel owns it now; this record is only kept raw for read-modify-write.
+        assist_ratio_levels: loadsKg.map(() => ({ assist_ratio_level: 0 })),
+        assist_ratio_upper_limit: 0,
         unknown_bytes: new Array(33).fill(0),
     };
 }
@@ -603,7 +599,7 @@ function renderLimitsFields() {
         { key: 'system_voltage', label: 'System voltage', options: voltageOptions,
             help: 'Nominal battery voltage. Used by the controller for voltage-based calculations — set it to match your actual pack, not just a round number.' },
         { key: 'current_limit', label: 'Maximum battery current', unit: 'A', min: 1, max: 60, step: 1,
-            help: 'Hard ceiling on current drawn from the battery, across all assist levels and Walk Assist. Protects the battery/BMS — separate from, and on top of, the per-level Maximum motor current phase-current limits in Profiles.' },
+            help: 'Hard ceiling on current drawn from the battery, across all assist levels and Walk Assist. Protects the battery/BMS — separate from, and on top of, the Max Power and Max Torque limits of each mode in the Tryby V3 tab.' },
         { key: 'overvoltage', label: 'Overvoltage cutoff', unit: 'V', min: 0, max: 100, step: 1,
             help: 'Controller cuts off if pack voltage rises above this (e.g. during strong regen/braking on a full battery). Set above your pack\'s true full-charge voltage, not at or below it.' },
         {
@@ -807,150 +803,15 @@ function renderSystemFields() {
             help: 'Despite the label, this is electrical revolutions per crank revolution (motor pole pairs × the gearbox\'s mechanical reduction), not a simple mechanical ratio. On the M820: 7 pole pairs × 11.43:1 gearbox = 80. This feeds every speed/cadence/Walk-Assist-RPM calculation that depends on motor revolutions — do not "correct" it down to the mechanical ratio (≈11.4), that would inflate those readings roughly 7×.' },
         { key: 'speedmeter_magnets_number', label: 'Speed sensor pulses/revolution', min: 1, max: 255, step: 1,
             help: 'Number of speed-sensor pulses per wheel revolution. Must match your actual sensor/magnet setup — wrong here means every speed and distance reading (and the speed limit) is scaled incorrectly.' },
-        { key: 'motor_max_rotor_rpm', label: 'Off-road Magic number', min: 0, max: 65535, step: 1,
-            help: 'Not read by firmware since FW-050 — the off-road speed-limit-bypass gesture (cycle assist level Eco→0→Eco) now uses a fixed sequence instead of a code stored here. Kept in storage for compatibility; editing this field has no effect.' },
-        { key: 'temperature_sensor_type', label: 'Decay base (unused)', min: 0, max: 255, step: 1,
-            help: 'Dead setting. It belonged to the old cadence-based pedal-assist calculation, which FW-094 removed from the firmware entirely — no code reads this value any more. The field is still stored and read back only so the controller\'s parameter block keeps its layout. Editing it has no effect on riding.' },
     ].forEach((field) => createField(motor, draft.p1, field));
     [
-        { key: 'full_capacity_range', label: 'Cadence exponent (unused)', min: 0, max: 255, step: 1,
-            help: 'Dead setting. It shaped the old cadence-based pedal-assist calculation, which FW-094 removed from the firmware entirely — no code reads this value any more. The field is still stored and read back only so the controller\'s parameter block keeps its layout. Editing it has no effect on riding.' },
         { key: 'throttle_start_voltage', label: 'Throttle start voltage', unit: 'V', min: 0, max: 4.2, step: 0.1,
             help: 'Throttle ADC voltage that reads as "no throttle input". Below this, the throttle contributes nothing — the natural off-point for a disconnected or idle throttle.' },
         { key: 'throttle_max_voltage', label: 'Throttle maximum voltage', unit: 'V', min: 0, max: 4.2, step: 0.1,
             help: 'Throttle ADC voltage that reads as "full throttle". Between Start and here, throttle current ramps linearly up to the level\'s current limit.' },
-        {
-            key: 'start_current', label: 'Old overrun duration (unused)', unit: 'ms', min: 0, max: 10200, step: 40,
-            fromNative: (value) => value * 40, toNative: (value) => Math.round(value / 40),
-            help: 'Dead setting. It set how long the old firmware kept pulling after you stopped pedalling ("power drag-on"). FW-094 removed that mechanism entirely. This is NOT the Extended Boost you configure per assist level — that one is a separate, safety-gated feature in the profile settings. Editing this has no effect on riding.',
-        },
         { key: 'current_loading_time', label: 'PAS timeout', unit: 's', min: 0.1, max: 25.5, step: 0.1,
-            help: 'LIVE setting — this one does affect riding, despite sitting among the dead fields here. It is how long the pedal sensor may go without a torque/rotation signal before cadence is forced to zero and the reverse-pedalling latch clears. Very short values can falsely read as "stopped pedalling" during the normal dead-spots between pedal strokes.' },
-        { key: 'current_shedding_time', label: 'Ramp-end control (unused)', min: 0.1, max: 25.5, step: 0.1,
-            help: 'Dead setting. Stored and read back, but no firmware code reads it — and none has for several releases. Editing it has no effect on riding.' },
+            help: 'LIVE setting that affects riding. It is how long the pedal sensor may go without a torque/rotation signal before cadence is forced to zero and the reverse-pedalling latch clears. Very short values can falsely read as "stopped pedalling" during the normal dead-spots between pedal strokes.' },
     ].forEach((field) => createField(ride, draft.p1, field));
-}
-
-function formatNumber(value, decimals = null) {
-    if (!isNumber(value)) return '';
-    return Number.isInteger(decimals) ? value.toFixed(decimals) : value;
-}
-
-function tableInput(value, min, max, step, onChange, disabled = false, decimals = null) {
-    const input = document.createElement('input');
-    input.type = 'number';
-    input.min = min;
-    input.max = max;
-    input.step = step;
-    input.value = formatNumber(value, decimals);
-    input.disabled = disabled;
-    if (!disabled) input.addEventListener('change', () => {
-        const parsed = parseFloat(input.value);
-        if (!Number.isFinite(parsed)) return;
-        const next = clamp(parsed, min, max);
-        input.value = formatNumber(next, decimals);
-        onChange(next);
-    });
-    return input;
-}
-
-function legacyTorqueThresholdControl(entry, levelIndex) {
-    const kg = torqueMvToKg(entry.assist_ratio_level);
-    const wrapper = document.createElement('div');
-    wrapper.appendChild(tableInput(kg, 0, LEGACY_TORQUE_LINEAR_MAX_KG, 0.1, (value) => {
-        setAscendingLevel(ensureDraft().p0.assist_ratio_levels, levelIndex, 'assist_ratio_level', torqueKgToMv(value));
-    }, false, 1));
-
-    if (isNumber(kg) && kg > LEGACY_TORQUE_LINEAR_MAX_KG) {
-        const warning = document.createElement('small');
-        warning.className = 'form-hint text-amber-600';
-        warning.textContent = `Read ${kg.toFixed(1)} kg; Legacy linear map ends at ${LEGACY_TORQUE_LINEAR_MAX_KG.toFixed(1)} kg. Editing or writing will clamp this value.`;
-        wrapper.appendChild(warning);
-    }
-    return wrapper;
-}
-
-function setAscendingLevel(array, levelIndex, key, value) {
-    const internalIndices = LEVEL_NAMES.map((_, index) => LEVEL_MAP[index + 1]);
-    const internal = internalIndices[levelIndex];
-    array[internal][key] = value;
-    if (!el('ebicsLegacyAutoCorrectionCheckbox')?.checked) return;
-    for (let index = levelIndex + 1; index < internalIndices.length; index++) {
-        const entry = array[internalIndices[index]];
-        if (entry[key] < value) entry[key] = value;
-    }
-    for (let index = levelIndex - 1; index >= 0; index--) {
-        const entry = array[internalIndices[index]];
-        if (entry[key] > value) entry[key] = value;
-    }
-    renderLegacyAssistTable();
-}
-
-function renderLegacyAssistTable() {
-    const body = el('ebicsLegacyAssistTableBody');
-    if (!body) return;
-    body.innerHTML = '';
-    const draft = ensureDraft();
-    LEVEL_NAMES.forEach((name, levelIndex) => {
-        const internal = LEVEL_MAP[levelIndex + 1];
-        const row = body.insertRow();
-        row.insertCell().textContent = name;
-        const p1Level = draft.p1.assist_levels[internal];
-        const p0Accel = draft.p0.acceleration_levels[internal];
-        const p0Threshold = draft.p0.assist_ratio_levels[internal];
-        row.insertCell().appendChild(tableInput(p1Level.current_limit, 0, 100, 1, (value) => {
-            setAscendingLevel(draft.p1.assist_levels, levelIndex, 'current_limit', value);
-        }));
-        row.insertCell().appendChild(tableInput(p1Level.speed_limit, 0, 100, 1, (value) => {
-            setAscendingLevel(draft.p1.assist_levels, levelIndex, 'speed_limit', value);
-        }));
-        row.insertCell().appendChild(tableInput(p0Accel.acceleration_level, 1, 7, 1, (value) => {
-            setAscendingLevel(draft.p0.acceleration_levels, levelIndex, 'acceleration_level', value);
-        }));
-        row.insertCell().appendChild(legacyTorqueThresholdControl(p0Threshold, levelIndex));
-    });
-}
-
-function renderLegacyProfileTable() {
-    const body = el('ebicsLegacyProfileTableBody');
-    if (!body) return;
-    body.innerHTML = '';
-    const profiles = ensureDraft().p2.torque_profiles;
-    LEVEL_NAMES.forEach((name, levelIndex) => {
-        const property = P2_LEVEL_PROPERTIES[levelIndex];
-        const row = body.insertRow();
-        row.insertCell().textContent = name;
-        profiles.forEach((profile) => {
-            row.insertCell().appendChild(tableInput(profile[property], 0, 255, 1, (value) => { profile[property] = value; }));
-        });
-    });
-}
-
-function renderLegacyBoostTable() {
-    const body = el('ebicsLegacyBoostTableBody');
-    if (!body) return;
-    body.innerHTML = '';
-    const profiles = ensureDraft().p2.torque_profiles;
-    LEVEL_NAMES.forEach((name, index) => {
-        const storage = profiles[index + 1];
-        const row = body.insertRow();
-        row.insertCell().textContent = name;
-        row.insertCell().appendChild(tableInput(storage.start_pulse, 0, 255, 1, (value) => { storage.start_pulse = value; }));
-        row.insertCell().appendChild(tableInput(storage.torque_decay_time, 0, 255, 1, (value) => { storage.torque_decay_time = value; }));
-    });
-}
-
-function renderLegacyAdvancedFields() {
-    const container = el('ebicsLegacyAdvancedFields');
-    if (!container) return;
-    container.innerHTML = '';
-    const draft = ensureDraft();
-    createField(container, draft, { key: 'startup_angle', label: 'TS coefficient (0x62D9)', min: 0, max: 360, step: 1 });
-    createField(container, draft.p1, { key: 'full_capacity_range', label: 'Cadence exponent', min: 0, max: 255, step: 1 });
-    createField(container, draft.p1, { key: 'temperature_sensor_type', label: 'Decay base', min: 0, max: 255, step: 1 });
-    createField(container, draft.p1, { key: 'motor_max_rotor_rpm', label: 'Magic number', min: 0, max: 65535, step: 1 });
-    createField(container, draft.p1, { key: 'motor_type', label: 'Motor direction', options: [{ value: 1, label: 'Forward' }, { value: 0, label: 'Reverse' }] });
-    createField(container, draft.p1, { key: 'motor_pole_pair_number', label: 'Gear ratio', min: 1, max: 255, step: 1 });
 }
 
 function renderErrors() {
@@ -973,32 +834,10 @@ function renderErrors() {
     });
 }
 
-function renderLegacyStatus() {
-    const body = el('ebicsLegacyTableBody');
-    if (!body) return;
-    body.innerHTML = '';
-    const draft = ensureDraft();
-    const rows = [
-        ['0x6010', 'TQ filter and lower thresholds', '5 assist levels', sourceLabel(['p0']).text],
-        ['0x6011', 'Limits, Walk, PAS and Legacy values', `${draft.p1.system_voltage} V / ${draft.p1.current_limit} A`, sourceLabel(['p1']).text],
-        ['0x6012', 'assist_profile[5][6] and Extended Boost storage', '30 profile values', sourceLabel(['p2']).text],
-        ['0x62D9', 'TS coefficient', draft.startup_angle, sourceLabel(['startup']).text],
-    ];
-    rows.forEach((values) => {
-        const row = body.insertRow();
-        values.forEach((value) => { row.insertCell().textContent = value; });
-    });
-}
-
 function renderCompatibilityUI() {
     renderLimitsFields();
     renderWalkFields();
     renderSystemFields();
-    renderLegacyAdvancedFields();
-    renderLegacyAssistTable();
-    renderLegacyProfileTable();
-    renderLegacyBoostTable();
-    renderLegacyStatus();
     renderErrors();
     updateSourceLabels();
 }
@@ -1059,46 +898,6 @@ async function syncWalkData() {
     }
     renderCompatibilityUI();
 }
-
-function requireRead(keys, action) {
-    const missing = keys.filter((key) => !state.ebicsCompatibilityReceived?.[key]);
-    if (!socketReady()) return false;
-    if (missing.length) {
-        addLog('ERR', `Cannot ${action}: read ${missing.join(', ')} first.`);
-        return false;
-    }
-    return true;
-}
-
-function p1Subset(keys) {
-    const p1 = ensureDraft().p1;
-    return Object.fromEntries(keys.map((key) => [key, clone(p1[key])]));
-}
-
-function legacyP0ForWrite() {
-    const p0 = clone(ensureDraft().p0);
-    const maxMv = torqueKgToMv(LEGACY_TORQUE_LINEAR_MAX_KG);
-    let clamped = false;
-    p0.assist_ratio_levels?.forEach((entry) => {
-        if (entry.assist_ratio_level > maxMv) {
-            entry.assist_ratio_level = maxMv;
-            clamped = true;
-        }
-    });
-    return { p0, clamped };
-}
-
-const LIMIT_P1_KEYS = [
-    'system_voltage', 'current_limit', 'max_current_on_low_charge', 'overvoltage',
-    'undervoltage_under_load', 'battery_capacity', 'limp_mode_soc_limit',
-    'limp_mode_soc_limit_stage2', 'coaster_brake', 'speedmeter_magnets_number',
-];
-const SYSTEM_P1_KEYS = [
-    'motor_type', 'motor_pole_pair_number', 'speedmeter_magnets_number',
-    'motor_max_rotor_rpm', 'temperature_sensor_type', 'full_capacity_range',
-    'throttle_start_voltage', 'throttle_max_voltage', 'start_current',
-    'current_loading_time', 'current_shedding_time',
-];
 
 /*
  * CB-026: the legacy blocks, written by the ONE save action in the top bar.
@@ -1174,27 +973,6 @@ export function restoreLegacyDraft() {
 // top bar's save already carries it when it writes the banks, and the System block is part of
 // the single P1 frame writeLegacyBlocks() sends. Both were writing the same bytes a second
 // time from a second button.
-
-async function applyLegacy() {
-    if (!requireRead(['p0', 'p1', 'p2', 'startup'], 'write Legacy blocks')) return;
-    const draft = ensureDraft();
-    const { p0, clamped } = legacyP0ForWrite();
-    const clampNotice = clamped
-        ? `\n\nLower torque threshold values above ${LEGACY_TORQUE_LINEAR_MAX_KG.toFixed(1)} kg will be clamped before writing.`
-        : '';
-    if (!confirm(`Write eVistDrive Legacy P0, assist-level P1, P2 and TS coefficient to controller RAM?${clampNotice}`)) return;
-    socket.send(`WRITE_LONG_P0:${JSON.stringify(p0)}`);
-    await delay(500);
-    socket.send(`WRITE_LONG_P1:${JSON.stringify({
-        ...p1Subset(SYSTEM_P1_KEYS),
-        assist_levels: draft.p1.assist_levels,
-    })}`);
-    await delay(500);
-    socket.send(`WRITE_LONG_P2:${JSON.stringify(draft.p2)}`);
-    await delay(500);
-    socket.send(`WRITE_STARTUP_ANGLE:${draft.startup_angle}`);
-    addLog('SAVE_REQ', 'eVistDrive Legacy P0/P1/P2 + TS coefficient');
-}
 
 async function clearControllerErrors() {
     if (!socketReady()) return;

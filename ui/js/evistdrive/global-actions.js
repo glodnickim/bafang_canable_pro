@@ -29,7 +29,9 @@ import { el, socketReady, writeBankAndWait, writeTuningAndWait, saveToFlashAndWa
 import {
     syncAllCompatibilityData, writeLegacyBlocks, restoreLegacyDraft, LONG_WRITE_GAP_MS,
 } from './legacy-params.js';
-import { restoreProfilesFromRead, unsupportedModeInBank } from './profiles.js';
+import {
+    readModelFromBike, restoreModelFromRead, v3ModelScope, writeAllLevels, persistModel,
+} from './v3-model-panel.js';
 import { restoreTuningFromRead } from './dynamics.js';
 import { writeSocFullThreshold } from './limits.js';
 
@@ -64,6 +66,8 @@ async function readEverything() {
     // The legacy blocks (0x6011 and friends) pace their own reads — each waits for the
     // controller's answer before the next — so just await the lot.
     await syncAllCompatibilityData();
+    // The V3 model (stage 2e firmware): a no-op with a log line on firmware that lacks it.
+    await readModelFromBike();
     syncAllDeviceInfo();
     addLog('DATA', 'Read finished. Everything on screen now comes from the bike.');
 }
@@ -79,20 +83,19 @@ function writeScope() {
         banks,
         tuning: !!state.tuningSynced,
         legacy: !!state.ebicsCompatibilityReceived?.p1,
+        model: v3ModelScope(),
     };
 }
 
 async function writeRideSettings(scope) {
-    // FW-056: refuse BEFORE sending anything. A bank the controller cannot parse is rejected
-    // whole, and it keeps the old settings without saying so.
-    for (const index of scope.banks) {
-        const blocked = unsupportedModeInBank(index);
-        if (blocked) return { ok: false, reason: blocked };
-    }
     for (const index of scope.banks) {
         const written = await writeBankAndWait(state.lastBanks[index]);
         if (!written.ok) return { ok: false, reason: `bank ${index + 1} was not written (${written.reason})` };
         addLog('ACK', `Bank ${index + 1} written to controller memory.`);
+    }
+    // The V3 model only goes out where firmware reported the capability; never on old firmware.
+    if (scope.model.writable && scope.model.dirty) {
+        if (!(await writeAllLevels())) return { ok: false, reason: 'the V3 model was not written' };
     }
     if (scope.tuning) {
         const written = await writeTuningAndWait(state.lastTuning);
@@ -133,6 +136,7 @@ async function performSave(mode) {
                 + 'gone when you switch the bike off — save permanently to keep them.');
             return;
         }
+        if (scope.model.writable) await persistModel();
         const saved = await saveToFlashAndWait();
         if (!saved.ok) {
             markUnsavedInRam();
@@ -153,9 +157,11 @@ async function performSave(mode) {
 function describeScope(scope, mode) {
     const included = [];
     const skipped = [];
-    if (scope.banks.length === 2) included.push('both profile banks (assist levels and Walk Assist)');
+    if (scope.model.writable) included.push('V3 modes (5 levels: mode, corrections, Max Power, Max Torque)');
+    else skipped.push('V3 modes — firmware does not report the V3 model, nothing is sent');
+    if (scope.banks.length === 2) included.push('both profile banks (Walk Assist)');
     else if (scope.banks.length === 1) {
-        included.push(`profile bank ${scope.banks[0] + 1} (assist levels and Walk Assist)`);
+        included.push(`profile bank ${scope.banks[0] + 1} (Walk Assist)`);
         skipped.push(`profile bank ${scope.banks[0] === 0 ? 2 : 1} — never read from this bike`);
     } else skipped.push('both profile banks — never read from this bike');
     if (scope.tuning) included.push('the whole-bike ride-feel tuning');
@@ -229,7 +235,7 @@ function openSaveDialog() {
     if (dialog.style.display !== 'none') { closeSaveDialog(); return; }
 
     const scope = writeScope();
-    const anythingToSend = scope.banks.length > 0 || scope.tuning || scope.legacy;
+    const anythingToSend = scope.banks.length > 0 || scope.tuning || scope.legacy || scope.model.writable;
 
     const heading = document.createElement('div');
     heading.className = 'evd-save-title';
@@ -241,7 +247,7 @@ function openSaveDialog() {
         {
             mode: 'temporary',
             title: 'Try it — this ride only',
-            detail: 'Assist levels, Walk Assist and the ride-feel tuning take effect straight '
+            detail: 'V3 modes, Walk Assist and the pedal-input tuning take effect straight '
                 + 'away, so you can ride and judge them. Switching the bike off brings the old '
                 + 'settings back. Nothing is made permanent.',
         },
@@ -316,7 +322,7 @@ function undoScreenChanges() {
         + 'Anything not read from this bike goes back to the firmware defaults instead.\n\n'
         + 'Nothing is sent to the bike — it keeps whatever it is holding now.')) return;
     const restored = [
-        ...restoreProfilesFromRead(),
+        restoreModelFromRead(),
         restoreTuningFromRead(),
     ];
     restoreLegacyDraft();

@@ -6,60 +6,13 @@
 // imported from there — the dependency only ever points this way.
 import {
     state, socket, addLog, torqueMvToKg, helpBadge,
-    TORQUE_DEFAULT_SPAN_MV, TORQUE_FULL_SCALE_KG,
 } from '../shared.js';
 
-// Native mV per kg on the measured default characteristic (span 1620 / 60 kg = 27).
-export const EBICS_MV_PER_KG = TORQUE_DEFAULT_SPAN_MV / TORQUE_FULL_SCALE_KG;
-
 export const LEVEL_NAMES = ['ECO', 'TOUR', 'SPORT', 'SPORT+', 'BOOST'];
-// Approximates the Bafang display's own ECO/TOUR/SPORT/SPORT+/BOOST color convention
-// (green / blue / indigo / salmon-orange / purple) — SPORT+ is salmon, not blood red.
-export const LEVEL_COLORS = ['#16a34a', '#2563eb', '#4f46e5', '#f2673f', '#7e22ce'];
-
-export const PREVIEW_CADENCE_RPM = 60;
-
-/*
- * FW-069 adaptive Iq ramp breakpoints, mirrored from firmware config.h
- * (IQ_RAMP_SPEED_LO/HI, IQ_RAMP_CAD_LO/HI). They are compile-time constants, so the
- * controller does not report them and the app cannot read them — but leaving the four ramp
- * fields labelled only "low" and "high" meant nobody could tell at what speed the value they
- * were editing applied. Kept here so the field labels, the help text and the ramps chart all
- * quote ONE set of numbers; if firmware ever changes them, this is the single place to fix.
- *
- * Firmware maps speed and cadence to a ramp time separately and takes the SHORTER result
- * (assist_dynamics.c), and map() clamps at both ends: below the low breakpoints you get
- * exactly the slow value, above the high ones exactly the fast value.
- */
-export const RAMP_SPEED_LO_KMH = 4.0;
-export const RAMP_SPEED_HI_KMH = 20.0;
-export const RAMP_CADENCE_LO_RPM = 20;
-export const RAMP_CADENCE_HI_RPM = 70;
-export const RAMP_SLOW_WHEN =
-    `at or below ${RAMP_SPEED_LO_KMH.toFixed(1)} km/h AND ${RAMP_CADENCE_LO_RPM} rpm`;
-export const RAMP_FAST_WHEN =
-    `at or above ${RAMP_SPEED_HI_KMH.toFixed(1)} km/h OR ${RAMP_CADENCE_HI_RPM} rpm`;
-
-export const MODES = [
-    { value: 1, label: 'Power Linear' },
-    { value: 2, label: 'Power Progressive' },
-    { value: 3, label: 'eMTB' },
-    { value: 5, label: 'Torque' },
-    // FW-056: only offered when the controller reports bank schema v4 or newer.
-    { value: 6, label: 'Power Curve', minBankSchema: 4 },
-];
-export const MODE_LABELS = Object.fromEntries(MODES.map((mode) => [mode.value, mode.label]));
-
 export const el = (id) => document.getElementById(id);
 export const isNumber = (value) => typeof value === 'number' && Number.isFinite(value);
 export const displayNumber = (value, precision = 0) => isNumber(value) ? value.toFixed(precision) : 'N/A';
 export const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
-
-export function hexToRgba(hex, alpha) {
-    const value = parseInt(hex.slice(1), 16);
-    const r = (value >> 16) & 255, g = (value >> 8) & 255, b = value & 255;
-    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
 
 export function socketReady() {
     if (socket.readyState === WebSocket.OPEN && state.isCanConnected) return true;
@@ -76,17 +29,6 @@ export function currentLevelIndex() {
     const value = state.displayRealtime?.current_assist_level;
     if (Number.isInteger(value) && value >= 1 && value <= 5) return value - 1;
     return 0;
-}
-
-export function selectedLevel(bankSelectId = 'ebicsProfileBankSelect', levelSelectId = 'ebicsProfileLevelSelect') {
-    const bankIndex = parseInt(el(bankSelectId)?.value ?? '0', 10);
-    const levelIndex = parseInt(el(levelSelectId)?.value ?? '0', 10);
-    return {
-        bankIndex,
-        levelIndex,
-        bank: state.lastBanks?.[bankIndex] || null,
-        level: state.lastBanks?.[bankIndex]?.levels?.[levelIndex] || null,
-    };
 }
 
 export function setText(id, value) {
@@ -108,55 +50,6 @@ export function currentElectricalPower() {
     const current = state.controllerRealtime1?.current;
     const voltage = state.controllerRealtime1?.voltage;
     return isNumber(current) && isNumber(voltage) ? Math.max(0, current * voltage) : null;
-}
-
-// FW-056: lowest bank schema version reported by the controller. 0 until the banks
-// have actually been read, so newer modes stay hidden while browsing offline.
-export function bankSchemaVersion() {
-    // state.lastBanks is an OBJECT keyed by bank index (see websocket.js), not an
-    // array — calling array methods on it throws and takes the whole tab down.
-    const banks = state.lastBanks ? Object.values(state.lastBanks) : [];
-    const versions = banks
-        .map((bank) => bank?.bank_schema_version)
-        .filter((value) => Number.isFinite(value));
-    return versions.length ? Math.min(...versions) : 0;
-}
-
-// FW-056: every mode is always listed so the curve and the chart can be explored
-// offline. A mode the connected controller cannot store is flagged here and
-// refused at Apply time — the controller would reject the whole bank blob and
-// silently keep the old settings, which is far worse than an explicit error.
-export function modeUnsupportedReason(modeType) {
-    const mode = MODES.find((entry) => entry.value === modeType);
-    if (!mode?.minBankSchema) return null;
-    const schema = bankSchemaVersion();
-    if (schema === 0) return 'not-read';
-    return schema < mode.minBankSchema ? 'old-firmware' : null;
-}
-
-let modeSelectBuiltForSchema = null;
-
-export function populateSelects() {
-    ['ebicsProfileLevelSelect'].forEach((id) => {
-        const select = el(id);
-        if (!select || select.options.length) return;
-        LEVEL_NAMES.forEach((name, index) => select.add(new Option(name, String(index))));
-    });
-    const modeSelect = el('ebicsProfileModeSelect');
-    const schema = bankSchemaVersion();
-    // Rebuilt (not just filled once) because the labels change once the banks are
-    // read and we learn whether this controller supports the newer modes.
-    if (modeSelect && (modeSelect.options.length !== MODES.length || modeSelectBuiltForSchema !== schema)) {
-        const previous = modeSelect.value;
-        modeSelect.innerHTML = '';
-        MODES.forEach((mode) => {
-            const suffix = modeUnsupportedReason(mode.value) === 'old-firmware'
-                ? ' — needs newer firmware' : '';
-            modeSelect.add(new Option(`${mode.label}${suffix}`, String(mode.value)));
-        });
-        if (MODES.some((mode) => String(mode.value) === previous)) modeSelect.value = previous;
-        modeSelectBuiltForSchema = schema;
-    }
 }
 
 /**
@@ -568,10 +461,6 @@ export async function saveToFlashAndWait(timeoutMs = WRITE_ACK_TIMEOUT_MS) {
 // Drawing a chart nobody can see costs exactly as much as drawing one they can. The Live
 // and Limits cards already checked this; Profiles and Dynamics did not, so switching to
 // any eVistDrive tab redrew five hidden charts.
-export function tabIsVisible(tabId) {
-    return !!el(tabId)?.classList.contains('active');
-}
-
 /*
  * CB-026: "you are looking at placeholders, press Read" now has ONE button to point at.
  *

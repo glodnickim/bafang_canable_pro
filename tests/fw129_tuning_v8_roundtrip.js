@@ -152,44 +152,15 @@ const parse = (d) => BafangCanControllerParser.tuningBlob({ data: d });
     check(parsed.crank_length_mm === 165, 'zeroed v8 crank length falls back to the default');
 }
 
-// --- UI agrees with the wire ----------------------------------------------
-
+// --- UI: the two v8 settings were removed from the editor (V3 cleanup) ------------------
+// They belong to the removed eMTB / Torque / rider-power maths. Their bytes must keep
+// round-tripping unchanged (above), and the UI must keep defaults so a write never zeroes them.
 {
     const src = fs.readFileSync(path.join(__dirname, '..', 'ui', 'js', 'evistdrive', 'dynamics.js'), 'utf8');
-
-    const fullScale = src.slice(src.indexOf("key: 'assist_torque_full_scale_centikg'"));
-    const fsRow = fullScale.slice(0, fullScale.indexOf("{ key: 'crank_length_mm'"));
-    check(/min:\s*20\b/.test(fsRow) && /max:\s*120\b/.test(fsRow),
-        'UI full-scale field is 20..120 kg, matching the firmware clamp');
-    check(/unit:\s*'kg'/.test(fsRow), 'UI full-scale field is labelled in kg');
-    check(/minTuningSchema:\s*8/.test(fsRow), 'UI full-scale field is gated on tuning schema v8');
-    // The card's central point: this is ride feel, not calibration. If the help text ever
-    // stops saying so, the rider will reach for it to fix a reading instead of a feel.
-    check(/does NOT recalibrate|not recalibrate|does not change the measured kg/i.test(fsRow),
-        'UI full-scale help says it does NOT recalibrate the sensor');
-
-    const crank = src.slice(src.indexOf("key: 'crank_length_mm'"));
-    const crankRow = crank.slice(0, crank.indexOf("{ key: 'assist_torque_run_window_deg'"));
-    check(/min:\s*150\b/.test(crankRow) && /max:\s*190\b/.test(crankRow),
-        'UI crank field is 150..190 mm, matching the firmware clamp');
-    check(/unit:\s*'mm'/.test(crankRow), 'UI crank field is labelled in mm');
-    check(/minTuningSchema:\s*8/.test(crankRow), 'UI crank field is gated on tuning schema v8');
-
-    check(/assist_torque_full_scale_centikg:\s*6000/.test(src), 'UI default full scale is 60.0 kg');
-    check(/crank_length_mm:\s*165/.test(src), 'UI default crank length is 165 mm');
-}
-
-// The preview charts have to use the SAME two settings, or they draw a bike that does
-// not exist. Before this card the preview assumed a fixed 60 kg while the firmware
-// normalized by the sensor calibration span - they disagreed by construction.
-{
-    const src = fs.readFileSync(path.join(__dirname, '..', 'ui', 'js', 'evistdrive', 'profiles.js'), 'utf8');
-    check(/previewAssistTorqueFullScaleKg\(\)/.test(src),
-        'preview normalizes the eMTB/Torque axis by the configured full scale');
-    check(!/loadKg \* 160 \/ 60\b/.test(src),
-        'preview no longer hard-codes a 60 kg torque axis');
-    check(/previewCrankLengthMm\(\)/.test(src),
-        'preview computes rider power with the configured crank length');
+    check(!/key: 'assist_torque_full_scale_centikg'/.test(src), 'no editor for the assist torque full scale');
+    check(!/key: 'crank_length_mm'/.test(src), 'no editor for the crank length');
+    check(/assist_torque_full_scale_centikg: 6000/.test(src), 'UI default full scale stays 60.0 kg (wire value)');
+    check(/crank_length_mm: 165/.test(src), 'UI default crank length stays 165 mm (wire value)');
 }
 
 console.log(failures === 0

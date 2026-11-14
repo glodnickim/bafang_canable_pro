@@ -81,10 +81,10 @@
             <button class="tab-button" data-tab="battery" data-factory-tab="true">Battery</button>
             <button class="tab-button" data-tab="gears" data-factory-tab="true">Assist (Full)</button>
             <button class="tab-button ebics-tab-button" data-tab="ebics-live" data-ebics-only="true" style="display:none">eVistDrive Live</button>
-            <button class="tab-button ebics-tab-button" data-tab="ebics-profiles" data-ebics-only="true" style="display:none">eVistDrive Profiles</button>
+            <button class="tab-button ebics-tab-button" data-tab="ebics-profiles" data-ebics-only="true" style="display:none">Tryby V3</button>
             <button class="tab-button ebics-tab-button" data-tab="ebics-torque" data-ebics-only="true" style="display:none">eVistDrive Torque</button>
 <!-- FW-070: "eVistDrive Dynamics" tab removed; its settings live in the "Global — whole bike"
-     band at the bottom of eVistDrive Profiles. -->
+     band at the bottom of the former Profiles tab (now "Tryby V3"). -->
             <button class="tab-button ebics-tab-button" data-tab="ebics-limits" data-ebics-only="true" style="display:none">eVistDrive Limits</button>
             <button class="tab-button ebics-tab-button" data-tab="ebics-walk" data-ebics-only="true" style="display:none">eVistDrive Walk</button>
 <!-- FW-030: "eVistDrive Legacy" tab removed (single ride-core engine) -->
@@ -873,10 +873,8 @@
             </div>
 
             <!-- FW-055: #tab-banks removed — Profile Banks + Global Ride-Feel Tuning are fully
-                 covered by #tab-ebics-profiles, which since FW-070 holds both the bank/level
-                 editor and the "Global — whole bike" tuning band, each with its own independent
-                 Read/Write(RAM)/Save(Flash) controls. Active-bank display lives in eVistDrive Live
-                 (ebicsLiveBank below). See documentation/FW-055_REMOVE_BANKS_TAB.md. -->
+                 covered by #tab-ebics-profiles. Since the V3 cleanup that tab is "Tryby V3" (per-level model);
+                 the bank level editor is gone, banks remain only for Walk Assist. See documentation/FW-055_REMOVE_BANKS_TAB.md. -->
 
             <!-- #tab-ebics-live =========================================== -->
             <div class="tab-content ebics-tab" id="tab-ebics-live">
@@ -888,9 +886,8 @@
                     <span class="ebics-readonly-pill">Live / read-only</span>
                 </div>
                 <div class="ebics-metric-grid">
-                    <div class="ebics-metric"><span>Active bank</span><b id="ebicsLiveBank">N/A</b></div>
                     <div class="ebics-metric"><span>Assist level</span><b id="ebicsLiveLevel">N/A</b></div>
-                    <div class="ebics-metric"><span>Ride engine</span><b id="ebicsLiveMode">N/A</b></div>
+                    <div class="ebics-metric"><span>Tryb V3 (poziom HMI)</span><b id="ebicsLiveMode">N/A</b></div>
                     <div class="ebics-metric"><span>Pedal load</span><b><span id="ebicsLiveTorqueKg">N/A</span> kg</b></div>
                     <div class="ebics-metric"><span>Cadence</span><b><span id="ebicsLiveCadence">N/A</span> rpm</b></div>
                     <div class="ebics-metric"><span>Speed</span><b><span id="ebicsLiveSpeed">N/A</span> km/h</b></div>
@@ -913,156 +910,62 @@
             </div>
 
             <!-- #tab-ebics-profiles ======================================= -->
+            <!-- "Tryby V3": per HMI level one mode and five corrections (one model, one source).
+                 The old AP2 bank editor (support curves, ramps, boosts, power filters, eMTB, Power
+                 Curve, ride latch) was removed on purpose; see
+                 integration/roadmap/V3_JEDEN_MODEL_PROJEKT_PL.md and the V3 model CAN protocol. -->
             <div class="tab-content ebics-tab" id="tab-ebics-profiles">
                 <div class="ebics-heading">
                     <div>
                         <div class="ebics-kicker">eVistDrive Ride Core</div>
-                        <h2 class="section-title text-lg">Profiles</h2>
+                        <h2 class="section-title text-lg">Tryby V3</h2>
                     </div>
-                    <!-- CB-026: reading and writing live in the top bar, once, for the whole
-                         app. Nothing on this card talks to the bike. -->
                 </div>
-                <!-- CB-020: share a tuning as a file. Deliberately NOT the Data Backup tab:
-                     that one dumps the whole device (battery, sensor, serials) and restores
-                     the lot. A preset carries ride tuning only, so it is safe to send to
-                     somebody with a different bike. -->
+                <p class="form-hint">Dla każdego z pięciu poziomów HMI wybierasz tryb (ECO, TRAIL, SPORT, SPORT+, BOOST, AUTO) i pięć korekt 0..100, gdzie <b>50 = domyślna wartość trybu</b>. Assist, Attack, Release, Start i Carry to korekty wokół domyślnych; Attack i Release w prawo działają szybciej, Start i Carry równe 0 wyłączają funkcję. Max Power (W albo limit sprzętu) i Max Torque (% dozwolonego Iq) to osobne limity trybu. Hamulec, błędy, stop i jazda wstecz mają zawsze pierwszeństwo.</p>
                 <section class="ebics-preset-strip mt-4">
                     <div class="ebics-preset-controls">
-                        <label>Preset name
-                            <input id="ebicsPresetName" class="form-input" type="text" maxlength="60" placeholder="e.g. mountains, soft start">
+                        <label>Nazwa presetu
+                            <input id="evdV3PresetName" class="form-input" type="text" maxlength="60" placeholder="np. góry, łagodny start">
                         </label>
-                        <label>Note
-                            <input id="ebicsPresetNote" class="form-input" type="text" maxlength="160" placeholder="optional — what it is for">
+                        <label>Notatka
+                            <input id="evdV3PresetNote" class="form-input" type="text" maxlength="160" placeholder="opcjonalnie">
                         </label>
-                        <!-- CB-026: these two are FILE actions and are worded so they cannot be
-                             mistaken for the bike actions in the top bar. "Export"/"Import"
-                             read like "read"/"write" to anyone who has not used the app
-                             before, which is exactly the confusion being cleared up. -->
-                        <button id="ebicsPresetExportButton" class="btn btn-secondary" title="Writes a file on this computer. Nothing is sent to the bike.">💾 Save settings to a file…</button>
-                        <button id="ebicsPresetImportButton" class="btn btn-secondary" title="Loads a file into the editor on screen. Nothing reaches the bike until you use Save… in the top bar.">📂 Load settings from a file…</button>
-                        <input id="ebicsPresetImportInput" type="file" accept="application/json" style="display:none">
+                        <button id="evdV3PresetExport" class="btn btn-secondary" title="Zapisuje plik na tym komputerze. Nic nie jest wysyłane do roweru.">Zapisz tryby do pliku…</button>
+                        <button id="evdV3PresetImport" class="btn btn-secondary" title="Wczytuje plik na ekran. Do sterownika trafi dopiero po zapisie.">Wczytaj tryby z pliku…</button>
+                        <input id="evdV3PresetFile" type="file" accept="application/json" style="display:none">
                     </div>
-                    <small class="form-hint">Both banks and the whole-bike block. Sensor calibration, battery and wheel settings are never included — they belong to one bike and would break another. Importing only fills the editor; nothing reaches the controller until you press Write.</small>
-                    <div id="ebicsPresetPanel"></div>
+                    <small class="form-hint">Preset zawiera tylko tryby i korekty (pięć poziomów). Kalibracja, bateria, prędkość, PAS i Walk to sprzęt jednego roweru i nigdy nie są w pliku.</small>
                 </section>
                 <div class="ebics-toolbar">
-                    <label>Bank <select id="ebicsProfileBankSelect" class="form-select"><option value="0">Bank 1</option><option value="1">Bank 2</option></select></label>
-                    <label>Assist level <select id="ebicsProfileLevelSelect" class="form-select"></select></label>
-                    <label>Profile mode <select id="ebicsProfileModeSelect" class="form-select"></select></label>
-                    <span id="ebicsProfilesSource" class="ebics-source-note">Not read from controller</span>
+                    <button id="evdV3Read" class="btn btn-blue" data-requires-link title="Odczytuje model V3 ze sterownika (RAM).">Odczytaj tryby ze sterownika</button>
+                    <button id="evdV3WriteAll" class="btn btn-blue" data-requires-link disabled title="Zapis pięciu poziomów do RAM sterownika, potem odczyt kontrolny. Zablokowane, dopóki firmware nie zgłosi obsługi modelu.">Zapisz wszystkie poziomy (RAM)</button>
+                    <button id="evdV3Persist" class="btn btn-orange" data-requires-link disabled title="Sterownik zapisze model we flash na postoju.">Zapisz na stałe</button>
+                    <button id="evdV3Factory" class="btn btn-secondary" disabled title="Fabryczny preset: poziom 1..5 = ECO, TRAIL, SPORT, SPORT+, BOOST, wszystkie korekty 50.">Preset fabryczny</button>
+                    <button id="evdV3Discover" class="btn btn-secondary" data-requires-link title="Sprawdza, czy firmware obsługuje model V3 (zapytanie 0x6035).">Sprawdź obsługę w firmware</button>
+                    <span id="evdV3Status" class="ebics-source-note">Nie sprawdzono obsługi modelu V3.</span>
                 </div>
-                <!-- FW-057: cadence compensation is a property of the BANK, not of a level -
-                     it applies to every level and every pedalling mode in this bank, so it gets
-                     its own strip rather than hiding among the per-level fields. -->
-                <section class="ebics-feature-toggle mt-4" id="ebicsCadenceCompRow">
-                    <label class="ebics-feature-switch">
-                        <input type="checkbox" id="ebicsCadenceCompEnabled">
-                        <span class="ebics-feature-slider"></span>
-                    </label>
-                    <div class="ebics-feature-body">
-                        <div class="ebics-feature-title">
-                            Cadence compensation
-                            <span id="ebicsCadenceCompBank" class="ebics-feature-scope">Bank 1</span>
-                            <span id="ebicsCadenceCompState" class="ebics-feature-state">OFF</span>
-                        </div>
-                        <div id="ebicsCadenceCompNote" class="ebics-feature-note"></div>
-                    </div>
-                </section>
-                <!-- The one editor on this tab that spans ALL FIVE levels at once. Everything
-                     below it edits only the level picked in the toolbar, so the difference has
-                     to be stated on the card itself and not left to be discovered. Dragging a
-                     point changes what is on screen; the bike keeps its settings until
-                     "Save…" in the top bar. -->
-                <section id="ebicsLevelCurveCard" class="ebics-card mt-4">
-                    <div class="evd-level-curve-head">
-                        <div>
-                            <div class="ebics-card-title">Assist level curve — drag the points</div>
-                            <p class="form-hint evd-level-curve-note">One setting across <strong>all five assist levels</strong> of the selected bank. Drag a point up or down, or type in the boxes below — both change the same value, and each follows the other straight away. Keyboard: ← → pick a level, ↑ ↓ change it (hold Shift for ten steps). <strong>Nothing is sent to the bike here</strong> — use “Save…” in the top bar when you are happy with it.</p>
-                        </div>
-                        <label class="evd-level-curve-pick">Setting
-                            <select id="ebicsLevelCurveParam" class="form-select"></select>
-                        </label>
-                    </div>
-                    <div id="ebicsLevelCurveChart" class="evd-level-curve-chart"></div>
-                    <div id="ebicsLevelCurveStatus" class="evd-level-curve-status"></div>
-                </section>
-                <div class="ebics-two-column mt-4">
-                    <div class="ebics-profile-left-column">
-                        <section id="ebicsProfileModeCard" class="ebics-card ebics-level-tinted">
-                            <div class="ebics-card-title">Engine-specific settings</div>
-                            <div id="ebicsProfileModeFields" class="ebics-field-grid"></div>
-                        </section>
-                        <!-- Current ramps and Power smoothing/release render here — kept on the
-                             left, next to the (usually shorter) mode fields, so the two columns
-                             stay roughly balanced instead of piling everything on the right. -->
-                        <section id="ebicsProfileSharedCardLeft" class="ebics-card ebics-level-tinted">
-                            <div id="ebicsProfileSharedFieldsLeft"></div>
-                        </section>
-                    </div>
-                    <section id="ebicsProfileSharedCard" class="ebics-card ebics-level-tinted">
-                        <div class="ebics-card-title">Shared safety and ride settings</div>
-                        <!-- FW-071: the two "apply to all levels" checkboxes are gone. They were a
-                             MODE you could leave on and forget, so one edit silently rewrote four
-                             other levels with no confirmation and no way back. Each section below
-                             now carries its own explicit "Copy to…" button instead. -->
-                        <div id="ebicsProfileSharedFieldsRight"></div>
-                    </section>
-                </div>
-                <div id="ebicsProfileChartCard" class="ebics-chart-card ebics-level-tinted mt-5">
-                    <div class="ebics-card-title">Selected engine preview</div>
-                    <!-- FW-056: support ratio and final motor power are different things;
-                         a curve that looks gentle in one can be steep in the other, so both
-                         are drawn side by side instead of hidden behind a toggle. -->
-                    <div class="ebics-two-column">
-                        <div>
-                            <div class="ebics-card-title">Support ratio (%)</div>
-                            <div id="ebicsProfileChartSupport" class="ebics-chart ebics-profile-chart"></div>
-                        </div>
-                        <div>
-                            <div class="ebics-card-title">Requested motor power (W)</div>
-                            <div id="ebicsProfileChart" class="ebics-chart ebics-profile-chart"></div>
-                        </div>
-                    </div>
-                    <small class="form-hint">Shows all five levels from the selected bank; the edited level is drawn thicker. Power is capped by nominal battery voltage × configured battery current, and by per-level Maximum motor power when it is set. The support view shows the raw ratio before those caps.</small>
-                </div>
+                <div id="evdV3Panel" class="evd-v3-panel mt-4"></div>
 
-                <!-- FW-070: the former Dynamics tab, folded in here. Everything above this line
-                     belongs to the SELECTED BANK AND LEVEL; everything below is one setting for
-                     the whole bike. Mixing the two in one tab is only safe if the boundary is
-                     impossible to miss — hence the separate band, the wording, and its own
-                     Read/Write/Restore buttons (a different CAN block, 0x6023/0x6024). -->
+                <!-- Whole-bike input settings that are NOT per level (block 0x6023). Kept: the crank
+                     movement needed to start and the RUN torque smoothing, both pedal-input gates
+                     whose consumer in V3 is still to be confirmed. Everything else of the old
+                     "Ride core tuning" band (startup boost fade, ride latch, torque axis, crank
+                     length) was removed. -->
                 <div class="ebics-global-band mt-5">
                     <div class="ebics-global-band-head">
                         <div>
-                            <div class="ebics-kicker">Global — whole bike</div>
-                            <h3 class="section-title text-base">Ride core tuning</h3>
-                            <p class="text-sm mt-1 mb-0">These are <strong>not</strong> bank or level settings. One set of values applies to <strong>both banks and all five assist levels</strong>. Changing the bank or level selector above has no effect on anything in this section, and it has its own Read/Write buttons.</p>
-                        </div>
-                        <div class="flex gap-2 flex-wrap">
-                            <!-- CB-012. No data-requires-link: undoing your own clicking must work
-                                 offline too, and it writes nothing to the controller. -->
+                            <div class="ebics-kicker">Cały rower</div>
+                            <h3 class="section-title text-base">Wejście pedałowania</h3>
+                            <p class="text-sm mt-1 mb-0">Dwa ustawienia bramki wejścia czujnika, wspólne dla wszystkich poziomów (blok 0x6023). Nie należą do trybów.</p>
                         </div>
                     </div>
                     <div class="ebics-global-charts-grid mt-4">
                         <div class="ebics-chart-card">
-                            <div class="ebics-card-title">Startup boost decay</div>
-                            <p class="text-sm mb-3">How fast the per-level "Startup boost" fades as cadence rises. The strength and end cadence are per level (above); this decay shape is shared.</p>
-                            <div id="ebicsDynamicsBoostFields" class="ebics-field-grid ebics-dynamics-field-grid"></div>
-                            <div id="ebicsDynamicsBoostChart" class="ebics-chart"></div>
+                            <div class="ebics-card-title">Ruch korby do startu</div>
+                            <div id="ebicsDynamicsStartFields" class="ebics-field-grid ebics-dynamics-field-grid"></div>
                         </div>
                         <div class="ebics-chart-card">
-                            <div class="ebics-card-title">Start condition and ride latch</div>
-                            <p class="text-sm mb-3">"Crank movement to start" is the second half of the start condition — the first half is the per-level "Minimum pedal load" above, and both must be met. The latch then keeps assist alive after a legal start, so very light pedalling and the crank dead-spots don't cut power. Braking, backpedalling, a fault, or stopping the cranks still cut instantly.</p>
-                            <div id="ebicsDynamicsLatchFields" class="ebics-field-grid ebics-dynamics-field-grid"></div>
-                        </div>
-                        <div class="ebics-chart-card">
-                            <div class="ebics-card-title">Torque axis and crank — how your push becomes watts</div>
-                            <p class="text-sm mb-3">Two whole-bike settings that decide what a given push on the pedal <em>means</em>, before any assist level gets to shape it. <strong>Assist torque full scale</strong> is the pedal load that counts as "everything" for <strong>eMTB</strong> and <strong>Torque</strong> — lower it and those modes reach the top of their curve with a lighter push. <strong>Crank length</strong> belongs to the rider-power equation used by <strong>Power Linear</strong>, <strong>Power Progressive</strong> and <strong>Power Curve</strong>: power is force × crank length × crank speed, so a longer crank turns the same push into more watts and those modes ask for proportionally more motor. Neither of these is a sensor setting — they do not recalibrate anything and they never change the kilograms shown on the Torque card. Both need controller firmware with tuning block v8; on older firmware they are shown greyed out.</p>
-                            <div id="ebicsDynamicsTorqueAxisFields" class="ebics-field-grid ebics-dynamics-field-grid"></div>
-                        </div>
-                        <div class="ebics-chart-card">
-                            <div class="ebics-card-title">RUN torque smoothing — anti-pulse "left leg / right leg"</div>
-                            <p class="text-sm mb-3">A slower estimate of pedal effort used to compute power/eMTB while riding, so the motor follows your average effort instead of each individual leg push. Start, boost and the safety cut stay on the fast signal. The window is measured in <strong>degrees of crank rotation, not milliseconds</strong> — so one setting behaves the same grinding up a climb at 50 rpm and spinning at 110 rpm, which a fixed time could never do. 180° = half a turn = one leg. 0° = off (raw signal). Higher = smoother but slower to react to a change in effort.</p>
+                            <div class="ebics-card-title">Wygładzanie momentu RUN</div>
                             <div id="ebicsDynamicsTorqueRunFields" class="ebics-field-grid ebics-dynamics-field-grid"></div>
                         </div>
                     </div>
@@ -1093,7 +996,6 @@
                             <div><span>Calibration source</span><b id="ebicsTorqueCalSource">Default</b></div>
                             <div><span>Current zero</span><b><span id="ebicsTorqueZero">N/A</span> mV</b></div>
                             <div><span>Full scale (60 kg)</span><b><span id="ebicsTorqueFullScale">N/A</span> mV</b></div>
-                            <div><span>Selected level minimum load</span><b><span id="ebicsTorqueMinLoadKg">N/A</span> kg</b></div>
                         </div>
                     </section>
                 </div>
@@ -1283,10 +1185,8 @@
                     <div class="flex items-center gap-2 mt-2 flex-wrap">
                         <button id="ebicsDiagReadButton" class="btn btn-blue">Read once</button>
                         <label><input id="ebicsDiagAuto" type="checkbox"> Auto (10 Hz)</label>
-                        <button id="ebicsDiagTuningButton" class="btn btn-secondary">Read tuning (fall ramps)</button>
                     </div>
                     <div class="ebics-status-list mt-2">
-                        <div><span>Stored fall ramp (slow / fast)</span><b><span id="diagFallSlow">—</span> / <span id="diagFallFast">—</span> ms</b></div>
                         <div><span>PAS idle (live)</span><b><span id="diagPasIdle">—</span> ms</b></div>
                         <div><span>Pedaling active (live)</span><b id="diagPedaling">—</b></div>
                         <div><span>Fast pressure (live)</span><b><span id="diagFastPressure">—</span></b></div>
@@ -1296,12 +1196,6 @@
                         <div><span>iq measured (live)</span><b><span id="diagIqMeasured">—</span></b></div>
                         <div><span>Battery limiting (live)</span><b><span id="diagBattLimit">—</span></b></div>
                         <div><span>Brake / torque fault (live)</span><b><span id="diagRelease">—</span> / <span id="diagLatched">—</span></b></div>
-                        <!-- FW-084: Extended Boost. Needed to tell "never armed" from "armed,
-                             waiting for the cranks to stop" from "a limit trimmed it". -->
-                        <div><span>Extended Boost state (live)</span><b id="diagExtBoostState">—</b></div>
-                        <div><span>Extended Boost peak load (live)</span><b><span id="diagExtBoostPeak">—</span> kg</b></div>
-                        <div><span>Extended Boost current / time left</span><b><span id="diagExtBoostIq">—</span> / <span id="diagExtBoostLeft">—</span> ms</b></div>
-                        <div><span>Extended Boost last cancel</span><b id="diagExtBoostCancel">—</b></div>
                         <!-- FW-129: the assist chain in the order the firmware computes it —
                              pedal load, the normalized torque axis (eMTB/Torque only), the
                              requested power, the two current anchors and the crossfade

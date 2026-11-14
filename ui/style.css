@@ -1376,3 +1376,29 @@ h3.section-subtitle:first-of-type { margin-top: 0; }
     letter-spacing: 0;
     vertical-align: middle;
 }
+
+/* ── Tryby V3 panel (v3-model-panel.js) ─────────────────────────────────────── */
+.evd-v3-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); }
+.evd-v3-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.evd-v3-row { margin-top: 10px; }
+.evd-v3-label { font-weight: 600; }
+.evd-v3-track { display: grid; grid-template-columns: auto 1fr auto 4.5em auto; gap: 8px; align-items: center; }
+.evd-v3-track small { color: #64748b; white-space: nowrap; }
+.evd-v3-slider { width: 100%; }
+.evd-v3-number { width: 4.5em; padding: 2px 6px; }
+.evd-v3-fifty { padding: 0 8px; }
+.evd-v3-effective { font-size: 0.85em; color: #334155; margin-top: 2px; }
+.evd-v3-row.is-default .evd-v3-fifty { opacity: 0.45; }
+.evd-v3-row.is-default .evd-v3-label::after { content: ' · domyślne'; font-weight: 400; color: #64748b; }
+.evd-v3-limits { display: flex; flex-wrap: wrap; gap: 8px 24px; margin-top: 12px; align-items: center; }
+.evd-v3-limit { display: flex; gap: 6px; align-items: center; }
+.evd-v3-limit .form-input { width: 6em; }
+.evd-v3-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.evd-v3-card.is-edited { outline: 2px solid #f59e0b; }
+.evd-v3-hw-list { list-style: disc; padding-left: 20px; display: grid; gap: 6px; }
+.evd-v3-hw-list button { margin-left: 8px; }
+@media (max-width: 480px) {
+    .evd-v3-track { grid-template-columns: 1fr auto auto; }
+    .evd-v3-track small { display: none; }
+    .evd-v3-track .evd-v3-slider { grid-column: 1 / -1; }
+}

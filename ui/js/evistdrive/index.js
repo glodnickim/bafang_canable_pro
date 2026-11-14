@@ -13,17 +13,11 @@ import { updateLiveSummary } from './live.js';
 import { updateTorqueSummary, bindTorqueControls } from './torque.js';
 import { bindLimitsControls } from './limits.js';
 import { updateWalkAndLegacy } from './walk.js';
-import { renderProfileEditor, bindProfileControls } from './profiles.js';
+import { bindModelPanel } from './v3-model-panel.js';
 import { renderDynamics, bindDynamicsControls } from './dynamics.js';
 import { bindSystemControls, stopDiagPoll } from './system.js';
-import { bindEnginePreviewControls } from './engine-preview-ui.js';
 import { updateDeviceInfoUI, bindDeviceInfoControls } from './device-info.js';
 import { bindGlobalActions } from './global-actions.js';
-// CB-020: preset export/import lives in its own module; it needs the editor's field
-// descriptors so an imported value is clamped by the same ranges the UI enforces.
-import { bindPresetControls } from './presets.js';
-import { levelFieldDescriptors } from './profiles.js';
-import { tuningFieldDescriptors } from './dynamics.js';
 // FW-126 TEST panel. It lives in the Sniffer tab rather than an ebics-* tab because it reads
 // the DIAG frame stream, but the code belongs here with the rest of eVistDrive.
 import { initFw126Panel } from './fw126-test.js';
@@ -36,7 +30,6 @@ import { initStopTracePanel } from './stop-trace-panel.js';
 // card that displays them.
 export { updateTorqueCalUI } from './torque.js';
 export { updateDiagUI } from './system.js';
-export { updateDiagTuning } from './dynamics.js';
 export { updateSocFullUI } from './limits.js';
 
 export function updateEbicsUI(eventType = '') {
@@ -48,9 +41,6 @@ export function updateEbicsUI(eventType = '') {
         updateTorqueSummary();
     }
     if (fullUpdate || ['controller_params_0', 'controller_params_1', 'controller_params_2'].includes(eventType)) updateWalkAndLegacy();
-    // controller_tuning also re-renders the profile editor: the per-group preview charts
-    // in "Shared safety and ride settings" read tuning fields (e.g. boost fade speed) too.
-    if (fullUpdate || eventType === 'controller_bank' || eventType === 'controller_tuning') renderProfileEditor();
     if (fullUpdate || eventType === 'controller_tuning') renderDynamics();
     // Identification arrives one field per frame across four devices, so refresh on any of
     // them rather than trying to name every sub-code here.
@@ -62,15 +52,13 @@ export function updateEbicsUI(eventType = '') {
 const DEVICE_INFO_EVENTS = /_(hw_version|sw_version|bootloader_version|sn|mn|cn|mfg)$/;
 
 function bindControls() {
-    bindProfileControls();
+    bindModelPanel();
     bindLimitsControls();
     bindDynamicsControls();
     bindTorqueControls();
     bindSystemControls();
     bindDeviceInfoControls();
     bindGlobalActions(); // CB-017/CB-026: the one Read / Save… / Undo in the top bar
-    bindPresetControls({ levelFields: levelFieldDescriptors, tuningFields: tuningFieldDescriptors });
-    bindEnginePreviewControls();
     initFw126Panel();       // FW-126 TEST panel in the Sniffer tab (read-only)
     initStopTracePanel();
     initQs1Panel();         // QS-1 MEASURE panel in the Sniffer tab (server-driven)

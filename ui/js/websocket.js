@@ -30,7 +30,7 @@ import {
     startControllerDetection, resetControllerDetection, confirmEbicsController,
 } from './evistdrive/detection.js';
 import {
-    updateEbicsUI, updateTorqueCalUI, updateSocFullUI, updateDiagUI, updateDiagTuning,
+    updateEbicsUI, updateTorqueCalUI, updateSocFullUI, updateDiagUI,
 } from './evistdrive/index.js';
 
 socket.onopen = () => {
@@ -296,9 +296,6 @@ socket.onmessage = (event) => {
                         // card edits state.lastTuning in place.
                         state.lastTuningAsRead = JSON.parse(JSON.stringify(parsedEvent.data));
                         state.tuningSynced = true;
-                        // FW-017/FW-069: fall ramps in the diag panel. They are per level now,
-                        // so the function reads them from the selected profile level itself.
-                        updateDiagTuning();
                         addLog('DATA', 'Tuning received');
                     } else {
                         addLog('ERR', `Tuning read failed: ${parsedEvent.data?.error}`);

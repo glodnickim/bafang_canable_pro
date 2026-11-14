@@ -2,9 +2,10 @@
 /* global Plotly */
 import { state } from '../shared.js';
 import {
-    LEVEL_NAMES, MODE_LABELS, el, isNumber, displayNumber, setText,
-    activeBankIndex, currentLevelIndex, getPedalLoadKg, currentElectricalPower, plotLayout,
+    LEVEL_NAMES, el, isNumber, displayNumber, setText,
+    getPedalLoadKg, currentElectricalPower, plotLayout,
 } from './common.js';
+import { v3ModeNameForLevel } from './v3-model-panel.js';
 
 // Roughly the last minute at the 300 ms redraw rate below.
 const HISTORY_POINTS = 180;
@@ -14,18 +15,14 @@ let liveChartLastUpdate = 0;
 const liveHistory = { time: [], load: [], cadence: [], power: [], speed: [] };
 
 export function updateLiveSummary(eventType = '') {
-    const bankIndex = activeBankIndex();
-    const levelIndex = currentLevelIndex();
-    const level = state.lastBanks?.[bankIndex]?.levels?.[levelIndex];
     const load = getPedalLoadKg();
     const cadence = isNumber(state.controllerRealtime0?.cadence) ? state.controllerRealtime0.cadence : state.sensorRealtime?.cadence;
     const realtime = state.controllerRealtime1;
     const power = currentElectricalPower();
     const displayLevel = state.displayRealtime?.current_assist_level;
 
-    setText('ebicsLiveBank', state.banksSynced ? `Bank ${bankIndex + 1}` : 'N/A');
     setText('ebicsLiveLevel', Number.isInteger(displayLevel) ? (displayLevel === 0 ? 'OFF' : LEVEL_NAMES[displayLevel - 1] || `Level ${displayLevel}`) : 'N/A');
-    setText('ebicsLiveMode', level ? MODE_LABELS[level.mode_type] || `Mode ${level.mode_type}` : 'N/A');
+    setText('ebicsLiveMode', (Number.isInteger(displayLevel) && v3ModeNameForLevel(displayLevel)) || 'N/A');
     setText('ebicsLiveTorqueKg', displayNumber(load, 1));
     setText('ebicsLiveCadence', displayNumber(cadence));
     setText('ebicsLiveSpeed', displayNumber(realtime?.speed, 1));

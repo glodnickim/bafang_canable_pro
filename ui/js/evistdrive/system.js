@@ -35,20 +35,6 @@ export function updateDiagUI(d) {
     // brake and torque-fault here, not pedal release / release latch.
     setText('diagRelease', d.brake_active === null ? '—' : (d.brake_active ? 'yes' : 'no'));
     setText('diagLatched', d.torque_fault === null ? '—' : (d.torque_fault ? 'yes' : 'no'));
-    // FW-084: Extended Boost (v5 diagnostics). "idle" and "—" are different answers:
-    // the first means the firmware reported the module is doing nothing, the second that
-    // this controller does not report the module at all.
-    setText('diagExtBoostState', d.ext_boost_active === null ? '—'
-        : (d.ext_boost_active ? 'ACTIVE'
-            : (d.ext_boost_armed ? 'armed'
-                : (d.ext_boost_qualifying ? 'qualifying'
-                    : (d.ext_boost_arm_expired ? 'idle (arming expired)' : 'idle')))));
-    setText('diagExtBoostPeak', d.ext_boost_peak_load_kg === null ? '—'
-        : d.ext_boost_peak_load_kg.toFixed(2));
-    setText('diagExtBoostIq', dash(d.ext_boost_iq));
-    setText('diagExtBoostLeft', dash(d.ext_boost_remaining_ms));
-    setText('diagExtBoostCancel', d.ext_boost_cancel_reason === null ? '—'
-        : (EXT_BOOST_CANCEL[d.ext_boost_cancel_reason] ?? d.ext_boost_cancel_reason));
     /*
      * FW-129 (v6 diagnostics): the unit-domain block. This is the row that answers "why is the
      * bike pushing this hard", in the order the firmware actually computes it:
@@ -76,16 +62,6 @@ export function updateDiagUI(d) {
     setText('diagUabsLive', dash(d.u_abs_live));
 }
 
-// Wire values from assist_extended_boost_cancel_t (inc/assist_extended_boost.h).
-// Index 13 is reserved: FW-095 reported it when pedalling stopped, but under FW-100 that is
-// what STARTS the boost, so it can never be reported. It stays in the table so every other
-// index keeps its position.
-const EXT_BOOST_CANCEL = [
-    'none', 'disabled', 'safety cut', 'backward crank', 'sensor invalid', 'walk assist',
-    'calibration', 'level/bank change', 'motion lost', 'pedalling resumed', 'arming expired',
-    'completed', 'bank config written', '(reserved)',
-];
-
 let diagTimer = null;
 
 // Exported so leaving the tab can stop the 10 Hz poll from anywhere.
@@ -95,13 +71,10 @@ export function stopDiagPoll() {
     if (cb) cb.checked = false;
 }
 
-// FW-015/017: diagnostics read + auto-poll + stored fall-ramp read
+// FW-015/017: diagnostics read + auto-poll
 export function bindSystemControls() {
     el('ebicsDiagReadButton')?.addEventListener('click', () => {
         if (socketReady()) socket.send('READ_DIAG');
-    });
-    el('ebicsDiagTuningButton')?.addEventListener('click', () => {
-        if (socketReady()) { socket.send('READ_TUNING'); addLog('REQ', 'Reading stored fall ramps'); }
     });
     el('ebicsDiagAuto')?.addEventListener('change', (e) => {
         if (diagTimer) { clearInterval(diagTimer); diagTimer = null; }

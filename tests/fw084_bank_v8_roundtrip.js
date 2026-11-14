@@ -177,59 +177,19 @@ check(BafangCanControllerParser.bankBlob({ data: badVersion }).parseError === tr
     check(255 <= 255, 'and the length byte of the init frame still holds it');
 }
 
-// 9. Copy, restore, defaults and preset import/export all work off the same field list, so
-//    the three settings must be in it — and in ONE section, or "Copy to…" would move a
-//    duration without the trigger load that gives it meaning.
+// 9. V3 cleanup: Extended Boost is REMOVED from the UI (its bytes still round-trip in the bank
+//    blob, which the tests above prove). Nothing may offer it for editing any more.
 {
-    const profiles = fs.readFileSync(
-        path.join(__dirname, '..', 'ui', 'js', 'evistdrive', 'profiles.js'), 'utf8');
-    ['extended_boost_trigger_load_kg', 'extended_boost_strength_pct', 'extended_boost_duration_ms']
-        .forEach((key) => {
-            check(new RegExp(`key: '${key}'`).test(profiles), `${key} is an editable field`);
-            check(new RegExp(`${key}:`).test(profiles), `${key} has an offline placeholder default`);
-        });
-    const group = profiles.slice(profiles.indexOf("id: 'extendedBoost'"));
-    check(/pick\('extended_boost_trigger_load_kg', 'extended_boost_strength_pct',\s*'extended_boost_duration_ms'\)/
-        .test(group), 'all three settings live in one copy section');
-    // The gate lives on the FIELDS and the section derives it, so the editor and the preset
-    // importer cannot disagree about which firmware can store these settings.
-    const fieldGates = (profiles.match(/minBankSchema: 8,/g) || []).length;
-    check(fieldGates === 3, `all three fields carry minBankSchema: 8 (${fieldGates})`);
-    check(/minBankSchema: Math\.max\(0,/.test(profiles),
-        'the section gate is derived from its fields, not repeated by hand');
-    check(/extended_boost_duration_ms: 0,/.test(profiles),
-        'the offline placeholder has the boost OFF');
-    check(/control\.disabled = true/.test(profiles),
-        'a controller that cannot store the section must not offer editable fields');
-    // ...but only THAT case. Disabling the fields offline too made them lose their spinner
-    // arrows while every other card kept them, which reads as a broken card rather than as
-    // "your controller is too old".
-    check(/const tooOld = schema > 0 && schema < group\.minBankSchema;/.test(profiles) &&
-        /if \(tooOld\) \{/.test(profiles),
-        'the fields are only locked for a controller that really reported an older schema');
-    const gate = profiles.slice(profiles.indexOf('if (group.minBankSchema) {'));
-    check(/Banks not read yet/.test(gate) && /You can set them up here/.test(gate),
-        'offline the section stays editable and says why it is not confirmed yet');
-
-    // The same gate has to hold on the IMPORT path. Blocking the editor but letting a
-    // preset write the value straight into the model is the silent-loss case: the field
-    // shows a boost duration, Apply reports OK, and the serializer drops it on the way out.
-    const presets = fs.readFileSync(
-        path.join(__dirname, '..', 'ui', 'js', 'evistdrive', 'presets.js'), 'utf8');
-    check(/field\.minBankSchema && \(schema === 0 \|\| schema < field\.minBankSchema\)/.test(presets),
-        'the preset importer refuses fields this controller cannot store');
-    check(/skipped\.push\(/.test(presets) && /were NOT loaded/.test(presets),
-        'and it tells the rider which ones, instead of dropping them quietly');
-
-    // Model of the importer's decision, so the rule is tested and not only present.
-    const skipField = (schema, field) => !!(field.minBankSchema &&
-        (schema === 0 || schema < field.minBankSchema));
-    const boostField = { key: 'extended_boost_duration_ms', minBankSchema: 8 };
-    const oldField = { key: 'release_ms' };
-    check(skipField(7, boostField) && skipField(0, boostField),
-        'importer: a v7 controller (or none read) skips the boost fields');
-    check(!skipField(8, boostField), 'importer: a v8 controller takes them');
-    check(!skipField(7, oldField), 'importer: ungated fields are unaffected');
+    const ui = path.join(__dirname, '..', 'ui');
+    check(!fs.existsSync(path.join(ui, 'js', 'evistdrive', 'profiles.js')), 'the bank level editor is gone');
+    check(!fs.existsSync(path.join(ui, 'js', 'evistdrive', 'presets.js')), 'the bank preset importer is gone');
+    const html = fs.readFileSync(path.join(ui, 'index.html'), 'utf8');
+    check(!/extended_boost|Extended Boost|ExtBoost/.test(html), 'no Extended Boost control or readout in the page');
+    const files = ['common.js', 'dynamics.js', 'system.js', 'global-actions.js', 'v3-model-panel.js'];
+    files.forEach((name) => {
+        const src = fs.readFileSync(path.join(ui, 'js', 'evistdrive', name), 'utf8');
+        check(!/extended_boost_(trigger_load_kg|strength_pct|duration_ms)|ext_boost_/.test(src), name + ': no Extended Boost field');
+    });
 }
 
 // Diagnostics 0x6029: v5 adds the Extended Boost state, and v4 must keep being accepted —
