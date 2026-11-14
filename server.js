@@ -19,6 +19,7 @@ const Sniffer = require('./sniffer');
 const RideLogger = require('./logger');
 const { Qs1Service } = require('./qs1x');
 const { StopTraceService } = require('./stop-trace');
+const { createV3ConfigTransport, handleV3mMessage } = require('./v3-config-server'); // V3 model / rider objects (0x6035..0x6037)
 
 // Opt-in trace for the sniffer's UI -> activeFilters sync path (set SNIFFER_DEBUG=1 before
 // starting the server); mirrors the per-frame trace of the same name in sniffer.js.
@@ -1013,6 +1014,8 @@ const wss = new WebSocket.Server({ server });
 	}
 
 
+	const v3ConfigTransport = createV3ConfigTransport(canbus);
+
 	wss.on('connection', async (ws) => {
 		clients.push(ws);
 		console.log('New WebSocket client connected');
@@ -1050,6 +1053,9 @@ const wss = new WebSocket.Server({ server });
 			try {
 				let handled = false;
 				if (!handled) handled = await handleConnectionCommands(ws, messageString);
+				// Before handleRawCanFrame: V3M commands carry a '#<id>' suffix, which that handler would
+				// otherwise take for a raw frame.
+				if (!handled) handled = await handleV3mMessage(v3ConfigTransport, messageString, (text) => ws.send(text));
 				if (!handled) handled = await handleReadCommands(ws, messageString, sendResult);
 				if (!handled) handled = await handleBankCommands(ws, messageString);
 				if (!handled) handled = await handleReadRawCommand(ws, messageString, sendResult);

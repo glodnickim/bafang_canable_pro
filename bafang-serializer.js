@@ -71,6 +71,62 @@ function writeShortParameter(canbusInstance, target, can_command, data) {
 }
 
 /**
+ * Sends the data part of a long (multi-frame) write: MULTIFRAME_START with the first 8 bytes
+ * (command code/subcode of the write), MULTIFRAME frames (command 0, subcode = sequence) and
+ * MULTIFRAME_END with the rest. The length declaration (WRITE_CMD [len]) is NOT sent here, so a
+ * caller that must wait for the declaration ACK (V3 config 0x6036) can send it first.
+ * Frame numbering seen by the receiver: START = 0, MULTIFRAME n = n + 1, END n = n + 1.
+ * Throws on a send failure; `shouldAbort()` (optional) stops between frames.
+ */
+async function sendLongDataFrames(canbusInstance, target, can_command, value, { delayMs = 20, shouldAbort = null } = {}) {
+    let arrayClone = [...value];
+    const source = DeviceNetworkId.BESST;
+    const code = can_command.canCommandCode;
+    const subcode = can_command.canCommandSubCode;
+    const sendMfFrame = async (idArr, dataPayload) => {
+        const id32 = bafangIdArrayTo32Bit(idArr);
+        const dataHex = Buffer.from(dataPayload).toString('hex');
+        const commandString = `${id32.toString(16).padStart(8, '0')}#${dataHex}`;
+        try {
+            const sent = await canbusInstance.sendFrame(commandString);
+            if (!sent) {
+                throw new Error(`sendFrame returned false for ID 0x${id32.toString(16)}`);
+            }
+        } catch(err) {
+             console.error(`[Serializer] Error sending MF frame ID 0x${id32.toString(16)}:`, err);
+             throw new Error(`Failed to send MF part (ID 0x${id32.toString(16)}): ${err.message}`); // Propagate error up
+        }
+    };
+    const pause = () => (delayMs > 0 ? new Promise(resolve => setTimeout(resolve, delayMs)) : Promise.resolve());
+    const aborted = () => typeof shouldAbort === 'function' && shouldAbort();
+
+    // MULTIFRAME_START
+    const startIdArr = generateCanFrameId(source, target, CanOperation.MULTIFRAME_START, code, subcode);
+    await sendMfFrame(startIdArr, arrayClone.slice(0, 8));
+    console.log(`[Serializer] Sent MF Start: ID=0x${bafangIdArrayTo32Bit(startIdArr).toString(16)}`);
+    arrayClone = arrayClone.slice(8);
+    await pause();
+
+    // MULTIFRAME packets
+    let packages = 0;
+    while (arrayClone.length > 8) { // Keep sending while more than 8 bytes remain
+        if (aborted()) return false;
+        const mfIdArr = generateCanFrameId(source, target, CanOperation.MULTIFRAME, 0, packages++); // Command code 0, subcode is sequence number
+        await sendMfFrame(mfIdArr, arrayClone.slice(0, 8));
+        console.log(`[Serializer] Sent MF ${packages-1}: ID=0x${bafangIdArrayTo32Bit(mfIdArr).toString(16)}`);
+        arrayClone = arrayClone.slice(8);
+        await pause();
+    }
+
+    // MULTIFRAME_END with remaining data (<= 8 bytes)
+    if (aborted()) return false;
+    const endIdArr = generateCanFrameId(source, target, CanOperation.MULTIFRAME_END, 0, packages); // Command code 0, subcode is sequence number
+    await sendMfFrame(endIdArr, arrayClone);
+    console.log(`[Serializer] Sent MF End ${packages}: ID=0x${bafangIdArrayTo32Bit(endIdArr).toString(16)}`);
+    return true;
+}
+
+/**
  * Sends multiple CAN frames for long parameter writes (multi-frame).
  * This function is async because it needs to send frames sequentially with delays.
  * @param {object} canbusInstance - The instance of CanBusService.
@@ -91,59 +147,21 @@ async function writeLongParameter(canbusInstance, target, can_command, value) {
      }
 
     try {
-        let arrayClone = [...value]; // Make a copy to modify
         const source = DeviceNetworkId.BESST;
         const code = can_command.canCommandCode;
         const subcode = can_command.canCommandSubCode;
         const delayMs = 20; // Delay between frames (adjust if needed)
 
-        // Helper to send frame and handle errors locally
-        const sendMfFrame = async (idArr, dataPayload) => {
-            const id32 = bafangIdArrayTo32Bit(idArr);
-            const dataHex = Buffer.from(dataPayload).toString('hex');
-            const commandString = `${id32.toString(16).padStart(8, '0')}#${dataHex}`;
-            try {
-                const sent = await canbusInstance.sendFrame(commandString);
-                if (!sent) {
-                    throw new Error(`sendFrame returned false for ID 0x${id32.toString(16)}`);
-                }
-            } catch(err) {
-                 console.error(`[Serializer] Error sending MF frame ID 0x${id32.toString(16)}:`, err);
-                 throw new Error(`Failed to send MF part (ID 0x${id32.toString(16)}): ${err.message}`); // Propagate error up
-            }
-        };
-
         // 1. Send initial WRITE_CMD with total data length
         const initIdArr = generateCanFrameId(source, target, CanOperation.WRITE_CMD, code, subcode);
-        await sendMfFrame(initIdArr, [arrayClone.length]);
-        console.log(`[Serializer] Sent Long Write Init: ID=0x${bafangIdArrayTo32Bit(initIdArr).toString(16)} LenByte=${arrayClone.length}`);
+        const initId32 = bafangIdArrayTo32Bit(initIdArr);
+        const sent = await canbusInstance.sendFrame(`${initId32.toString(16).padStart(8, '0')}#${Buffer.from([value.length]).toString('hex')}`);
+        if (!sent) throw new Error(`sendFrame returned false for ID 0x${initId32.toString(16)}`);
+        console.log(`[Serializer] Sent Long Write Init: ID=0x${initId32.toString(16)} LenByte=${value.length}`);
         await new Promise(resolve => setTimeout(resolve, delayMs));
 
-        // 2. Send MULTIFRAME_START
-        const startIdArr = generateCanFrameId(source, target, CanOperation.MULTIFRAME_START, code, subcode);
-        const startData = arrayClone.slice(0, 8);
-        await sendMfFrame(startIdArr, startData);
-        console.log(`[Serializer] Sent MF Start: ID=0x${bafangIdArrayTo32Bit(startIdArr).toString(16)}`);
-        arrayClone = arrayClone.slice(8);
-        await new Promise(resolve => setTimeout(resolve, delayMs));
-
-
-        // 3. Send MULTIFRAME packets
-        let packages = 0;
-        while (arrayClone.length > 8) { // Keep sending while more than 8 bytes remain
-            const mfIdArr = generateCanFrameId(source, target, CanOperation.MULTIFRAME, 0, packages++); // Command code 0, subcode is sequence number
-            const mfData = arrayClone.slice(0, 8);
-            await sendMfFrame(mfIdArr, mfData);
-            console.log(`[Serializer] Sent MF ${packages-1}: ID=0x${bafangIdArrayTo32Bit(mfIdArr).toString(16)}`);
-            arrayClone = arrayClone.slice(8);
-            await new Promise(resolve => setTimeout(resolve, delayMs));
-        }
-
-        // 4. Send MULTIFRAME_END with remaining data
-        const endIdArr = generateCanFrameId(source, target, CanOperation.MULTIFRAME_END, 0, packages); // Command code 0, subcode is sequence number
-        const endData = arrayClone; // Remaining data (<= 8 bytes)
-        await sendMfFrame(endIdArr, endData);
-        console.log(`[Serializer] Sent MF End ${packages}: ID=0x${bafangIdArrayTo32Bit(endIdArr).toString(16)}`);
+        // 2..4. START / MULTIFRAME / END
+        await sendLongDataFrames(canbusInstance, target, can_command, value, { delayMs });
 
     } catch (error) {
         // Error should have been logged by sendMfFrame or caught here if preparation fails
@@ -574,6 +592,7 @@ function prepareCleanServiceMileageWriteData(canbusInstance) {
 
 // --- Exports ---
 module.exports = {
+    sendLongDataFrames,
 	prepareParameter0WriteData,
     prepareParameter1WriteData,
     prepareParameter2WriteData,
