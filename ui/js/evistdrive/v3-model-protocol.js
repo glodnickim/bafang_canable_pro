@@ -2,7 +2,8 @@
 //
 // Specification: integration/roadmap/V3_MODEL_CAN_PROTOCOL_PL.md (object 4, transport) with the
 // changes of integration/roadmap/V3_PLAN_WDROZENIA_20261114_PL.md ("Kontrakt CAN, zmiany"):
-//   object 4 schema_version 2 — 11-byte level record, byte 10 = `range` (0xFF = KEEP);
+//   object 4 schema_version 2 — 12-byte level record, byte 10 = `range` (0xFF = KEEP),
+//   byte 11 reserved = 0 (even lengths 30/42/54/66/78 keep the transport length rule);
 //   object 5 "rowerzysta i sprzęt V3" schema_version 1 — 8 data bytes, total_len 26;
 //   capability bit 11 = object 5.
 // Transport of the V3 config (0x6035 CAPS, 0x6036 block, 0x6037 control). No DOM and no imports,
@@ -23,8 +24,8 @@ export const SCHEMA_VERSION = 2;
 export const SUPPORTED_MODEL_SCHEMAS = Object.freeze([1, 2]);
 export const RIDER_SCHEMA_VERSION = 1;
 export const RECORD_STRIDE_V1 = 10;
-export const RECORD_STRIDE = 11;
-/** Effective view adds 10 bytes after the base record (20 B in schema 1, 21 B in schema 2). */
+export const RECORD_STRIDE = 12;
+/** Effective view adds 10 bytes after the base record (20 B in schema 1, 22 B in schema 2). */
 export const EFFECTIVE_EXTRA = 10;
 export const EFFECTIVE_STRIDE = RECORD_STRIDE_V1 + EFFECTIVE_EXTRA; // schema 1 value, kept for callers
 export const HEADER_LEN = 16;
@@ -308,7 +309,7 @@ export function encodeModelWrite(firstLevel, levels, {
         out[o + 5] = level.start; out[o + 6] = level.carry;
         out[o + 7] = level.maxPowerW & 0xFF; out[o + 8] = level.maxPowerW >> 8;
         out[o + 9] = level.maxTorquePct;
-        if (schemaVersion >= 2) out[o + 10] = level.range;
+        if (schemaVersion >= 2) { out[o + 10] = level.range; out[o + 11] = 0; }
     });
     return sealCrc(out);
 }
@@ -376,7 +377,7 @@ function checkHeader(bytes, objectId, name) {
 }
 
 /**
- * Decode a model object reply. Schema 2: stride 11 (views 0/2/3) or 21 (view 1); schema 1:
+ * Decode a model object reply. Schema 2: stride 12 (views 0/2/3) or 22 (view 1); schema 1:
  * stride 10 / 20, and `range` is unknown (reported as 50 with rangeKnown = false). Throws on
  * any defect, including a schema version this tool does not know.
  */
@@ -398,6 +399,7 @@ export function decodeModelObject(bytes) {
     for (let i = 0; i < count; i++) {
         const o = HEADER_LEN + stride * i;
         if (bytes[o] !== first + i) throw new Error(`rekord ${i} ma numer poziomu ${bytes[o]}`);
+        if (schemaVersion >= 2 && bytes[o + 11] !== 0) throw new Error(`rekord ${i}: ustawiony bajt zarezerwowany`);
         levels.push({
             mode: bytes[o + 1], assist: bytes[o + 2], attack: bytes[o + 3], release: bytes[o + 4],
             start: bytes[o + 5], carry: bytes[o + 6], range: schemaVersion >= 2 ? bytes[o + 10] : 50,

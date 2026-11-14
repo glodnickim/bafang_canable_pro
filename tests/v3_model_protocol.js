@@ -65,39 +65,38 @@ const throwsMsg = (name, fn, part) => {
 
     // Write object layout.
     const all = P.encodeModelWrite(1, factory);
-    eq('5-level length 73 (schema 2)', all.length, 73);
+    eq('5-level length 78 (schema 2)', all.length, 78);
     eq('header magic/schema/version 2', [...all.slice(0, 4)], [0x42, 0x56, 4, 2]);
-    eq('header len/index/count/stride 11', [all[4] | (all[5] << 8), all[6], all[7], all[8]], [73, 1, 5, 11]);
+    eq('header len/index/count/stride 12', [all[4] | (all[5] << 8), all[6], all[7], all[8]], [78, 1, 5, 12]);
     eq('generation 0xFFFF (no check)', [all[14], all[15]], [0xFF, 0xFF]);
-    eq('record 0 bytes (11 B, range last)', [...all.slice(16, 27)], [1, 0, 50, 50, 50, 50, 50, 350 & 0xFF, 350 >> 8, 80, 50]);
-    eq('record 4 power 1100 LE', [all[16 + 44 + 7], all[16 + 44 + 8]], [1100 & 0xFF, 1100 >> 8]);
-    eq('crc matches', all[71] | (all[72] << 8), P.crc16(all, 71));
+    eq('record 0 bytes (12 B, range, reserved 0)', [...all.slice(16, 28)], [1, 0, 50, 50, 50, 50, 50, 350 & 0xFF, 350 >> 8, 80, 50, 0]);
+    eq('record 4 power 1100 LE', [all[16 + 48 + 7], all[16 + 48 + 8]], [1100 & 0xFF, 1100 >> 8]);
+    eq('crc matches', all[76] | (all[77] << 8), P.crc16(all, 76));
     // Byte vector: level 3 SPORT, assist 70, range 80, power 65000 (HW), torque 90, generation 0x0102.
     const vec = P.encodeModelWrite(3, [{ mode: 2, assist: 70, attack: 50, release: 40, start: 0, carry: 100, range: 80, maxPowerW: 65000, maxTorquePct: 90 }], { baseGeneration: 0x0102 });
-    const vecBody = '42560402' + '1d00' + '03010b00' + '00010000' + '0201' + '03024632280064e8fd5a50';
+    const vecBody = '42560402' + '1e00' + '03010c00' + '00010000' + '0201' + '03024632280064e8fd5a5000';
     const vecCrc = P.crc16(P.fromHex(vecBody));
     eq('schema 2 one-level byte vector', P.toHex(vec), vecBody + P.toHex([vecCrc & 0xFF, vecCrc >> 8]));
     const v1 = P.encodeModelWrite(1, [factory[0]], { schemaVersion: 1 });
     eq('schema 1 write still encodable: 28 B stride 10', [v1.length, v1[3], v1[8]], [28, 1, 10]);
     const one = P.encodeModelWrite(3, [factory[2]], { baseGeneration: 0x1234 });
-    eq('1-level length 29', one.length, 29);
+    eq('1-level length 30', one.length, 30);
     eq('1-level index/count', [one[6], one[7]], [3, 1]);
     eq('base generation LE', [one[14], one[15]], [0x34, 0x12]);
     eq('record carries level number', one[16], 3);
-    // Schema 2 lengths 29/40/51/62/73: odd lengths no longer pass the old "(len-18) even" declare
-    // rule of the firmware transport (it must be relaxed in 2e); all stay within 18..90.
-    eq('schema 2 lengths', [1, 2, 3, 4, 5].map((n) => P.encodeModelWrite(1, factory.slice(0, n)).length), [29, 40, 51, 62, 73]);
-    check('schema 2 lengths within 18..90', [1, 2, 3, 4, 5].every((n) => { const len = P.modelObjectLength(n); return len >= 18 && len <= 90; }));
+    // Schema 2 lengths 30/42/54/66/78 pass the unchanged firmware declare rule (>=18, (len-18) even, <=90).
+    eq('schema 2 lengths', [1, 2, 3, 4, 5].map((n) => P.encodeModelWrite(1, factory.slice(0, n)).length), [30, 42, 54, 66, 78]);
+    check('schema 2 lengths pass the transport declare rule', [1, 2, 3, 4, 5].every((n) => { const len = P.modelObjectLength(n); return len >= 18 && ((len - 18) % 2) === 0 && len <= 90; }));
     throwsMsg('write past level 5', () => P.encodeModelWrite(5, [factory[0], factory[1]]), 'zakres');
     throwsMsg('invalid value never encoded', () => P.encodeModelWrite(1, [{ ...factory[0], assist: 200 }]), 'Poziom 1');
     const keep = P.encodeModelWrite(2, [{ mode: 1, assist: 0xFF, attack: 50, release: 50, start: 50, carry: 50, range: 0xFF, maxPowerW: 0xFFFE, maxTorquePct: 0xFF }], { allowKeep: true });
-    eq('KEEP sentinels pass through (incl. range)', [keep[18], keep[23], keep[24], keep[25], keep[26]], [0xFF, 0xFE, 0xFF, 0xFF, 0xFF]);
+    eq('KEEP sentinels pass through (incl. range), reserved 0', [keep[18], keep[23], keep[24], keep[25], keep[26], keep[27]], [0xFF, 0xFE, 0xFF, 0xFF, 0xFF, 0]);
     throwsMsg('range KEEP refused without allowKeep', () => P.encodeModelWrite(1, [{ ...factory[0], range: 0xFF }]), 'range');
 
     // Multiframe split.
     const split = P.splitIntoFrames(all);
-    eq('73 B -> declare 73, 10 frames', [split.declaredLength, split.frames.length], [73, 10]);
-    eq('last frame is end with 1 byte', [split.frames[9].isEnd, split.frames[9].data.length], [true, 1]);
+    eq('78 B -> declare 78, 10 frames', [split.declaredLength, split.frames.length], [78, 10]);
+    eq('last frame is end with 6 bytes', [split.frames[9].isEnd, split.frames[9].data.length], [true, 6]);
     check('only the last frame is end', split.frames.slice(0, 9).every((f) => !f.isEnd && f.data.length === 8));
     throwsMsg('8 B is not a multiframe', () => P.splitIntoFrames(new Uint8Array(8)), 'długość');
 
@@ -129,6 +128,8 @@ const throwsMsg = (name, fn, part) => {
     throwsMsg('unknown schema version rejected', () => P.decodeModelObject(badVer), 'wersja');
     const badLevelNo = seal(Uint8Array.from(reply.map((v, i) => (i === 16 ? 2 : v))));
     throwsMsg('record with wrong level number rejected', () => P.decodeModelObject(badLevelNo), 'numer poziomu');
+    const badReserved = seal(Uint8Array.from(reply.map((v, i) => (i === 27 ? 1 : v))));
+    throwsMsg('reserved byte set in reply rejected', () => P.decodeModelObject(badReserved), 'zarezerwowany');
     const badRangeByte = seal(Uint8Array.from(reply.map((v, i) => (i === 26 ? 101 : v))));
     throwsMsg('range 101 in reply rejected', () => P.decodeModelObject(badRangeByte), 'niepoprawny');
     // Schema 1 reply (old firmware): stride 10, range unknown -> shown as 50.
@@ -140,7 +141,7 @@ const throwsMsg = (name, fn, part) => {
     throwsMsg('out-of-range value in reply rejected', () => P.decodeModelObject(badRange), 'niepoprawny');
     throwsMsg('truncated reply rejected', () => P.decodeModelObject(reply.slice(0, 40)), 'długość');
 
-    // Effective view decoding: schema 2 stride 21 (11 + 10), schema 1 stride 20 (10 + 10).
+    // Effective view decoding: schema 2 stride 22 (12 + 10), schema 1 stride 20 (10 + 10).
     const tail = [3100 & 0xFF, 3100 >> 8, 0, 0, 2200 & 0xFF, 2200 >> 8, 1467 & 0xFF, 1467 >> 8, 80, 50];
     const makeEff = (src, base) => {
         const len = 16 + base + 10 + 2;
@@ -149,8 +150,10 @@ const throwsMsg = (name, fn, part) => {
         e.set(src.slice(16, 16 + base), 16); e.set(tail, 16 + base);
         return seal(e);
     };
-    const decEff = P.decodeModelObject(makeEff(one, 11));
-    eq('effective decode schema 2 (39 B)', [decEff.effective[0].ratioPct, decEff.effective[0].attackMs, decEff.effective[0].start, decEff.levels[0].range], [310, 2200, 80, 50]);
+    const effV2 = makeEff(one, 12);
+    eq('effective schema 2 total_len 40', [effV2.length, effV2[4], effV2[8]], [40, 40, 22]);
+    const decEff = P.decodeModelObject(effV2);
+    eq('effective decode schema 2 (40 B)', [decEff.effective[0].ratioPct, decEff.effective[0].attackMs, decEff.effective[0].start, decEff.levels[0].range], [310, 2200, 80, 50]);
     const decEff1 = P.decodeModelObject(makeEff(P.encodeModelWrite(3, [factory[2]], { schemaVersion: 1 }), 10));
     eq('effective decode schema 1 (38 B)', [decEff1.effective[0].ratioPct, decEff1.effective[0].releaseMs, decEff1.rangeKnown], [310, 1467, false]);
 

@@ -103,7 +103,8 @@ const loud = () => { console.log = realLog; };
         if (op === 0 && cmd === 0x6036 && data.length === 1 && data[0] > 8) {
             fw.events.push('decl');
             if (fw.rejectDeclaration !== null) return err(0x6036, fw.rejectDeclaration, 0xFF);
-            if (data[0] < 18 || data[0] > 90) return err(0x6036, 1, 4);
+            // Same rule as firmware assist_v3_config_can_declare (unchanged by the stride-12 decision).
+            if (data[0] < 18 || data[0] > 90 || ((data[0] - 18) & 1)) return err(0x6036, 1, 4);
             fw.xfer = { len: data[0], buf: new Array(data[0]).fill(null), seen: new Set() };
             setTimeout(() => { fw.events.push('decl-ack'); deliver(2, 0x6036, [fw.generation & 0xFF, fw.generation >> 8]); }, fw.declAckDelayMs);
             return;
@@ -170,7 +171,7 @@ const loud = () => { console.log = realLog; };
     const readAll = await send('V3M_READ:4:0:3#2');
     check('READ object 4 all levels ok', readAll.ok === true, JSON.stringify(readAll));
     const decodedAll = P.decodeModelObject(P.fromHex(readAll.hex));
-    check('READ object 4: 73 B schema 2, factory levels', decodedAll.schemaVersion === 2 && P.levelsEqual(decodedAll.levels, P.factoryLevels()));
+    check('READ object 4: 78 B schema 2, factory levels', P.fromHex(readAll.hex).length === 78 && decodedAll.schemaVersion === 2 && P.levelsEqual(decodedAll.levels, P.factoryLevels()));
 
     fw.tx.length = 0; fw.events.length = 0;
     const edited = { ...P.factoryLevels()[2], assist: 70, range: 80, maxPowerW: 900 };
@@ -179,10 +180,10 @@ const loud = () => { console.log = realLog; };
     check('WRITE object 4 one level -> NORMAL_ACK with new generation', wr.ok === true && wr.generation === 8, JSON.stringify(wr));
     eq('emulator stored level 3', fw.levels[2], edited);
     const writes = fw.tx.filter((f) => f.op !== 2 && f.op !== 1);
-    eq('wire: declaration [29], START 8 B, MF 0, MF 1, END 2 (5 B)',
+    eq('wire: declaration [30], START 8 B, MF 0, MF 1, END 2 (6 B)',
         writes.map((f) => [f.op, f.op === 4 || f.op === 0 ? f.cmd : f.cmd, f.data.length]),
-        [[0, 0x6036, 1], [4, 0x6036, 8], [5, 0, 8], [5, 1, 8], [6, 2, 5]]);
-    eq('declaration carries the length', writes[0].data, [29]);
+        [[0, 0x6036, 1], [4, 0x6036, 8], [5, 0, 8], [5, 1, 8], [6, 2, 6]]);
+    eq('declaration carries the length', writes[0].data, [30]);
     eq('data frames carry the object bytes', writes.slice(1).flatMap((f) => f.data), [...obj]);
     eq('START is sent only after DECL_ACK', fw.events.slice(0, 3), ['decl', 'decl-ack', 'frame 0']);
 
