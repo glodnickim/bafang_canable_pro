@@ -910,7 +910,7 @@
             </div>
 
             <!-- #tab-ebics-profiles ======================================= -->
-            <!-- "Tryby V3": per HMI level one mode and five corrections (one model, one source).
+            <!-- "Tryby V3": per HMI level one mode and six corrections (one model, one source), plus the rider/hardware object and live charts.
                  The old AP2 bank editor (support curves, ramps, boosts, power filters, eMTB, Power
                  Curve, ride latch) was removed on purpose; see
                  integration/roadmap/V3_JEDEN_MODEL_PROJEKT_PL.md and the V3 model CAN protocol. -->
@@ -921,7 +921,7 @@
                         <h2 class="section-title text-lg">Tryby V3</h2>
                     </div>
                 </div>
-                <p class="form-hint">Dla każdego z pięciu poziomów HMI wybierasz tryb (ECO, TRAIL, SPORT, SPORT+, BOOST, AUTO) i pięć korekt 0..100, gdzie <b>50 = domyślna wartość trybu</b>. Assist, Attack, Release, Start i Carry to korekty wokół domyślnych; Attack i Release w prawo działają szybciej, Start i Carry równe 0 wyłączają funkcję. Max Power (W albo limit sprzętu) i Max Torque (% dozwolonego Iq) to osobne limity trybu. Hamulec, błędy, stop i jazda wstecz mają zawsze pierwszeństwo.</p>
+                <p class="form-hint">Dla każdego z pięciu poziomów HMI wybierasz tryb (ECO, TRAIL, SPORT, SPORT+, BOOST, AUTO) i sześć korekt 0..100, gdzie <b>50 = ustawienie fabryczne trybu</b>; obok suwaka widać mnożnik (×0,5 przy 0 … ×2 przy 100) i wynik. Assist, Attack, Release, Start, Carry i Zakres to korekty wokół domyślnych; Attack i Release w prawo działają szybciej, Zakres w prawo daje pełne wsparcie przy lżejszym nacisku, Start i Carry równe 0 wyłączają funkcję. Max Power (W albo limit sprzętu) i Max Torque (% dozwolonego Iq) to osobne limity poziomu. „Rowerzysta i sprzęt” (siła rowerzysty, mapa wysiłku, progi C1) są wspólne dla wszystkich poziomów. Hamulec, błędy, stop i jazda wstecz mają zawsze pierwszeństwo.</p>
                 <section class="ebics-preset-strip mt-4">
                     <div class="ebics-preset-controls">
                         <label>Nazwa presetu
@@ -937,10 +937,10 @@
                     <small class="form-hint">Preset zawiera tylko tryby i korekty (pięć poziomów). Kalibracja, bateria, prędkość, PAS i Walk to sprzęt jednego roweru i nigdy nie są w pliku.</small>
                 </section>
                 <div class="ebics-toolbar">
-                    <button id="evdV3Read" class="btn btn-blue" data-requires-link title="Odczytuje model V3 ze sterownika (RAM).">Odczytaj tryby ze sterownika</button>
+                    <button id="evdV3Read" class="btn btn-blue" data-requires-link title="Odczytuje poziomy (obiekt 4) i rowerzystę/sprzęt (obiekt 5) ze sterownika (RAM).">Odczytaj tryby ze sterownika</button>
                     <button id="evdV3WriteAll" class="btn btn-blue" data-requires-link disabled title="Zapis pięciu poziomów do RAM sterownika, potem odczyt kontrolny. Zablokowane, dopóki firmware nie zgłosi obsługi modelu.">Zapisz wszystkie poziomy (RAM)</button>
-                    <button id="evdV3Persist" class="btn btn-orange" data-requires-link disabled title="Sterownik zapisze model we flash na postoju.">Zapisz na stałe</button>
-                    <button id="evdV3Factory" class="btn btn-secondary" disabled title="Fabryczny preset: poziom 1..5 = ECO, TRAIL, SPORT, SPORT+, BOOST, wszystkie korekty 50.">Preset fabryczny</button>
+                    <button id="evdV3Persist" class="btn btn-orange" data-requires-link disabled title="Sterownik zapisze model i ustawienia rowerzysty we flash na postoju (0x6037 op 1).">Zapisz na stałe</button>
+                    <button id="evdV3Factory" class="btn btn-secondary" title="Fabryczny preset: poziom 1..5 = ECO, TRAIL, SPORT, SPORT+, BOOST, wszystkie korekty 50. Na ekranie zawsze; w sterowniku (op 5) tylko gdy firmware obsługuje model.">Preset fabryczny (wszystkie poziomy)</button>
                     <button id="evdV3Discover" class="btn btn-secondary" data-requires-link title="Sprawdza, czy firmware obsługuje model V3 (zapytanie 0x6035).">Sprawdź obsługę w firmware</button>
                     <span id="evdV3Status" class="ebics-source-note">Nie sprawdzono obsługi modelu V3.</span>
                 </div>

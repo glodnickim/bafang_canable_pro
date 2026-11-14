@@ -30,7 +30,7 @@ import {
     syncAllCompatibilityData, writeLegacyBlocks, restoreLegacyDraft, LONG_WRITE_GAP_MS,
 } from './legacy-params.js';
 import {
-    readModelFromBike, restoreModelFromRead, v3ModelScope, writeAllLevels, persistModel,
+    readModelFromBike, restoreModelFromRead, v3ModelScope, writeAllLevels, writeRider, persistModel,
 } from './v3-model-panel.js';
 import { restoreTuningFromRead } from './dynamics.js';
 import { writeSocFullThreshold } from './limits.js';
@@ -97,6 +97,10 @@ async function writeRideSettings(scope) {
     if (scope.model.writable && scope.model.dirty) {
         if (!(await writeAllLevels())) return { ok: false, reason: 'the V3 model was not written' };
     }
+    // Object 5 (rider and hardware) likewise only with capability bit 11.
+    if (scope.model.riderWritable && scope.model.riderDirty) {
+        if (!(await writeRider())) return { ok: false, reason: 'the V3 rider settings were not written' };
+    }
     if (scope.tuning) {
         const written = await writeTuningAndWait(state.lastTuning);
         if (!written.ok) return { ok: false, reason: `the ride-feel tuning was not written (${written.reason})` };
@@ -136,7 +140,7 @@ async function performSave(mode) {
                 + 'gone when you switch the bike off — save permanently to keep them.');
             return;
         }
-        if (scope.model.writable) await persistModel();
+        if (scope.model.writable || scope.model.riderWritable) await persistModel();
         const saved = await saveToFlashAndWait();
         if (!saved.ok) {
             markUnsavedInRam();
