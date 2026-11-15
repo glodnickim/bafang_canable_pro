@@ -26,16 +26,17 @@ const throwsMsg = (name, fn, part) => {
     const w = P.encodeRiderWrite(rider);
     eq('rider object length 26', w.length, 26);
     // Byte vector: 'B','V', obj 5, ver 1, len 26, index 0, count 1, stride 8, flags 0,
-    // caps = bit 11 (0x800), generation 0xFFFF, 300 / Iq_min 28 / 42 LE, flags 3 (effort map + hold
-    // model v2), t_hold 20 (2.0 s). Identical to the firmware VEC_RIDER (tests/host/v3_model_can_host.c).
-    const body = '42560501' + '1a00' + '00010800' + '00080000' + 'ffff' + '2c01' + '1c00' + '2a00' + '03' + '14';
+    // caps = bits 11+12 (0x1800: object 5, hold layout), generation 0xFFFF, 300 / Iq_min 28 / 42 LE,
+    // flags 3 (effort map + hold model v2), t_hold 20 (2.0 s). Identical to the firmware VEC_RIDER
+    // (tests/host/v3_model_can_host.c).
+    const body = '42560501' + '1a00' + '00010800' + '00180000' + 'ffff' + '2c01' + '1c00' + '2a00' + '03' + '14';
     const crc = P.crc16(P.fromHex(body));
     eq('rider byte vector', P.toHex(w), body + P.toHex([crc & 0xFF, crc >> 8]));
-    eq('rider byte vector = firmware VEC_RIDER CRC', [crc & 0xFF, crc >> 8], [0x69, 0xfd]);
+    eq('rider byte vector = firmware VEC_RIDER CRC', [crc & 0xFF, crc >> 8], [0xdd, 0xeb]);
     const w2 = P.encodeRiderWrite({ riderStrengthX10kg: 600, iqMinLow: 0, iqMinHigh: 0, effortMap: false, holdModel: false, tHold100ms: 40 }, { baseGeneration: 0x0304 });
     eq('rider max strength, no minimum, map and hold off, t_hold 4 s, generation', [...w2.slice(14, 24)], [0x04, 0x03, 0x58, 0x02, 0, 0, 0, 0, 0, 40]);
     const w3 = P.encodeRiderWrite({ riderStrengthX10kg: 350, iqMinLow: 30, iqMinHigh: 45, effortMap: false, holdModel: false, tHold100ms: 20 });
-    eq('rider vector 2 = firmware VEC_RIDER2', P.toHex(w3.slice(16)), '5e011e002d000014fd4d');
+    eq('rider vector 2 = firmware VEC_RIDER2', P.toHex(w3.slice(16)), '5e011e002d000014495b');
 
     eq('valid factory rider', P.validateRider(rider), []);
     check('strength 99 rejected', P.validateRider({ ...rider, riderStrengthX10kg: 99 }).length > 0);
@@ -60,7 +61,14 @@ const throwsMsg = (name, fn, part) => {
     const badCrc = Uint8Array.from(reply); badCrc[17] ^= 1;
     throwsMsg('rider bad CRC', () => P.decodeRiderObject(badCrc), 'CRC');
     throwsMsg('rider reserved flag bit', () => P.decodeRiderObject(seal(Uint8Array.from(reply.map((v, i) => (i === 22 ? 7 : v))))), 'zarezerwowane');
-    throwsMsg('pre-hold-model firmware (t_hold byte 0)', () => P.decodeRiderObject(seal(Uint8Array.from(reply.map((v, i) => (i === 23 ? 0 : v))))), 'firmware');
+    throwsMsg('hold layout with t_hold byte 0 is invalid', () => P.decodeRiderObject(seal(Uint8Array.from(reply.map((v, i) => (i === 23 ? 0 : v))))), 'niepoprawny');
+    // Old firmware (no capability bit 12): the C1 layout decodes as a legacy rider, nothing rejected.
+    const oldBody = '42560501' + '1a00' + '00010800' + '00080000' + 'ffff' + '2c01' + '2800' + '3700' + '01' + '00';
+    const oldReply = seal(Uint8Array.from([...P.fromHex(oldBody), 0, 0])); oldReply[9] = 3; seal(oldReply);
+    eq('old firmware object 5 -> legacy rider', P.decodeRiderObject(oldReply, { holdLayout: false }).rider, P.factoryLegacyRider());
+    const legacyW = P.encodeRiderWrite({ ...P.factoryLegacyRider(), riderStrengthX10kg: 350 });
+    eq('legacy write keeps C1 40/55, bit 11 only, byte 23 = 0', [...legacyW.slice(10, 24)], [0x00, 0x08, 0, 0, 0xff, 0xff, 0x5e, 0x01, 40, 0, 55, 0, 1, 0]);
+    eq('hold write requires bits 11+12', [...w.slice(10, 14)], [0x00, 0x18, 0, 0]);
     throwsMsg('rider t_hold out of range', () => P.decodeRiderObject(seal(Uint8Array.from(reply.map((v, i) => (i === 23 ? 41 : v))))), 'niepoprawny');
     throwsMsg('rider wrong version', () => P.decodeRiderObject(seal(Uint8Array.from(reply.map((v, i) => (i === 3 ? 2 : v))))), 'wersja');
     throwsMsg('rider wrong stride', () => P.decodeRiderObject(seal(Uint8Array.from(reply.map((v, i) => (i === 8 ? 6 : v))))), 'nagłówek');
@@ -72,6 +80,7 @@ const throwsMsg = (name, fn, part) => {
     caps[0] = 0x42; caps[1] = 0x56; caps[2] = 2; caps[3] = 2;
     const capsWith = (value) => { caps[12] = value & 0xFF; caps[13] = (value >> 8) & 0xFF; caps[14] = 0; caps[15] = 0; return seal(Uint8Array.from(caps)); };
     eq('caps bit 11 -> rider', P.parseCaps(capsWith(P.CAP_RIDER)).rider, true);
+    eq('caps bit 12 -> hold layout', [P.parseCaps(capsWith(P.CAP_RIDER | P.CAP_RIDER_HOLD)).riderHold, P.parseCaps(capsWith(P.CAP_RIDER)).riderHold], [true, false]);
     eq('caps without bit 11 -> no rider', P.parseCaps(capsWith(P.CAP_MODEL | P.CAP_MODEL_WRITABLE)).rider, false);
 
     const makeTransport = (capsBytes, log) => {
@@ -105,7 +114,7 @@ const throwsMsg = (name, fn, part) => {
 
     // Rider only (bit 11): object 4 write and model presets refused, persist allowed.
     log = [];
-    const riderOnly = P.createModelClient(makeTransport(capsWith(P.CAP_RIDER), log));
+    const riderOnly = P.createModelClient(makeTransport(capsWith(P.CAP_RIDER | P.CAP_RIDER_HOLD), log));
     await riderOnly.discover();
     check('no bit 8: model write refused', (await riderOnly.write(1, P.factoryLevels())).ok === false);
     check('no bit 8: restore model refused', (await riderOnly.restoreFactory()).ok === false);
@@ -127,12 +136,27 @@ const throwsMsg = (name, fn, part) => {
 
     // Readback mismatch on object 5 is reported.
     log = [];
-    const liarT = makeTransport(capsWith(P.CAP_RIDER), log);
+    const liarT = makeTransport(capsWith(P.CAP_RIDER | P.CAP_RIDER_HOLD), log);
     liarT.write = async () => ({ ok: true, generation: 2 });
     const liar = P.createModelClient(liarT);
     await liar.discover();
     const lied = await liar.writeRider(edited);
     check('rider readback mismatch reported', lied.ok === false && /różni/.test(lied.text));
+
+    // Old firmware (bit 11 without bit 12): legacy read, hold-layout write refused locally, legacy write ok.
+    log = [];
+    const oldT = makeTransport(capsWith(P.CAP_RIDER), log);
+    let oldStored = Uint8Array.from(oldReply);
+    oldT.read = async (req) => { log.push(`read ${req.join('/')}`); return oldStored; };
+    oldT.write = async (obj) => { log.push(`write obj${obj[2]} ${obj.length}`); oldStored = Uint8Array.from(obj); oldStored[9] = 3; seal(oldStored); return { ok: true, generation: 3 }; };
+    const oldC = P.createModelClient(oldT);
+    await oldC.discover();
+    const oldRead = await oldC.readRider();
+    check('old firmware: legacy rider read', oldRead.rider.legacy === true && oldRead.rider.lowAssistOnIq === 55);
+    const refusedNew = await oldC.writeRider(P.factoryRider());
+    check('old firmware: hold-layout write refused, nothing sent', refusedNew.ok === false && !log.some((l) => l.startsWith('write obj5')), JSON.stringify(refusedNew));
+    const legacyOk = await oldC.writeRider({ ...oldRead.rider, riderStrengthX10kg: 420 });
+    check('old firmware: legacy write + readback ok', legacyOk.ok === true, JSON.stringify(legacyOk));
 
     // Schema 1 firmware: the client writes back in the version it read (no range byte).
     log = [];

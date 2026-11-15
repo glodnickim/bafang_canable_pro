@@ -31,7 +31,7 @@ const loud = () => { console.log = realLog; };
 
     // ---- firmware emulator ----
     const fw = {
-        capsBits: P.CAP_MODEL | P.CAP_MODEL_EFFECTIVE | P.CAP_MODEL_WRITABLE | P.CAP_RIDER,
+        capsBits: P.CAP_MODEL | P.CAP_MODEL_EFFECTIVE | P.CAP_MODEL_WRITABLE | P.CAP_RIDER | P.CAP_RIDER_HOLD,
         silent: false,
         generation: 7,
         levels: P.factoryLevels(),
@@ -267,7 +267,7 @@ const loud = () => { console.log = realLog; };
 
     // ---- silent controller: CAPS times out, writes stay blocked ----
     fw.silent = true;
-    fw.capsBits = P.CAP_MODEL | P.CAP_MODEL_WRITABLE | P.CAP_RIDER;
+    fw.capsBits = P.CAP_MODEL | P.CAP_MODEL_WRITABLE | P.CAP_RIDER | P.CAP_RIDER_HOLD;
     transport = createV3ConfigTransport(canbus, { readTimeoutMs: 300, replyTimeoutMs: 300 });
     send = ws(transport);
     const sc = await send('V3M_CAPS#9');

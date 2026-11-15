@@ -103,7 +103,7 @@ export function describeEffective(level, key) {
 
 function capsSummary(caps) {
     const yes = (b, text) => `${text}: ${b ? 'tak' : 'nie'}`;
-    return [yes(caps.model, 'model (bit 8)'), yes(caps.modelWritable, 'zapis modelu (bit 10)'), yes(caps.rider, 'rowerzysta i sprzęt (bit 11)')].join(', ');
+    return [yes(caps.model, 'model (bit 8)'), yes(caps.modelWritable, 'zapis modelu (bit 10)'), yes(caps.rider, 'rowerzysta i sprzęt (bit 11)'), yes(caps.riderHold, 'model podtrzymania (bit 12)')].join(', ');
 }
 
 function statusText() {
@@ -357,7 +357,21 @@ function riderSection() {
         help: 'Nacisk (kg) przy pełnym wysiłku na małej kadencji. Możliwości przy kadencji liczone są jako T0·(1 − kad/190). Więcej kg = na to samo wsparcie trzeba mocniej naciskać (silny rowerzysta), mniej = pełne wsparcie przy lżejszym nacisku. Domyślnie 30 kg (z logów jazd).',
     });
 
-    // Hold model (OWNER-DEC-20261115-PRESSURE-HOLD, replaces C1).
+    // Hold model (OWNER-DEC-20261115-PRESSURE-HOLD, replaces C1). Older firmware (no capability
+    // bit 12): the C1 fields are shown read-only with a note to update the firmware.
+    if (r.legacy) {
+        const note = document.createElement('div'); note.className = 'form-hint ebics-stale-warning';
+        note.textContent = 'Firmware bez modelu podtrzymania (stary obiekt 5 z C1). Minimum Iq i czas bez nacisku są dostępne po wgraniu nowego firmware. Poniżej wartości C1 tylko do odczytu; siłę i mapę wysiłku można zapisać.';
+        const c1 = document.createElement('div'); c1.className = 'evd-v3-help';
+        c1.textContent = `C1 (stare firmware): Iq_off ${r.lowAssistOffIq}, Iq_on ${r.lowAssistOnIq} — tylko do odczytu.`;
+        const errorsLegacy = document.createElement('div'); errorsLegacy.id = 'evdV3RiderErrors'; errorsLegacy.className = 'form-hint';
+        const writableLegacy = v3RiderCanWrite();
+        const actionsLegacy = document.createElement('div'); actionsLegacy.className = 'evd-v3-actions';
+        actionsLegacy.append(button('Zapisz rowerzystę i sprzęt (RAM)', 'btn btn-blue btn-sm', () => { void writeRider(); },
+            { id: 'evdV3WriteRider', disabled: !writableLegacy, title: writableLegacy ? 'Zapis siły i mapy wysiłku; C1 bez zmian.' : 'Zablokowane: firmware nie zgłasza obiektu 5 (bit 11).' }));
+        box.append(mapRow, strength, note, c1, errorsLegacy, actionsLegacy);
+        return box;
+    }
     const pct = (iq) => `${String(P.iqPercent(iq)).replace('.', ',')} % z ${P.PHASE_CURRENT_MAX_IQ}`;
     const holdRow = document.createElement('div'); holdRow.className = 'evd-v3-row';
     const holdLabel = document.createElement('label'); holdLabel.className = 'evd-v3-limit';
@@ -413,7 +427,7 @@ function pressureSection() {
     const read = !!(state.lastBanks && state.ebicsReceivedBanks?.[index]);
     const pressureHint = hint('Start z miejsca: najmniejszy nacisk, przy którym wspomaganie rusza, gdy koło stoi (wymaga też obrotu korby). '
         + 'Start w czasie jazdy: próg, gdy koło się toczy (powyżej 3 km/h); ten sam próg jest „trafieniem” podtrzymania — jadące wspomaganie gaśnie, gdy przez pełny obrót korby albo „Czas bez nacisku” nacisk ani razu go nie przekroczy. Nie może być większy niż start z miejsca. '
-        + 'Wartości są faktycznym progiem zadziałania V3 (dokładność czujnika ok. ±0,3 kg); dolna granica startu z miejsca to ok. 1,5 kg (szum czujnika 10 mV).');
+        + 'Wartości są faktycznym progiem zadziałania V3 (dokładność czujnika ok. ±0,3 kg); dolna granica obu progów to ok. 1,5 kg (szum czujnika 10 mV) — niższa wartość działa jak 1,5 kg.');
     box.append(title);
     if (!read) {
         const warn = document.createElement('div'); warn.className = 'form-hint ebics-stale-warning';

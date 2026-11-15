@@ -8,7 +8,10 @@
 //   capability bit 11 = object 5. Since OWNER-DEC-20261115-PRESSURE-HOLD (model podtrzymania,
 //   integration/roadmap/V3_NACISK_PODTRZYMANIE_20261115_PL.md) the same 26 bytes carry
 //   strength u16 | Iq_min at <= 30 rpm u16 | Iq_min at >= 60 rpm u16 | flags (bit 0 effort map,
-//   bit 1 hold model v2) | t_hold in 100 ms (5..40; formerly a reserved zero byte).
+//   bit 1 hold model v2) | t_hold in 100 ms (5..40; formerly a reserved zero byte), announced by
+//   capability bit 12 (LEAD-DEC-20261115-HOLD-FIX M3). Without bit 12 the firmware has the C1 layout
+//   (Iq_off / Iq_on, byte 7 reserved zero): this tool shows it, keeps Iq_off / Iq_on read-only and
+//   writes it back unchanged with the strength / effort-map edits.
 // Transport of the V3 config (0x6035 CAPS, 0x6036 block, 0x6037 control). No DOM and no imports,
 // so the node tests load this file directly.
 //
@@ -38,6 +41,8 @@ export const CAP_MODEL = 1 << 8;
 export const CAP_MODEL_EFFECTIVE = 1 << 9;
 export const CAP_MODEL_WRITABLE = 1 << 10;
 export const CAP_RIDER = 1 << 11;
+/** Object 5 in the hold model layout (Iq_min, t_hold). Absent: C1 layout of older firmware. */
+export const CAP_RIDER_HOLD = 1 << 12;
 /** Transport declaration: one length byte > 8; the firmware staging buffer holds 90 B. */
 export const MAX_OBJECT_LEN = 90;
 
@@ -106,10 +111,20 @@ export function factoryRider() {
     return { riderStrengthX10kg: 300, iqMinLow: 28, iqMinHigh: 42, effortMap: true, holdModel: true, tHold100ms: 20 };
 }
 
+/** Factory object 5 of firmware before the hold model (C1 layout, no capability bit 12). */
+export function factoryLegacyRider() {
+    return { legacy: true, riderStrengthX10kg: 300, lowAssistOffIq: 40, lowAssistOnIq: 55, effortMap: true };
+}
+
 export function validateRider(rider) {
     const errors = [];
     const intIn = (value, min, max) => Number.isInteger(value) && value >= min && value <= max;
     if (!intIn(rider?.riderStrengthX10kg, RIDER_LIMITS.strengthMin, RIDER_LIMITS.strengthMax)) errors.push('Siła rowerzysty: 10,0..60,0 kg');
+    if (rider?.legacy) {
+        if (!intIn(rider.lowAssistOffIq, 0, 200) || !intIn(rider.lowAssistOnIq, rider.lowAssistOffIq ?? 0, 250)) errors.push('C1 Iq_off/Iq_on poza zakresem starego firmware');
+        if (typeof rider.effortMap !== 'boolean') errors.push('Mapa wysiłku: wł./wył.');
+        return errors;
+    }
     if (!intIn(rider?.iqMinHigh, 0, RIDER_LIMITS.iqMinMax)) errors.push('Minimum Iq przy ≥60 obr/min: 0..120');
     if (!intIn(rider?.iqMinLow, 0, Number.isInteger(rider?.iqMinHigh) ? Math.min(rider.iqMinHigh, RIDER_LIMITS.iqMinMax) : RIDER_LIMITS.iqMinMax)) errors.push('Minimum Iq przy ≤30 obr/min: 0..120, nie więcej niż przy ≥60 obr/min');
     if (!intIn(rider?.tHold100ms, RIDER_LIMITS.tHoldMin, RIDER_LIMITS.tHoldMax)) errors.push('Czas bez nacisku: 0,5..4,0 s');
@@ -119,7 +134,10 @@ export function validateRider(rider) {
 }
 
 export function ridersEqual(a, b) {
-    return !!a && !!b && ['riderStrengthX10kg', 'iqMinLow', 'iqMinHigh', 'effortMap', 'holdModel', 'tHold100ms'].every((k) => a[k] === b[k]);
+    if (!a || !b || !!a.legacy !== !!b.legacy) return false;
+    const keys = a.legacy ? ['riderStrengthX10kg', 'lowAssistOffIq', 'lowAssistOnIq', 'effortMap']
+        : ['riderStrengthX10kg', 'iqMinLow', 'iqMinHigh', 'effortMap', 'holdModel', 'tHold100ms'];
+    return keys.every((k) => a[k] === b[k]);
 }
 
 // ---- math -------------------------------------------------------------------------------
@@ -343,15 +361,25 @@ export function encodeModelWrite(firstLevel, levels, {
     return sealCrc(out);
 }
 
-/** Object 5 write (header index 0, count 1, stride 8, total_len 26). */
-export function encodeRiderWrite(rider, { baseGeneration = 0xFFFF, requiredCaps = CAP_RIDER } = {}) {
+/** Object 5 write (header index 0, count 1, stride 8, total_len 26). The hold layout requires
+ *  capability bit 12, so a firmware without it refuses the write (reason 4) instead of misreading it;
+ *  a legacy (C1) rider is written in the old layout with bit 11 only. */
+export function encodeRiderWrite(rider, { baseGeneration = 0xFFFF, requiredCaps } = {}) {
     const errors = validateRider(rider);
     if (errors.length) throw new Error(`Rowerzysta i sprzęt: ${errors.join('; ')}`);
+    const caps = requiredCaps ?? (rider.legacy ? CAP_RIDER : (CAP_RIDER | CAP_RIDER_HOLD));
     const out = header(RIDER_LEN, {
-        objectId: OBJECT_RIDER, schemaVersion: RIDER_SCHEMA_VERSION, index: 0, count: 1, stride: RIDER_STRIDE, flags: 0, caps: requiredCaps, generation: baseGeneration,
+        objectId: OBJECT_RIDER, schemaVersion: RIDER_SCHEMA_VERSION, index: 0, count: 1, stride: RIDER_STRIDE, flags: 0, caps, generation: baseGeneration,
     });
     const o = HEADER_LEN;
     out[o] = rider.riderStrengthX10kg & 0xFF; out[o + 1] = rider.riderStrengthX10kg >> 8;
+    if (rider.legacy) {
+        out[o + 2] = rider.lowAssistOffIq & 0xFF; out[o + 3] = rider.lowAssistOffIq >> 8;
+        out[o + 4] = rider.lowAssistOnIq & 0xFF; out[o + 5] = rider.lowAssistOnIq >> 8;
+        out[o + 6] = rider.effortMap ? RIDER_FLAG_EFFORT_MAP : 0;
+        out[o + 7] = 0;
+        return sealCrc(out);
+    }
     out[o + 2] = rider.iqMinLow & 0xFF; out[o + 3] = rider.iqMinLow >> 8;
     out[o + 4] = rider.iqMinHigh & 0xFF; out[o + 5] = rider.iqMinHigh >> 8;
     out[o + 6] = (rider.effortMap ? RIDER_FLAG_EFFORT_MAP : 0) | (rider.holdModel ? RIDER_FLAG_HOLD_MODEL : 0);
@@ -454,16 +482,25 @@ export function decodeModelObject(bytes) {
     };
 }
 
-/** Decode an object 5 reply (26 B). Reserved flag bits = defect (firmware would reject them). A zero
- *  t_hold byte is a pre-hold-model firmware (C1 Iq_off/Iq_on in bytes 2..5): refused with a hint. */
-export function decodeRiderObject(bytes) {
+/** Decode an object 5 reply (26 B). holdLayout = the firmware announced capability bit 12; without
+ *  it the reply is the C1 layout (legacy rider). Reserved bits / bytes set = defect. */
+export function decodeRiderObject(bytes, { holdLayout = true } = {}) {
     const totalLen = checkHeader(bytes, OBJECT_RIDER, 'rowerzysty');
     if (bytes[3] !== RIDER_SCHEMA_VERSION) throw new Error(`nieznana wersja obiektu 5: ${bytes[3]}`);
     if (totalLen !== RIDER_LEN || bytes[6] !== 0 || bytes[7] !== 1 || bytes[8] !== RIDER_STRIDE) throw new Error('zły nagłówek obiektu 5');
     const o = HEADER_LEN;
     const flags = bytes[o + 6];
+    if (!holdLayout) {
+        if ((flags & ~RIDER_FLAG_EFFORT_MAP) !== 0 || bytes[o + 7] !== 0) throw new Error('obiekt 5: ustawione zarezerwowane bity');
+        const legacy = {
+            legacy: true, riderStrengthX10kg: u16(bytes, o), lowAssistOffIq: u16(bytes, o + 2), lowAssistOnIq: u16(bytes, o + 4),
+            effortMap: (flags & RIDER_FLAG_EFFORT_MAP) !== 0,
+        };
+        const legacyErrors = validateRider(legacy);
+        if (legacyErrors.length) throw new Error(`Obiekt 5 w odpowiedzi jest niepoprawny: ${legacyErrors.join('; ')}`);
+        return { view: bytes[9], rider: legacy, caps: u32(bytes, 10), generation: u16(bytes, 14) };
+    }
     if ((flags & ~(RIDER_FLAG_EFFORT_MAP | RIDER_FLAG_HOLD_MODEL)) !== 0) throw new Error('obiekt 5: ustawione zarezerwowane bity');
-    if (bytes[o + 7] === 0) throw new Error('obiekt 5: firmware sprzed modelu podtrzymania (C1 Iq_off/Iq_on) — wgraj nowe firmware');
     const rider = {
         riderStrengthX10kg: u16(bytes, o), iqMinLow: u16(bytes, o + 2), iqMinHigh: u16(bytes, o + 4),
         effortMap: (flags & RIDER_FLAG_EFFORT_MAP) !== 0, holdModel: (flags & RIDER_FLAG_HOLD_MODEL) !== 0,
@@ -487,6 +524,7 @@ export function parseCaps(bytes) {
         modelEffective: (caps & CAP_MODEL_EFFECTIVE) !== 0,
         modelWritable: (caps & CAP_MODEL_WRITABLE) !== 0,
         rider: (caps & CAP_RIDER) !== 0,
+        riderHold: (caps & CAP_RIDER_HOLD) !== 0,
     };
 }
 
@@ -590,11 +628,14 @@ export function createModelClient(transport) {
         },
         async readRider(view = VIEW.CONFIGURED) {
             if (!caps?.rider) throw new Error('Firmware nie obsługuje ustawień rowerzysty (obiekt 5)');
-            return decodeRiderObject(await transport.read(buildReadRequest(0, view, OBJECT_RIDER)));
+            return decodeRiderObject(await transport.read(buildReadRequest(0, view, OBJECT_RIDER)), { holdLayout: !!caps.riderHold });
         },
         async writeRider(rider, { baseGeneration = 0xFFFF } = {}) {
             const blocked = blockedRider();
             if (blocked) return blocked;
+            if (!!rider.legacy === !!caps.riderHold) {
+                return { ok: false, reason: 4, text: caps.riderHold ? 'Firmware ma model podtrzymania (bit 12): odczytaj ustawienia ponownie.' : 'Firmware bez modelu podtrzymania (brak bitu 12): wgraj nowe firmware, aby ustawić minimum i czas bez nacisku.' };
+            }
             const result = await transport.write(encodeRiderWrite(rider, { baseGeneration }));
             if (!result.ok) return failure(result);
             const back = await this.readRider(VIEW.CONFIGURED).catch((error) => ({ error }));
