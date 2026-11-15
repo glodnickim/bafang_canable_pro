@@ -433,14 +433,14 @@ function pressureSection() {
         const name = v3ModeNameForLevel(i + 1) ?? `Poziom ${i + 1}`;
         const start = numberRow({
             label: `${name}: start`, unit: 'kg', ...PRESSURE_LIMITS, value: lv.minimum_pedal_load_kg ?? 0,
-            onChange: (v) => { lv.minimum_pedal_load_kg = Math.round(v * 10) / 10;
+            onChange: (v) => { lv.minimum_pedal_load_kg = Math.min(PRESSURE_LIMITS.max, Math.max(PRESSURE_LIMITS.min, Math.round(v * 10) / 10));
                 if ((lv.riding_minimum_pedal_load_kg ?? 0) > lv.minimum_pedal_load_kg) lv.riding_minimum_pedal_load_kg = lv.minimum_pedal_load_kg;
                 markUnsavedInRam(); renderPanel(); },
             help: `Poziom ${i + 1}: próg startu z miejsca.`,
         });
         const hold = numberRow({
             label: `${name}: podtrzymanie`, unit: 'kg', ...PRESSURE_LIMITS, value: lv.riding_minimum_pedal_load_kg ?? 0,
-            onChange: (v) => { lv.riding_minimum_pedal_load_kg = Math.min(Math.round(v * 10) / 10, lv.minimum_pedal_load_kg ?? 0);
+            onChange: (v) => { lv.riding_minimum_pedal_load_kg = Math.min(PRESSURE_LIMITS.max, Math.max(PRESSURE_LIMITS.min, Math.round(v * 10) / 10), lv.minimum_pedal_load_kg ?? 0);
                 markUnsavedInRam(); renderPanel(); },
             help: `Poziom ${i + 1}: próg podtrzymania podczas jazdy (≤ start).`,
         });
