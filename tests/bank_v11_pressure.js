@@ -23,3 +23,22 @@ for (const version of [9, 10, 11]) {
   }
 }
 console.log('Bank v9-v11 pressure units: PASS');
+
+// Captured from assist_modes_init()/assist_modes_serialize_bank(), firmware v11.
+const firmware = Array.from(Buffer.from(require('fs').readFileSync(require('path').join(__dirname, 'fixtures/bank_v11_firmware.hex'), 'ascii').trim(), 'hex'));
+const parsedFirmware = BafangCanControllerParser.bankBlob({data: firmware});
+assert.ok(!parsedFirmware.parseError);
+assert.deepStrictEqual(serialize(parsedFirmware), firmware, 'firmware blob including CRC survives unchanged');
+parsedFirmware.levels[0].minimum_pedal_load_kg = 3.21;
+parsedFirmware.levels[0].riding_minimum_pedal_load_kg = 1.2;
+const edited = serialize(parsedFirmware);
+for (let i = 0; i < 253; i++) {
+  if (![32, 33, 48].includes(i)) assert.strictEqual(edited[i], firmware[i], `unexpected change at ${i}`);
+}
+let crc = 0xffff;
+for (const byte of edited.slice(0, 253)) {
+  crc ^= byte << 8;
+  for (let bit = 0; bit < 8; bit++) crc = ((crc & 0x8000) ? (crc << 1) ^ 0x1021 : crc << 1) & 0xffff;
+}
+assert.strictEqual(edited[253] | edited[254] << 8, crc);
+console.log('Firmware v11 bit-exact roundtrip and edited CRC: PASS');

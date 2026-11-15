@@ -969,7 +969,7 @@ class CanBusService extends EventEmitter {
                 }
                 // FW-084: from v8 these two bytes carry Extended Boost; for v6/v7 they stay
                 // the reserved zeros of the removed rise detector.
-                if (version >= 8) {
+                if (version === 8) {
                     // 0.5 kg per unit, NOT the 0.1 kg the other kg fields use: that step
                     // is what fits the whole 60 kg sensor range into one byte at one exact decimal, and there
                     // was no second byte to be had — the blob is at the 255 B ceiling.
@@ -987,13 +987,15 @@ class CanBusService extends EventEmitter {
                 // FW-069: Iq ramps, per level (they used to be global in the tuning blob).
                 const ramp = (v, fallback) =>
                     Math.round(Math.max(20, Math.min(5000, v ?? fallback)));
+                if (version < 9) {
                 u16(r + 38, ramp(lv.iq_rise_slow_ms, 600));
                 u16(r + 40, ramp(lv.iq_rise_fast_ms, 300));
                 u16(r + 42, ramp(lv.iq_fall_slow_ms, 1000));
                 u16(r + 44, ramp(lv.iq_fall_fast_ms, 140));
-                if (version >= 8) { // FW-084: 0 = Extended Boost off
+                if (version === 8) { // FW-084: 0 = Extended Boost off
                     u16(r + 46, Math.round(Math.max(0, Math.min(1000,
                         lv.extended_boost_duration_ms ?? 0))));
+                }
                 }
             }
         });

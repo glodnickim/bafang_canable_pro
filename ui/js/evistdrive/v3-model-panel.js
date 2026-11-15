@@ -387,7 +387,8 @@ function riderSection() {
 // minimum), in the sensor's control domain; the wire and this panel use kg. The firmware converts
 // kg -> CLU once when the bank is applied and derives the V3 EB74 thresholds from them on a level
 // or bank change, so what is set here is the real trip point (within the sensor's accuracy).
-const PRESSURE_LIMITS = { min: 0, max: 22.5, step: 0.1 };
+// 2250 CLU is approximately 14.17 kg; round down to the UI step.
+const PRESSURE_LIMITS = { min: 0, max: 14.1, step: 0.1 };
 function activeBankIndex() { return state.lastBanks?.[0]?.active_bank ?? state.lastBanks?.[1]?.active_bank ?? 0; }
 function pressureSection() {
     const box = document.createElement('section');
