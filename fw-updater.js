@@ -992,9 +992,23 @@ class FwUpdater {
         this.previousPriority = undefined;
     }
 
+    // Which adapter a log came from: CAN error counts and timings were seen to differ a
+    // lot between modules on the same bike, so a log must say which one was used.
+    describeAdapter() {
+        const dev = this.canbus.canDevice;
+        if (!dev || !dev.gs_usb) return null;
+        const usb = dev.gs_usb;
+        const caps = dev.capabilities || {};
+        return `${usb.productName || '?'} by ${usb.manufacturerName || '?'}, serial ${usb.serialNumber || '?'}`
+            + (caps.fclk_can ? `, CAN clock ${caps.fclk_can / 1e6} MHz` : '')
+            + (caps.features !== undefined ? `, features 0x${caps.features.toString(16)}` : '');
+    }
+
     async startUpdateProcedure(fileBuffer,mode="CONTROLER") {
         const startTime = performance.now();
         this.logToFile = await setupLogger();
+        const adapter = this.describeAdapter();
+        if (adapter) this.logMessage(`Adapter: ${adapter}`, 'INFO');
         // Placed after setupLogger on purpose: logMessage() calls this.logToFile
         // unconditionally, so anything logged before this line throws internally and
         // never reaches the browser. fw-update-cli.js bypasses the server entirely,

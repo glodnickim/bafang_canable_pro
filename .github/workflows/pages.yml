@@ -1,0 +1,53 @@
+# GitHub Pages: the browser (WebUSB) version from the evistdrive branch, at
+# https://<user>.github.io/bafang_canable_pro/
+#
+# Needs, once, in the repository settings:
+#   - Pages > Build and deployment > Source: "GitHub Actions"
+#   - Environments > github-pages > Deployment branches: allow "evistdrive"
+#
+# Only what the app loads is published: no documentation, tests or local tools.
+name: Pages
+
+on:
+  push:
+    branches: [evistdrive]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assemble the site
+        run: |
+          mkdir _site
+          cp -r ui icons _site/
+          cp index.html manifest.webmanifest sw.js .nojekyll *.js _site/
+          # Everything the service worker should fetch on install, for offline start.
+          (cd _site && find . -type f ! -name sw.js ! -name .nojekyll | sed 's|^\./||' | sort | jq -R . | jq -s .) > precache.json
+          mv precache.json _site/
+          echo "Site from: $(git log -1 --format='%h %s')"
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
