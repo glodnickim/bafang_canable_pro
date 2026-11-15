@@ -127,3 +127,6 @@ or use [HUD ECU Hacker updater](https://www.netcult.ch/elmue/CANable%20Firmware%
 
 ### License
 This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+
+### 1.0.10 — Tryby V3 i progi nacisku (firmware 0.705 DIAG lub nowszy)
+Panel **Tryby V3**: tryb i korekty dla każdego poziomu, sekcja **Rowerzysta i sprzęt** (model podtrzymania: minimum Iq przy niskiej i wysokiej kadencji, czas bez nacisku) oraz **Progi nacisku (kg)**: start z miejsca i start w czasie jazdy. Z firmware v11 banku wartości są prawdziwymi kg; przy starszym firmware panel pokazuje je jako jednostki wewnętrzne, z ostrzeżeniem. Działa także w wersji przeglądarkowej (WebUSB).

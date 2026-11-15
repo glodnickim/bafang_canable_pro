@@ -22,6 +22,7 @@ const MODULES = [
     'bafang-can-read-commands.js', 'bafang-can-write-commands.js', 'bafang-can-broadcast-commands.js',
     'fw-updater.js', 'sniffer.js', 'logger.js', 'utils.js',
     'qs1x.js', 'qs1x-protocol.js', 'stop-trace.js', 'stop-trace-protocol.js',
+    'v3-config-server.js', // V3 model / rider objects (Tryby V3 panel)
 ];
 
 // Ride mode (boot.js starts this worker with ?listen=1): the adapter is opened
