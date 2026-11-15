@@ -894,7 +894,7 @@ class CanBusService extends EventEmitter {
         // FW-084: v8 grows the record to 48 B for Extended Boost — 13 + 5*48 + 2 = 255 B,
         // exactly the ceiling. A v7 controller must keep receiving its own 46 B/245 B
         // format, or the write is rejected and the rider loses the whole bank.
-        const version = bankObj.bank_schema_version >= 8 ? 8
+        const version = bankObj.bank_schema_version >= 8 && bankObj.bank_schema_version <= 11 ? bankObj.bank_schema_version
             : (bankObj.bank_schema_version >= 7 ? 7
             : (bankObj.bank_schema_version >= 6 ? 6
             : (bankObj.bank_schema_version >= 5 ? 5
@@ -939,8 +939,10 @@ class CanBusService extends EventEmitter {
                 lv.minimum_pedal_load_kg, 22.5, 0.7);
             const legacyMinimumMv = Math.round(Math.min(300,
                 minimumLoadKg * LEGACY_START_MV_PER_KG));
-            if (version >= 7) {
-                u16(r + 19, Math.round(minimumLoadKg * 100)); // centikg
+            if (version === 9 || version === 10) {
+                u16(r + 19, Math.round(Math.max(0, Math.min(2250, lv.minimum_pedal_load_clu ?? 70))));
+            } else if (version >= 7) {
+                u16(r + 19, Math.round((version === 11 ? Math.max(0, Math.min(22.5, lv.minimum_pedal_load_kg ?? 0.7)) : minimumLoadKg) * 100)); // centikg
             } else {
                 u16(r + 19, legacyMinimumMv);
             }
@@ -953,7 +955,9 @@ class CanBusService extends EventEmitter {
                 const clamp8 = (v, max) => Math.round(Math.max(0, Math.min(max, v ?? 0)));
                 const ridingLoadKg = kgWithOneDecimal(
                     lv.riding_minimum_pedal_load_kg, 22.5, minimumLoadKg);
-                if (version >= 7) {
+                if (version === 9 || version === 10) {
+                    d[r + 35] = clamp8((lv.riding_minimum_pedal_load_clu ?? 30) / 10, 225);
+                } else if (version >= 7) {
                     // FW-077: direct rolling threshold in 0.1 kg.
                     d[r + 35] = clamp8(ridingLoadKg * 10, 225);
                 } else {

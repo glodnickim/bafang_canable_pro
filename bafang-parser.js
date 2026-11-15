@@ -357,7 +357,7 @@ class BafangCanControllerParser {
         if (!Array.isArray(d) || d.length < 185) {
             return { parseError: true, error: `Invalid bank blob length ${d?.length}` };
         }
-        if (d[0] !== 0x45 || d[1] !== 0x42 || d[2] < 1 || d[2] > 8) {
+        if (d[0] !== 0x45 || d[1] !== 0x42 || d[2] < 1 || d[2] > 11) {
             return { parseError: true, error: 'Bad bank blob magic/version' };
         }
         // FW-056: v4 has the same layout and length as v3; the version byte only
@@ -374,7 +374,7 @@ class BafangCanControllerParser {
         }
         // FW-084: v8 grows the record to 48 B (Extended Boost). 255 B total is the ceiling
         // of the transport, so this is the last version that can grow the record at all.
-        if (version === 8 && RECORD !== 48) {
+        if (version >= 8 && RECORD !== 48) {
             return { parseError: true, error: `Invalid v8 bank record length ${RECORD}` };
         }
         const BLOB_LEN = HEADER + LEVELS * RECORD + 2;
@@ -397,7 +397,7 @@ class BafangCanControllerParser {
         for (let l = 0; l < LEVELS; l++) {
             const r = HEADER + l * RECORD;
             const legacyMinimumMv = version < 7 ? u16(r + 19) : 0;
-            const minimumLoadKg = kgWithOneDecimal(version >= 7
+            const minimumLoadKg = version === 11 ? u16(r + 19) / 100 : kgWithOneDecimal(version >= 7
                 ? u16(r + 19) / 100
                 : legacyMinimumMv / LEGACY_START_MV_PER_KG);
             const legacyReductionMv = version < 7 && RECORD >= 46 ? d[r + 35] : 0;
@@ -419,7 +419,8 @@ class BafangCanControllerParser {
                 emtb_reference_voltage_mv: u16(r + 12), torque_assist_factor: d[r + 14],
                 max_motor_power_w: u16(r + 15), max_iq_pct: d[r + 17],
                 assist_without_rotation: d[r + 18] !== 0,
-                minimum_pedal_load_kg: minimumLoadKg,
+                minimum_pedal_load_kg: version === 9 || version === 10 ? undefined : minimumLoadKg,
+                minimum_pedal_load_clu: version === 9 || version === 10 ? u16(r + 19) : undefined,
                 startup_boost_enabled: d[r + 21] !== 0, startup_boost_mode: d[r + 22],
                 startup_boost_strength_pct: u16(r + 23), startup_boost_end_rpm: d[r + 25],
                 smooth_start_enabled: d[r + 26] !== 0, smooth_start_ms: u16(r + 27),
@@ -427,7 +428,8 @@ class BafangCanControllerParser {
                 power_fall_filter_ms: u16(r + 33),
                 // FW-068/069: only present from record length 46 on. Older controllers get the
                 // firmware defaults so the card shows something meaningful either way.
-                riding_minimum_pedal_load_kg: ridingLoadKg,
+                riding_minimum_pedal_load_kg: version === 9 || version === 10 ? undefined : ridingLoadKg,
+                riding_minimum_pedal_load_clu: version === 9 || version === 10 ? d[r + 35] * 10 : undefined,
                 iq_rise_slow_ms: RECORD >= 46 ? u16(r + 38) : 600,
                 iq_rise_fast_ms: RECORD >= 46 ? u16(r + 40) : 300,
                 iq_fall_slow_ms: RECORD >= 46 ? u16(r + 42) : 1000,
@@ -472,7 +474,7 @@ class BafangCanControllerParser {
         if (!Array.isArray(d) || d.length < 16) {
             return { parseError: true, error: `Invalid tuning blob length ${d?.length}` };
         }
-        if (d[0] !== 0x54 || d[1] !== 0x55 || d[2] < 1 || d[2] > 8) {
+        if (d[0] !== 0x54 || d[1] !== 0x55 || d[2] < 1 || d[2] > 11) {
             return { parseError: true, error: 'Bad tuning blob magic/version' };
         }
         const version = d[2];

@@ -398,10 +398,11 @@ function pressureSection() {
     title.textContent = 'Progi nacisku (kg)';
     const index = activeBankIndex();
     const read = !!(state.lastBanks && state.ebicsReceivedBanks?.[index]);
-    box.append(title, hint('Start: najmniejszy nacisk, przy którym wspomaganie rusza z miejsca (wymaga też obrotu korby). '
+    const pressureHint = hint('Start: najmniejszy nacisk, przy którym wspomaganie rusza z miejsca (wymaga też obrotu korby). '
         + 'Podtrzymanie: nacisk, poniżej którego już jadące wspomaganie gaśnie; nie może być większe niż start. '
         + 'Wartości są faktycznym progiem zadziałania V3 (dokładność czujnika ok. ±0,3 kg); dolna granica startu to ok. 1,5 kg (szum czujnika 10 mV). '
-        + 'Uwaga: próg C1 (Iq_on) może opóźnić start w słabych trybach — patrz Rowerzysta i sprzęt.'));
+        + 'Uwaga: próg C1 (Iq_on) może opóźnić start w słabych trybach — patrz Rowerzysta i sprzęt.');
+    box.append(title);
     if (!read) {
         const warn = document.createElement('div'); warn.className = 'form-hint ebics-stale-warning';
         warn.textContent = 'Bank nie został jeszcze odczytany ze sterownika — naciśnij „Read from bike”. Bez odczytu zapis jest zablokowany.';
@@ -409,7 +410,24 @@ function pressureSection() {
         return box;
     }
     const bank = state.lastBanks[index];
+    const legacy = bank.bank_schema_version === 9 || bank.bank_schema_version === 10;
+    if (legacy) {
+        title.textContent = 'Progi nacisku (jednostka wewn?trzna)';
+        const warning = document.createElement('div'); warning.className = 'form-hint ebics-stale-warning';
+        warning.textContent = 'Stary firmware: warto?ci s? w jednostkach wewn?trznych, nie w kg.';
+        box.appendChild(warning);
+    }
+    if (!legacy) box.appendChild(pressureHint);
     const table = document.createElement('div'); table.className = 'evd-v3-pressure-grid';
+    if (legacy) {
+        (bank.levels || []).forEach((lv, i) => {
+            const row = document.createElement('div');
+            row.textContent = `Poziom ${i + 1}: start ${lv.minimum_pedal_load_clu}, podtrzymanie ${lv.riding_minimum_pedal_load_clu} (jednostka wewn?trzna)`;
+            table.appendChild(row);
+        });
+        box.appendChild(table);
+        return box;
+    }
     (bank.levels || []).forEach((lv, i) => {
         const name = v3ModeNameForLevel(i + 1) ?? `Poziom ${i + 1}`;
         const start = numberRow({
