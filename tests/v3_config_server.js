@@ -191,7 +191,7 @@ const loud = () => { console.log = realLog; };
     check('read back level 3 equals written (incl. range 80)', P.levelsEqual(back.levels, [edited]));
 
     // Object 5 round trip.
-    const rider = { riderStrengthX10kg: 350, lowAssistOffIq: 30, lowAssistOnIq: 45, effortMap: false };
+    const rider = { riderStrengthX10kg: 350, iqMinLow: 30, iqMinHigh: 45, effortMap: false, holdModel: true, tHold100ms: 25 };
     const wr5 = await send(`V3M_WRITE:${P.toHex(P.encodeRiderWrite(rider))}#5`);
     check('WRITE object 5 ok', wr5.ok === true && wr5.generation === 9, JSON.stringify(wr5));
     const rd5 = await send('V3M_READ:5:0:3#6');

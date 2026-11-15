@@ -1,5 +1,6 @@
 // V3 object 5 "rowerzysta i sprzęt", capability gates (bit 8 / bit 11) and the chart math
-// (effort map, Start target, C1 band). Spec: integration/roadmap/V3_PLAN_WDROZENIA_20261114_PL.md.
+// (effort map, Start target, hold model minimum). Spec: integration/roadmap/V3_PLAN_WDROZENIA_20261114_PL.md,
+// object 5 hold model fields: integration/roadmap/V3_NACISK_PODTRZYMANIE_20261115_PL.md.
 // Imports the real browser module.
 const path = require('path');
 const { pathToFileURL } = require('url');
@@ -21,27 +22,36 @@ const throwsMsg = (name, fn, part) => {
 
     // ---- object 5 layout ----
     const rider = P.factoryRider();
-    eq('factory rider', rider, { riderStrengthX10kg: 300, lowAssistOffIq: 40, lowAssistOnIq: 55, effortMap: true });
+    eq('factory rider', rider, { riderStrengthX10kg: 300, iqMinLow: 28, iqMinHigh: 42, effortMap: true, holdModel: true, tHold100ms: 20 });
     const w = P.encodeRiderWrite(rider);
     eq('rider object length 26', w.length, 26);
     // Byte vector: 'B','V', obj 5, ver 1, len 26, index 0, count 1, stride 8, flags 0,
-    // caps = bit 11 (0x800), generation 0xFFFF, 300 / 40 / 55 LE, flags 1, reserved 0.
-    const body = '42560501' + '1a00' + '00010800' + '00080000' + 'ffff' + '2c01' + '2800' + '3700' + '01' + '00';
+    // caps = bit 11 (0x800), generation 0xFFFF, 300 / Iq_min 28 / 42 LE, flags 3 (effort map + hold
+    // model v2), t_hold 20 (2.0 s). Identical to the firmware VEC_RIDER (tests/host/v3_model_can_host.c).
+    const body = '42560501' + '1a00' + '00010800' + '00080000' + 'ffff' + '2c01' + '1c00' + '2a00' + '03' + '14';
     const crc = P.crc16(P.fromHex(body));
     eq('rider byte vector', P.toHex(w), body + P.toHex([crc & 0xFF, crc >> 8]));
-    const w2 = P.encodeRiderWrite({ riderStrengthX10kg: 600, lowAssistOffIq: 0, lowAssistOnIq: 0, effortMap: false }, { baseGeneration: 0x0304 });
-    eq('rider max strength, C1 off, map off, generation', [...w2.slice(14, 24)], [0x04, 0x03, 0x58, 0x02, 0, 0, 0, 0, 0, 0]);
+    eq('rider byte vector = firmware VEC_RIDER CRC', [crc & 0xFF, crc >> 8], [0x69, 0xfd]);
+    const w2 = P.encodeRiderWrite({ riderStrengthX10kg: 600, iqMinLow: 0, iqMinHigh: 0, effortMap: false, holdModel: false, tHold100ms: 40 }, { baseGeneration: 0x0304 });
+    eq('rider max strength, no minimum, map and hold off, t_hold 4 s, generation', [...w2.slice(14, 24)], [0x04, 0x03, 0x58, 0x02, 0, 0, 0, 0, 0, 40]);
+    const w3 = P.encodeRiderWrite({ riderStrengthX10kg: 350, iqMinLow: 30, iqMinHigh: 45, effortMap: false, holdModel: false, tHold100ms: 20 });
+    eq('rider vector 2 = firmware VEC_RIDER2', P.toHex(w3.slice(16)), '5e011e002d000014fd4d');
 
     eq('valid factory rider', P.validateRider(rider), []);
     check('strength 99 rejected', P.validateRider({ ...rider, riderStrengthX10kg: 99 }).length > 0);
     check('strength 601 rejected', P.validateRider({ ...rider, riderStrengthX10kg: 601 }).length > 0);
-    check('Iq_off 201 rejected', P.validateRider({ ...rider, lowAssistOffIq: 201, lowAssistOnIq: 210 }).length > 0);
-    check('Iq_on below Iq_off rejected', P.validateRider({ ...rider, lowAssistOffIq: 60, lowAssistOnIq: 55 }).length > 0);
-    check('Iq_on 251 rejected', P.validateRider({ ...rider, lowAssistOnIq: 251 }).length > 0);
-    check('Iq_on == Iq_off accepted', P.validateRider({ ...rider, lowAssistOffIq: 50, lowAssistOnIq: 50 }).length === 0);
+    check('Iq_min low 121 rejected', P.validateRider({ ...rider, iqMinLow: 121, iqMinHigh: 121 }).length > 0);
+    check('Iq_min high below low rejected', P.validateRider({ ...rider, iqMinLow: 60, iqMinHigh: 55 }).length > 0);
+    check('Iq_min high 121 rejected', P.validateRider({ ...rider, iqMinHigh: 121 }).length > 0);
+    check('Iq_min high == low accepted', P.validateRider({ ...rider, iqMinLow: 50, iqMinHigh: 50 }).length === 0);
+    check('Iq_min 0 / 0 accepted', P.validateRider({ ...rider, iqMinLow: 0, iqMinHigh: 0 }).length === 0);
+    check('t_hold 0.4 s rejected', P.validateRider({ ...rider, tHold100ms: 4 }).length > 0);
+    check('t_hold 4.1 s rejected', P.validateRider({ ...rider, tHold100ms: 41 }).length > 0);
+    check('t_hold 0.5 / 4.0 s accepted', P.validateRider({ ...rider, tHold100ms: 5 }).length === 0 && P.validateRider({ ...rider, tHold100ms: 40 }).length === 0);
+    check('holdModel must be boolean', P.validateRider({ ...rider, holdModel: 1 }).length > 0);
     check('fraction rejected', P.validateRider({ ...rider, riderStrengthX10kg: 300.5 }).length > 0);
     check('effortMap must be boolean', P.validateRider({ ...rider, effortMap: 1 }).length > 0);
-    throwsMsg('invalid rider never encoded', () => P.encodeRiderWrite({ ...rider, lowAssistOnIq: 300 }), 'Iq_on');
+    throwsMsg('invalid rider never encoded', () => P.encodeRiderWrite({ ...rider, iqMinHigh: 300 }), '60 obr/min');
 
     // Decode: firmware-shaped reply (view 3, generation 7, caps) round-trips; defects rejected.
     const reply = Uint8Array.from(w); reply[9] = 3; reply[14] = 7; reply[15] = 0; seal(reply);
@@ -49,8 +59,9 @@ const throwsMsg = (name, fn, part) => {
     eq('rider decode', [dec.view, dec.generation, dec.rider], [3, 7, rider]);
     const badCrc = Uint8Array.from(reply); badCrc[17] ^= 1;
     throwsMsg('rider bad CRC', () => P.decodeRiderObject(badCrc), 'CRC');
-    throwsMsg('rider reserved flag bit', () => P.decodeRiderObject(seal(Uint8Array.from(reply.map((v, i) => (i === 22 ? 3 : v))))), 'zarezerwowane');
-    throwsMsg('rider reserved byte', () => P.decodeRiderObject(seal(Uint8Array.from(reply.map((v, i) => (i === 23 ? 1 : v))))), 'zarezerwowane');
+    throwsMsg('rider reserved flag bit', () => P.decodeRiderObject(seal(Uint8Array.from(reply.map((v, i) => (i === 22 ? 7 : v))))), 'zarezerwowane');
+    throwsMsg('pre-hold-model firmware (t_hold byte 0)', () => P.decodeRiderObject(seal(Uint8Array.from(reply.map((v, i) => (i === 23 ? 0 : v))))), 'firmware');
+    throwsMsg('rider t_hold out of range', () => P.decodeRiderObject(seal(Uint8Array.from(reply.map((v, i) => (i === 23 ? 41 : v))))), 'niepoprawny');
     throwsMsg('rider wrong version', () => P.decodeRiderObject(seal(Uint8Array.from(reply.map((v, i) => (i === 3 ? 2 : v))))), 'wersja');
     throwsMsg('rider wrong stride', () => P.decodeRiderObject(seal(Uint8Array.from(reply.map((v, i) => (i === 8 ? 6 : v))))), 'nagłówek');
     throwsMsg('rider out-of-range value', () => P.decodeRiderObject(seal(Uint8Array.from(reply.map((v, i) => (i === 16 ? 0 : (i === 17 ? 0 : v)))))), 'niepoprawny');
@@ -100,7 +111,7 @@ const throwsMsg = (name, fn, part) => {
     check('no bit 8: restore model refused', (await riderOnly.restoreFactory()).ok === false);
     check('no bit 8: restore level refused', (await riderOnly.restoreLevel(2)).ok === false);
     check('no bit 8: no object 4 frame, no op 5/6', !log.some((l) => l.startsWith('write obj4') || l === 'control 5' || l === 'control 6'), log.join(','));
-    const edited = { riderStrengthX10kg: 350, lowAssistOffIq: 30, lowAssistOnIq: 45, effortMap: false };
+    const edited = { riderStrengthX10kg: 350, iqMinLow: 30, iqMinHigh: 45, effortMap: false, holdModel: true, tHold100ms: 25 };
     const wr = await riderOnly.writeRider(edited);
     check('bit 11: rider write + readback ok', wr.ok === true && Number.isInteger(wr.generation), JSON.stringify(wr));
     check('rider readback reads 5/0/3', log.includes('read 5/0/3/0'));
@@ -173,11 +184,16 @@ const throwsMsg = (name, fn, part) => {
     eq('F_full effective S start 100', P.startFullForceKg({ ...lv[2], start: 100 }), 12);
     eq('fade: 1 to 25 rpm, 0.5 at 37.5, 0 from 50', [P.startFade(0), P.startFade(25), P.startFade(37.5), P.startFade(50), P.startFade(80)], [1, 1, 0.5, 0, 0]);
 
-    // C1 hysteresis.
+    // Hold model minimum (replaces C1): firmware integer interpolation 28 -> 42 between 30 and 60 rpm.
     const r = P.factoryRider();
-    eq('C1 rising: 50 -> 0, 55 -> 55', [P.lowAssistOutput(50, r, true), P.lowAssistOutput(55, r, true)], [0, 55]);
-    eq('C1 falling: 45 -> 45, 39 -> 0', [P.lowAssistOutput(45, r, false), P.lowAssistOutput(39, r, false)], [45, 0]);
-    eq('C1 off (Iq_off 0) passes through', P.lowAssistOutput(10, { ...r, lowAssistOffIq: 0 }, true), 10);
+    eq('Iq_min at 0 / 30 / 45 / 60 / 90 rpm', [0, 30, 45, 60, 90].map((c) => P.holdMinimumIq(c, r)), [28, 28, 35, 42, 42]);
+    eq('Iq_min at 44 rpm truncates like the firmware', P.holdMinimumIq(44, r), 34);
+    eq('hold output = max(request, minimum)', [P.holdOutput(10, 60, r), P.holdOutput(80, 60, r)], [42, 80]);
+    eq('hold model off: no minimum', P.holdMinimumIq(60, { ...r, holdModel: false }), 0);
+    eq('Iq_min 0 / 0: no minimum', P.holdMinimumIq(60, { ...r, iqMinLow: 0, iqMinHigh: 0 }), 0);
+    eq('timeout: 2 s at 60 rpm, 2 s at 30, 4 s at 15 and 10 rpm (cap)', [60, 30, 15, 10].map((c) => P.holdTimeoutS(c, r)), [2, 2, 4, 4]);
+    eq('timeout t_hold 0.5 s at 85 rpm = one revolution', Math.round(P.holdTimeoutS(85, { ...r, tHold100ms: 5 }) * 1000), 706);
+    eq('percent of 700: 28 -> 4 %, 42 -> 6 %, 21 -> 3 %', [P.iqPercent(28), P.iqPercent(42), P.iqPercent(21)], [4, 6, 3]);
 
     if (failures) { console.error(`\n${failures} FAILED`); process.exit(1); }
     console.log('\nALL V3 RIDER OBJECT / CHART MATH TESTS PASS');

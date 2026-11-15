@@ -5,7 +5,10 @@
 //   object 4 schema_version 2 — 12-byte level record, byte 10 = `range` (0xFF = KEEP),
 //   byte 11 reserved = 0 (even lengths 30/42/54/66/78 keep the transport length rule);
 //   object 5 "rowerzysta i sprzęt V3" schema_version 1 — 8 data bytes, total_len 26;
-//   capability bit 11 = object 5.
+//   capability bit 11 = object 5. Since OWNER-DEC-20261115-PRESSURE-HOLD (model podtrzymania,
+//   integration/roadmap/V3_NACISK_PODTRZYMANIE_20261115_PL.md) the same 26 bytes carry
+//   strength u16 | Iq_min at <= 30 rpm u16 | Iq_min at >= 60 rpm u16 | flags (bit 0 effort map,
+//   bit 1 hold model v2) | t_hold in 100 ms (5..40; formerly a reserved zero byte).
 // Transport of the V3 config (0x6035 CAPS, 0x6036 block, 0x6037 control). No DOM and no imports,
 // so the node tests load this file directly.
 //
@@ -88,26 +91,35 @@ export function cloneLevels(levels) {
 // ---- rider and hardware (object 5) --------------------------------------------------------
 
 export const RIDER_FLAG_EFFORT_MAP = 0x01;
+export const RIDER_FLAG_HOLD_MODEL = 0x02;
+/** Firmware PH_CURRENT_MAX: the Iq scale the minimum percentages refer to. */
+export const PHASE_CURRENT_MAX_IQ = 700;
 export const RIDER_LIMITS = Object.freeze({
-    strengthMin: 100, strengthMax: 600, offMax: 200, onMax: 250,
+    strengthMin: 100, strengthMax: 600, iqMinMax: 120, tHoldMin: 5, tHoldMax: 40,
 });
+/** Hold model cadence points: Iq_min low at <= 30 rpm, high at >= 60 rpm, linear in between. */
+export const HOLD_RPM_LOW = 30;
+export const HOLD_RPM_HIGH = 60;
+export const HOLD_T_CAP_S = 4;
 
 export function factoryRider() {
-    return { riderStrengthX10kg: 300, lowAssistOffIq: 40, lowAssistOnIq: 55, effortMap: true };
+    return { riderStrengthX10kg: 300, iqMinLow: 28, iqMinHigh: 42, effortMap: true, holdModel: true, tHold100ms: 20 };
 }
 
 export function validateRider(rider) {
     const errors = [];
     const intIn = (value, min, max) => Number.isInteger(value) && value >= min && value <= max;
     if (!intIn(rider?.riderStrengthX10kg, RIDER_LIMITS.strengthMin, RIDER_LIMITS.strengthMax)) errors.push('Siła rowerzysty: 10,0..60,0 kg');
-    if (!intIn(rider?.lowAssistOffIq, 0, RIDER_LIMITS.offMax)) errors.push('Iq_off: 0..200 (0 = C1 wyłączone)');
-    if (!intIn(rider?.lowAssistOnIq, Number.isInteger(rider?.lowAssistOffIq) ? rider.lowAssistOffIq : 0, RIDER_LIMITS.onMax)) errors.push('Iq_on: od Iq_off do 250');
+    if (!intIn(rider?.iqMinHigh, 0, RIDER_LIMITS.iqMinMax)) errors.push('Minimum Iq przy ≥60 obr/min: 0..120');
+    if (!intIn(rider?.iqMinLow, 0, Number.isInteger(rider?.iqMinHigh) ? Math.min(rider.iqMinHigh, RIDER_LIMITS.iqMinMax) : RIDER_LIMITS.iqMinMax)) errors.push('Minimum Iq przy ≤30 obr/min: 0..120, nie więcej niż przy ≥60 obr/min');
+    if (!intIn(rider?.tHold100ms, RIDER_LIMITS.tHoldMin, RIDER_LIMITS.tHoldMax)) errors.push('Czas bez nacisku: 0,5..4,0 s');
     if (typeof rider?.effortMap !== 'boolean') errors.push('Mapa wysiłku: wł./wył.');
+    if (typeof rider?.holdModel !== 'boolean') errors.push('Model podtrzymania: wł./wył.');
     return errors;
 }
 
 export function ridersEqual(a, b) {
-    return !!a && !!b && ['riderStrengthX10kg', 'lowAssistOffIq', 'lowAssistOnIq', 'effortMap'].every((k) => a[k] === b[k]);
+    return !!a && !!b && ['riderStrengthX10kg', 'iqMinLow', 'iqMinHigh', 'effortMap', 'holdModel', 'tHold100ms'].every((k) => a[k] === b[k]);
 }
 
 // ---- math -------------------------------------------------------------------------------
@@ -217,14 +229,31 @@ export function startFade(cadenceRpm) {
 }
 
 /**
- * C1 low-assist hysteresis: what Iq the motor gets for a requested Iq. Rising: 0 until the
- * request reaches Iq_on, then the request. Falling: the request until it drops below Iq_off
- * (after 150 ms), then 0. Iq_off = 0 switches C1 off (output = request).
+ * Hold model minimum (replaces C1): Iq_min for a cadence — iqMinLow at <= 30 rpm, iqMinHigh at
+ * >= 60 rpm, linear in between (integer division like the firmware). 0 with the hold model off.
  */
-export function lowAssistOutput(requestIq, rider, rising) {
-    if (!rider.lowAssistOffIq) return requestIq;
-    if (rising) return requestIq >= rider.lowAssistOnIq ? requestIq : 0;
-    return requestIq >= rider.lowAssistOffIq ? requestIq : 0;
+export function holdMinimumIq(cadenceRpm, rider) {
+    if (!rider.holdModel || !rider.iqMinHigh) return 0;
+    if (cadenceRpm <= HOLD_RPM_LOW) return rider.iqMinLow;
+    if (cadenceRpm >= HOLD_RPM_HIGH) return rider.iqMinHigh;
+    const c = Math.floor(cadenceRpm);
+    return rider.iqMinLow + Math.floor((rider.iqMinHigh - rider.iqMinLow) * (c - HOLD_RPM_LOW) / (HOLD_RPM_HIGH - HOLD_RPM_LOW));
+}
+
+/** Motor Iq while engaged: max(map request, Iq_min(cadence)); limits still cut it afterwards. */
+export function holdOutput(requestIq, cadenceRpm, rider) {
+    return Math.max(requestIq, holdMinimumIq(cadenceRpm, rider));
+}
+
+/** Seconds without a pressure hit until the hold ends: max(t_hold, one revolution), capped at 4 s. */
+export function holdTimeoutS(cadenceRpm, rider) {
+    const rev = cadenceRpm > 0 ? 60 / cadenceRpm : HOLD_T_CAP_S;
+    return Math.min(HOLD_T_CAP_S, Math.max(rider.tHold100ms / 10, rev));
+}
+
+/** Iq as a percentage of PH_CURRENT_MAX (700), one decimal. */
+export function iqPercent(iq) {
+    return Math.round((iq * 1000) / PHASE_CURRENT_MAX_IQ) / 10;
 }
 
 // ---- validation -------------------------------------------------------------------------
@@ -323,10 +352,10 @@ export function encodeRiderWrite(rider, { baseGeneration = 0xFFFF, requiredCaps 
     });
     const o = HEADER_LEN;
     out[o] = rider.riderStrengthX10kg & 0xFF; out[o + 1] = rider.riderStrengthX10kg >> 8;
-    out[o + 2] = rider.lowAssistOffIq & 0xFF; out[o + 3] = rider.lowAssistOffIq >> 8;
-    out[o + 4] = rider.lowAssistOnIq & 0xFF; out[o + 5] = rider.lowAssistOnIq >> 8;
-    out[o + 6] = rider.effortMap ? RIDER_FLAG_EFFORT_MAP : 0;
-    out[o + 7] = 0;
+    out[o + 2] = rider.iqMinLow & 0xFF; out[o + 3] = rider.iqMinLow >> 8;
+    out[o + 4] = rider.iqMinHigh & 0xFF; out[o + 5] = rider.iqMinHigh >> 8;
+    out[o + 6] = (rider.effortMap ? RIDER_FLAG_EFFORT_MAP : 0) | (rider.holdModel ? RIDER_FLAG_HOLD_MODEL : 0);
+    out[o + 7] = rider.tHold100ms;
     return sealCrc(out);
 }
 
@@ -425,17 +454,20 @@ export function decodeModelObject(bytes) {
     };
 }
 
-/** Decode an object 5 reply (26 B). Reserved bits or byte set = defect (firmware would reject them). */
+/** Decode an object 5 reply (26 B). Reserved flag bits = defect (firmware would reject them). A zero
+ *  t_hold byte is a pre-hold-model firmware (C1 Iq_off/Iq_on in bytes 2..5): refused with a hint. */
 export function decodeRiderObject(bytes) {
     const totalLen = checkHeader(bytes, OBJECT_RIDER, 'rowerzysty');
     if (bytes[3] !== RIDER_SCHEMA_VERSION) throw new Error(`nieznana wersja obiektu 5: ${bytes[3]}`);
     if (totalLen !== RIDER_LEN || bytes[6] !== 0 || bytes[7] !== 1 || bytes[8] !== RIDER_STRIDE) throw new Error('zły nagłówek obiektu 5');
     const o = HEADER_LEN;
     const flags = bytes[o + 6];
-    if ((flags & ~RIDER_FLAG_EFFORT_MAP) !== 0 || bytes[o + 7] !== 0) throw new Error('obiekt 5: ustawione zarezerwowane bity');
+    if ((flags & ~(RIDER_FLAG_EFFORT_MAP | RIDER_FLAG_HOLD_MODEL)) !== 0) throw new Error('obiekt 5: ustawione zarezerwowane bity');
+    if (bytes[o + 7] === 0) throw new Error('obiekt 5: firmware sprzed modelu podtrzymania (C1 Iq_off/Iq_on) — wgraj nowe firmware');
     const rider = {
-        riderStrengthX10kg: u16(bytes, o), lowAssistOffIq: u16(bytes, o + 2), lowAssistOnIq: u16(bytes, o + 4),
-        effortMap: (flags & RIDER_FLAG_EFFORT_MAP) !== 0,
+        riderStrengthX10kg: u16(bytes, o), iqMinLow: u16(bytes, o + 2), iqMinHigh: u16(bytes, o + 4),
+        effortMap: (flags & RIDER_FLAG_EFFORT_MAP) !== 0, holdModel: (flags & RIDER_FLAG_HOLD_MODEL) !== 0,
+        tHold100ms: bytes[o + 7],
     };
     const errors = validateRider(rider);
     if (errors.length) throw new Error(`Obiekt 5 w odpowiedzi jest niepoprawny: ${errors.join('; ')}`);
