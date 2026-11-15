@@ -413,9 +413,9 @@ function pressureSection() {
     const bank = state.lastBanks[index];
     const legacy = bank.bank_schema_version === 9 || bank.bank_schema_version === 10;
     if (legacy) {
-        title.textContent = 'Progi nacisku (jednostka wewn?trzna)';
+        title.textContent = 'Progi nacisku (jednostka wewnętrzna)';
         const warning = document.createElement('div'); warning.className = 'form-hint ebics-stale-warning';
-        warning.textContent = 'Stary firmware: warto?ci s? w jednostkach wewn?trznych, nie w kg.';
+        warning.textContent = 'Stary firmware: wartości są w jednostkach wewnętrznych, nie w kg.';
         box.appendChild(warning);
     }
     if (!legacy) box.appendChild(pressureHint);
@@ -423,7 +423,7 @@ function pressureSection() {
     if (legacy) {
         (bank.levels || []).forEach((lv, i) => {
             const row = document.createElement('div');
-            row.textContent = `Poziom ${i + 1}: start ${lv.minimum_pedal_load_clu}, podtrzymanie ${lv.riding_minimum_pedal_load_clu} (jednostka wewn?trzna)`;
+            row.textContent = `Poziom ${i + 1}: start ${lv.minimum_pedal_load_clu}, podtrzymanie ${lv.riding_minimum_pedal_load_clu} (jednostka wewnętrzna)`;
             table.appendChild(row);
         });
         box.appendChild(table);
