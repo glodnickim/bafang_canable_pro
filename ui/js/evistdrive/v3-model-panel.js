@@ -5,10 +5,10 @@
 // V3_JEDEN_MODEL_PROJEKT_PL.md, plan V3_PLAN_WDROZENIA_20261114_PL.md). Every protocol call goes
 // through v3-model-protocol.js; this file only draws and edits. Until the firmware reports the
 // capability bits (8/10 model, 11 rider) the panel works offline and NEVER sends a write.
-import { socket, addLog } from '../shared.js';
+import { socket, addLog, state } from '../shared.js';
 import * as P from './v3-model-protocol.js';
 import { drawLineChart, sample } from './v3-model-charts.js';
-import { el, socketReady, markReadNeeded } from './common.js';
+import { el, socketReady, markReadNeeded, writeBankAndWait } from './common.js';
 import { markUnsavedInRam } from './global-actions.js';
 
 const LEVEL_COLORS = ['#16a34a', '#0ea5e9', '#6366f1', '#f59e0b', '#dc2626'];
@@ -382,6 +382,60 @@ function riderSection() {
     return box;
 }
 
+// ---- pressure thresholds (TASK-EVD-V3-PRESSURE-ARCH-001) --------------------------------
+// The V3 start and hold thresholds live in the profile bank (minimum_pedal_load / riding
+// minimum), in the sensor's control domain; the wire and this panel use kg. The firmware converts
+// kg -> CLU once when the bank is applied and derives the V3 EB74 thresholds from them on a level
+// or bank change, so what is set here is the real trip point (within the sensor's accuracy).
+const PRESSURE_LIMITS = { min: 0, max: 22.5, step: 0.1 };
+function activeBankIndex() { return state.lastBanks?.[0]?.active_bank ?? state.lastBanks?.[1]?.active_bank ?? 0; }
+function pressureSection() {
+    const box = document.createElement('section');
+    box.className = 'ebics-card evd-v3-pressure';
+    box.id = 'evdV3Pressure';
+    const title = document.createElement('div');
+    title.className = 'ebics-card-title';
+    title.textContent = 'Progi nacisku (kg)';
+    const index = activeBankIndex();
+    const read = !!(state.lastBanks && state.ebicsReceivedBanks?.[index]);
+    box.append(title, hint('Start: najmniejszy nacisk, przy którym wspomaganie rusza z miejsca (wymaga też obrotu korby). '
+        + 'Podtrzymanie: nacisk, poniżej którego już jadące wspomaganie gaśnie; nie może być większe niż start. '
+        + 'Wartości są faktycznym progiem zadziałania V3 (dokładność czujnika ok. ±0,3 kg); dolna granica startu to ok. 1,5 kg (szum czujnika 10 mV). '
+        + 'Uwaga: próg C1 (Iq_on) może opóźnić start w słabych trybach — patrz Rowerzysta i sprzęt.'));
+    if (!read) {
+        const warn = document.createElement('div'); warn.className = 'form-hint ebics-stale-warning';
+        warn.textContent = 'Bank nie został jeszcze odczytany ze sterownika — naciśnij „Read from bike”. Bez odczytu zapis jest zablokowany.';
+        box.appendChild(warn);
+        return box;
+    }
+    const bank = state.lastBanks[index];
+    const table = document.createElement('div'); table.className = 'evd-v3-pressure-grid';
+    (bank.levels || []).forEach((lv, i) => {
+        const name = v3ModeNameForLevel(i + 1) ?? `Poziom ${i + 1}`;
+        const start = numberRow({
+            label: `${name}: start`, unit: 'kg', ...PRESSURE_LIMITS, value: lv.minimum_pedal_load_kg ?? 0,
+            onChange: (v) => { lv.minimum_pedal_load_kg = Math.round(v * 10) / 10;
+                if ((lv.riding_minimum_pedal_load_kg ?? 0) > lv.minimum_pedal_load_kg) lv.riding_minimum_pedal_load_kg = lv.minimum_pedal_load_kg;
+                markUnsavedInRam(); renderPanel(); },
+            help: `Poziom ${i + 1}: próg startu z miejsca.`,
+        });
+        const hold = numberRow({
+            label: `${name}: podtrzymanie`, unit: 'kg', ...PRESSURE_LIMITS, value: lv.riding_minimum_pedal_load_kg ?? 0,
+            onChange: (v) => { lv.riding_minimum_pedal_load_kg = Math.min(Math.round(v * 10) / 10, lv.minimum_pedal_load_kg ?? 0);
+                markUnsavedInRam(); renderPanel(); },
+            help: `Poziom ${i + 1}: próg podtrzymania podczas jazdy (≤ start).`,
+        });
+        table.append(start, hold);
+    });
+    const actions = document.createElement('div'); actions.className = 'evd-v3-actions';
+    actions.append(button('Zapisz progi (RAM)', 'btn btn-blue btn-sm', async () => {
+        const r = await writeBankAndWait(state.lastBanks[index]);
+        addLog(r.ok ? 'ACK' : 'ERROR', r.ok ? `Progi nacisku zapisane w banku ${index + 1} (RAM). Zapis we flash: przycisk globalny.` : `Progi nacisku nie zapisane (${r.reason}).`);
+    }, { id: 'evdV3WritePressure', title: 'Zapis aktywnego banku do RAM sterownika (WRITE_BANK). Trwały zapis: globalny „Save”.' }));
+    box.append(table, actions);
+    return box;
+}
+
 function numberRow({ label, unit, min, max, step, value, onChange, help }) {
     const row = document.createElement('div'); row.className = 'evd-v3-row';
     const line = document.createElement('label'); line.className = 'evd-v3-limit';
@@ -596,7 +650,7 @@ export function renderPanel() {
     markReadNeeded('profiles', !!stale);
     const top = document.createElement('div');
     top.className = 'evd-v3-top';
-    top.append(riderSection(), chartsSection());
+    top.append(riderSection(), pressureSection(), chartsSection());
     const grid = document.createElement('div');
     grid.className = 'evd-v3-grid mt-4';
     model.levels.forEach((_, index) => grid.appendChild(levelCard(index)));
