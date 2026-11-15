@@ -31,7 +31,7 @@ const loud = () => { console.log = realLog; };
 
     // ---- firmware emulator ----
     const fw = {
-        capsBits: P.CAP_MODEL | P.CAP_MODEL_EFFECTIVE | P.CAP_MODEL_WRITABLE | P.CAP_RIDER,
+        capsBits: P.CAP_MODEL | P.CAP_MODEL_EFFECTIVE | P.CAP_MODEL_WRITABLE | P.CAP_RIDER | P.CAP_RIDER_HOLD,
         silent: false,
         generation: 7,
         levels: P.factoryLevels(),
@@ -191,7 +191,7 @@ const loud = () => { console.log = realLog; };
     check('read back level 3 equals written (incl. range 80)', P.levelsEqual(back.levels, [edited]));
 
     // Object 5 round trip.
-    const rider = { riderStrengthX10kg: 350, lowAssistOffIq: 30, lowAssistOnIq: 45, effortMap: false };
+    const rider = { riderStrengthX10kg: 350, iqMinLow: 30, iqMinHigh: 45, effortMap: false, holdModel: true, tHold100ms: 25 };
     const wr5 = await send(`V3M_WRITE:${P.toHex(P.encodeRiderWrite(rider))}#5`);
     check('WRITE object 5 ok', wr5.ok === true && wr5.generation === 9, JSON.stringify(wr5));
     const rd5 = await send('V3M_READ:5:0:3#6');
@@ -267,7 +267,7 @@ const loud = () => { console.log = realLog; };
 
     // ---- silent controller: CAPS times out, writes stay blocked ----
     fw.silent = true;
-    fw.capsBits = P.CAP_MODEL | P.CAP_MODEL_WRITABLE | P.CAP_RIDER;
+    fw.capsBits = P.CAP_MODEL | P.CAP_MODEL_WRITABLE | P.CAP_RIDER | P.CAP_RIDER_HOLD;
     transport = createV3ConfigTransport(canbus, { readTimeoutMs: 300, replyTimeoutMs: 300 });
     send = ws(transport);
     const sc = await send('V3M_CAPS#9');

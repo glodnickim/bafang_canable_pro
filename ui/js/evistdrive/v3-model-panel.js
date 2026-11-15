@@ -103,7 +103,7 @@ export function describeEffective(level, key) {
 
 function capsSummary(caps) {
     const yes = (b, text) => `${text}: ${b ? 'tak' : 'nie'}`;
-    return [yes(caps.model, 'model (bit 8)'), yes(caps.modelWritable, 'zapis modelu (bit 10)'), yes(caps.rider, 'rowerzysta i sprzęt (bit 11)')].join(', ');
+    return [yes(caps.model, 'model (bit 8)'), yes(caps.modelWritable, 'zapis modelu (bit 10)'), yes(caps.rider, 'rowerzysta i sprzęt (bit 11)'), yes(caps.riderHold, 'model podtrzymania (bit 12)')].join(', ');
 }
 
 function statusText() {
@@ -357,16 +357,43 @@ function riderSection() {
         help: 'Nacisk (kg) przy pełnym wysiłku na małej kadencji. Możliwości przy kadencji liczone są jako T0·(1 − kad/190). Więcej kg = na to samo wsparcie trzeba mocniej naciskać (silny rowerzysta), mniej = pełne wsparcie przy lżejszym nacisku. Domyślnie 30 kg (z logów jazd).',
     });
 
-    // C1 thresholds.
-    const off = numberRow({
-        label: 'C1 Iq_off', unit: 'Iq', min: 0, max: P.RIDER_LIMITS.offMax, step: 1, value: r.lowAssistOffIq,
-        onChange: (v) => { r.lowAssistOffIq = Math.round(v); riderEdited(); },
-        help: 'Próg wyłączenia małego wspomagania. Gdy żądany prąd spadnie poniżej Iq_off na ok. 150 ms, silnik szybko schodzi do zera zamiast wisieć w paśmie terkotu wolnobiegu (ok. 15–60 Iq). 0 = C1 wyłączone. Domyślnie 40.',
+    // Hold model (OWNER-DEC-20261115-PRESSURE-HOLD, replaces C1). Older firmware (no capability
+    // bit 12): the C1 fields are shown read-only with a note to update the firmware.
+    if (r.legacy) {
+        const note = document.createElement('div'); note.className = 'form-hint ebics-stale-warning';
+        note.textContent = 'Firmware bez modelu podtrzymania (stary obiekt 5 z C1). Minimum Iq i czas bez nacisku są dostępne po wgraniu nowego firmware. Poniżej wartości C1 tylko do odczytu; siłę i mapę wysiłku można zapisać.';
+        const c1 = document.createElement('div'); c1.className = 'evd-v3-help';
+        c1.textContent = `C1 (stare firmware): Iq_off ${r.lowAssistOffIq}, Iq_on ${r.lowAssistOnIq} — tylko do odczytu.`;
+        const errorsLegacy = document.createElement('div'); errorsLegacy.id = 'evdV3RiderErrors'; errorsLegacy.className = 'form-hint';
+        const writableLegacy = v3RiderCanWrite();
+        const actionsLegacy = document.createElement('div'); actionsLegacy.className = 'evd-v3-actions';
+        actionsLegacy.append(button('Zapisz rowerzystę i sprzęt (RAM)', 'btn btn-blue btn-sm', () => { void writeRider(); },
+            { id: 'evdV3WriteRider', disabled: !writableLegacy, title: writableLegacy ? 'Zapis siły i mapy wysiłku; C1 bez zmian.' : 'Zablokowane: firmware nie zgłasza obiektu 5 (bit 11).' }));
+        box.append(mapRow, strength, note, c1, errorsLegacy, actionsLegacy);
+        return box;
+    }
+    const pct = (iq) => `${String(P.iqPercent(iq)).replace('.', ',')} % z ${P.PHASE_CURRENT_MAX_IQ}`;
+    const holdRow = document.createElement('div'); holdRow.className = 'evd-v3-row';
+    const holdLabel = document.createElement('label'); holdLabel.className = 'evd-v3-limit';
+    const holdBox = document.createElement('input'); holdBox.type = 'checkbox'; holdBox.checked = r.holdModel; holdBox.id = 'evdV3HoldModel';
+    const holdText = document.createElement('span'); holdText.className = 'evd-v3-label'; holdText.textContent = 'Model podtrzymania';
+    holdLabel.append(holdBox, holdText);
+    holdBox.addEventListener('change', () => { r.holdModel = holdBox.checked; riderEdited(); });
+    holdRow.append(holdLabel, hint('Włączony (domyślnie): wspomaganie startuje po przekroczeniu progu startu, w czasie jazdy trzyma co najmniej minimum Iq poniżej i gaśnie szybko (w tempie BDE8), gdy przez pełny obrót korby albo przez „Czas bez nacisku” nacisk ani razu nie przekroczy progu „Start w czasie jazdy”. Gaśnie też przy zatrzymaniu korby, cofaniu, hamulcu i poziomie 0. Wyłączony: bez minimum i bez tych warunków końca.'));
+    const minLow = numberRow({
+        label: 'Minimum Iq przy ≤30 obr/min', unit: 'Iq', min: 0, max: P.RIDER_LIMITS.iqMinMax, step: 1, value: r.iqMinLow,
+        onChange: (v) => { r.iqMinLow = Math.round(v); riderEdited(); },
+        help: `Najmniejszy prąd silnika w czasie jazdy z naciskiem przy kadencji do 30 obr/min (między 30 a 60 obr/min liniowo do wartości poniżej). Trzyma silnik nad pasmem terkotu wolnobiegu; limity mocy, baterii, prędkości i Max Torque i tak go obcinają. 0 = brak minimum. Domyślnie 28 Iq (4 % z ${P.PHASE_CURRENT_MAX_IQ}); teraz ${pct(r.iqMinLow)}. Nie więcej niż przy ≥60 obr/min.`,
     });
-    const on = numberRow({
-        label: 'C1 Iq_on', unit: 'Iq', min: 0, max: P.RIDER_LIMITS.onMax, step: 1, value: r.lowAssistOnIq,
-        onChange: (v) => { r.lowAssistOnIq = Math.round(v); riderEdited(); },
-        help: 'Próg powrotu: wspomaganie wraca, gdy żądanie przekroczy Iq_on, i startuje od razu od tej wartości (bez przechodzenia przez pasmo terkotu). Musi być ≥ Iq_off, maks. 250. Domyślnie 55.',
+    const minHigh = numberRow({
+        label: 'Minimum Iq przy ≥60 obr/min', unit: 'Iq', min: 0, max: P.RIDER_LIMITS.iqMinMax, step: 1, value: r.iqMinHigh,
+        onChange: (v) => { r.iqMinHigh = Math.round(v); riderEdited(); },
+        help: `Najmniejszy prąd silnika w czasie jazdy z naciskiem przy kadencji od 60 obr/min. Do minimum prąd dochodzi płynnie (tempo BDE8, bez skoku). 0 = brak minimum (oba punkty). Maks. 120. Domyślnie 42 Iq (6 % z ${P.PHASE_CURRENT_MAX_IQ}); teraz ${pct(r.iqMinHigh)}.`,
+    });
+    const tHold = numberRow({
+        label: 'Czas bez nacisku', unit: 's', min: P.RIDER_LIMITS.tHoldMin / 10, max: P.RIDER_LIMITS.tHoldMax / 10, step: 0.1, value: r.tHold100ms / 10,
+        onChange: (v) => { r.tHold100ms = Math.round(v * 10); riderEdited(); },
+        help: 'Jak długo wspomaganie czeka na kolejne „trafienie” (nacisk ≥ próg „Start w czasie jazdy”), zanim zgaśnie. Liczy się dłuższy z: ten czas albo czas jednego obrotu korby, najwyżej 4 s (przy bardzo wolnym kręceniu). Niezależnie od czasu wspomaganie gaśnie po pełnym obrocie korby bez nacisku. Zakres 0,5–4,0 s, domyślnie 2,0 s.',
     });
 
     const errors = document.createElement('div'); errors.id = 'evdV3RiderErrors'; errors.className = 'form-hint';
@@ -374,11 +401,11 @@ function riderSection() {
     const actions = document.createElement('div'); actions.className = 'evd-v3-actions';
     actions.append(
         button('Fabryczne na ekranie', 'btn btn-secondary btn-sm', () => { model.rider = P.factoryRider(); riderEdited(); renderPanel(); },
-            { title: 'Siła 30 kg, Iq_off 40, Iq_on 55, mapa wysiłku włączona. Nic nie wysyła.' }),
+            { title: 'Siła 30 kg, minimum 28 / 42 Iq, czas bez nacisku 2,0 s, mapa wysiłku i model podtrzymania włączone. Nic nie wysyła.' }),
         button('Zapisz rowerzystę i sprzęt (RAM)', 'btn btn-blue btn-sm', () => { void writeRider(); },
             { id: 'evdV3WriteRider', disabled: !writable, title: writable ? 'Zapis obiektu 5 do RAM sterownika, potem odczyt kontrolny.' : 'Zablokowane: firmware nie zgłasza obiektu 5 (bit 11).' }),
     );
-    box.append(mapRow, strength, off, on, errors, actions);
+    box.append(mapRow, strength, holdRow, minLow, minHigh, tHold, errors, actions);
     return box;
 }
 
@@ -399,10 +426,9 @@ function pressureSection() {
     title.textContent = 'Progi nacisku (kg)';
     const index = activeBankIndex();
     const read = !!(state.lastBanks && state.ebicsReceivedBanks?.[index]);
-    const pressureHint = hint('Start: najmniejszy nacisk, przy którym wspomaganie rusza z miejsca (wymaga też obrotu korby). '
-        + 'Podtrzymanie: nacisk, poniżej którego już jadące wspomaganie gaśnie; nie może być większe niż start. '
-        + 'Wartości są faktycznym progiem zadziałania V3 (dokładność czujnika ok. ±0,3 kg); dolna granica startu to ok. 1,5 kg (szum czujnika 10 mV). '
-        + 'Uwaga: próg C1 (Iq_on) może opóźnić start w słabych trybach — patrz Rowerzysta i sprzęt.');
+    const pressureHint = hint('Start z miejsca: najmniejszy nacisk, przy którym wspomaganie rusza, gdy koło stoi (wymaga też obrotu korby). '
+        + 'Start w czasie jazdy: próg, gdy koło się toczy (powyżej 3 km/h); ten sam próg jest „trafieniem” podtrzymania — jadące wspomaganie gaśnie, gdy przez pełny obrót korby albo „Czas bez nacisku” nacisk ani razu go nie przekroczy. Nie może być większy niż start z miejsca. '
+        + 'Wartości są faktycznym progiem zadziałania V3 (dokładność czujnika ok. ±0,3 kg); dolna granica obu progów to ok. 1,5 kg (szum czujnika 10 mV) — niższa wartość działa jak 1,5 kg.');
     box.append(title);
     if (!read) {
         const warn = document.createElement('div'); warn.className = 'form-hint ebics-stale-warning';
@@ -423,7 +449,7 @@ function pressureSection() {
     if (legacy) {
         (bank.levels || []).forEach((lv, i) => {
             const row = document.createElement('div');
-            row.textContent = `Poziom ${i + 1}: start ${lv.minimum_pedal_load_clu}, podtrzymanie ${lv.riding_minimum_pedal_load_clu} (jednostka wewnętrzna)`;
+            row.textContent = `Poziom ${i + 1}: start z miejsca ${lv.minimum_pedal_load_clu}, start w czasie jazdy ${lv.riding_minimum_pedal_load_clu} (jednostka wewnętrzna)`;
             table.appendChild(row);
         });
         box.appendChild(table);
@@ -432,17 +458,17 @@ function pressureSection() {
     (bank.levels || []).forEach((lv, i) => {
         const name = v3ModeNameForLevel(i + 1) ?? `Poziom ${i + 1}`;
         const start = numberRow({
-            label: `${name}: start`, unit: 'kg', ...PRESSURE_LIMITS, value: lv.minimum_pedal_load_kg ?? 0,
+            label: `${name}: start z miejsca`, unit: 'kg', ...PRESSURE_LIMITS, value: lv.minimum_pedal_load_kg ?? 0,
             onChange: (v) => { lv.minimum_pedal_load_kg = Math.min(PRESSURE_LIMITS.max, Math.max(PRESSURE_LIMITS.min, Math.round(v * 10) / 10));
                 if ((lv.riding_minimum_pedal_load_kg ?? 0) > lv.minimum_pedal_load_kg) lv.riding_minimum_pedal_load_kg = lv.minimum_pedal_load_kg;
                 markUnsavedInRam(); renderPanel(); },
-            help: `Poziom ${i + 1}: próg startu z miejsca.`,
+            help: `Poziom ${i + 1}: próg startu, gdy koło stoi.`,
         });
         const hold = numberRow({
-            label: `${name}: podtrzymanie`, unit: 'kg', ...PRESSURE_LIMITS, value: lv.riding_minimum_pedal_load_kg ?? 0,
+            label: `${name}: start w czasie jazdy`, unit: 'kg', ...PRESSURE_LIMITS, value: lv.riding_minimum_pedal_load_kg ?? 0,
             onChange: (v) => { lv.riding_minimum_pedal_load_kg = Math.min(PRESSURE_LIMITS.max, Math.max(PRESSURE_LIMITS.min, Math.round(v * 10) / 10), lv.minimum_pedal_load_kg ?? 0);
                 markUnsavedInRam(); renderPanel(); },
-            help: `Poziom ${i + 1}: próg podtrzymania podczas jazdy (≤ start).`,
+            help: `Poziom ${i + 1}: próg startu, gdy koło się toczy, i próg trafienia podtrzymania (≤ start z miejsca).`,
         });
         table.append(start, hold);
     });
@@ -524,8 +550,8 @@ function chartsSection() {
             'Iq_start = Max Torque · min(1, F / F_full). Korekta Start skaluje F_full (więcej = pełny kop przy lżejszym nacisku), 0 = wyłączony.'),
         chart('evdV3ChartFade', 'Start: wygaszanie z kadencją',
             'Kop pełny do 25 obr/min, zero przy 50 obr/min (gaśnie też przy 12 km/h i po 4 s). Linia: cel przy wybranym nacisku.'),
-        chart('evdV3ChartC1', 'C1: małe wspomaganie, histereza Iq_off / Iq_on',
-            'Oś X: prąd, którego żąda mapa. Oś Y: prąd silnika. Przy wzroście silnik rusza dopiero od Iq_on, przy spadku wyłącza się poniżej Iq_off. Szare pole: pasmo terkotu wolnobiegu z logów.'),
+        chart('evdV3ChartC1', 'Model podtrzymania: minimum Iq od kadencji',
+            'Oś X: kadencja. Oś Y: najmniejszy prąd silnika w czasie jazdy z naciskiem (przed limitami mocy, baterii, prędkości i Max Torque). Szare pole: pasmo terkotu wolnobiegu z logów. Linia przerywana: czas bez nacisku do zgaśnięcia (prawa skala w s × 10).'),
     );
     box.append(controls, grid);
     return box;
@@ -597,22 +623,16 @@ export function refreshCharts() {
         vlines: [{ x: 25, label: '25' }, { x: 50, label: '50' }],
     });
 
-    // (d) C1 hysteresis
-    const iqMax = Math.max(120, Math.ceil((r.lowAssistOnIq + 40) / 20) * 20);
-    const c1Series = r.lowAssistOffIq
-        ? [
-            { label: 'narastanie (wejście od Iq_on)', color: '#0ea5e9', width: 3, points: sample((q) => P.lowAssistOutput(q, r, true), iqMax, 240) },
-            { label: 'opadanie (wyjście poniżej Iq_off)', color: '#f59e0b', dash: true, width: 2, points: sample((q) => P.lowAssistOutput(q, r, false), iqMax, 240) },
-        ]
-        : [{ label: 'C1 wyłączone: prąd = żądanie', color: '#64748b', width: 2, points: [[0, 0], [iqMax, iqMax]] }];
+    // (d) hold model minimum by cadence
+    const holdSeries = r.holdModel && r.iqMinHigh
+        ? [{ label: 'minimum Iq', color: '#0ea5e9', width: 3, points: sample((c) => P.holdMinimumIq(c, r), 120, 240) }]
+        : [{ label: 'model podtrzymania wyłączony / minimum 0', color: '#64748b', width: 2, points: [[0, 0], [120, 0]] }];
+    if (r.holdModel) holdSeries.push({ label: 'czas bez nacisku [s × 10]', color: '#f59e0b', dash: true, width: 2, points: sample((c) => 10 * P.holdTimeoutS(c, r), 120, 240) });
     drawLineChart(el('evdV3ChartC1'), {
-        xLabel: 'żądany prąd [Iq]', yLabel: 'prąd silnika [Iq]', xMax: iqMax, yMax: iqMax,
+        xLabel: 'kadencja [obr/min]', yLabel: 'minimum [Iq]', xMax: 120, yMax: Math.max(80, Math.ceil((r.iqMinHigh + 20) / 20) * 20),
         bands: [{ y0: 15, y1: 60, color: 'rgba(148,163,184,0.18)', label: 'pasmo terkotu 15–60' }],
-        series: c1Series,
-        vlines: r.lowAssistOffIq ? [
-            { x: r.lowAssistOffIq, label: `Iq_off ${r.lowAssistOffIq}`, color: '#f59e0b' },
-            { x: r.lowAssistOnIq, label: `Iq_on ${r.lowAssistOnIq}`, color: '#0ea5e9' },
-        ] : [],
+        series: holdSeries,
+        vlines: [{ x: P.HOLD_RPM_LOW, label: `${P.HOLD_RPM_LOW}` }, { x: P.HOLD_RPM_HIGH, label: `${P.HOLD_RPM_HIGH}` }],
     });
 }
 
