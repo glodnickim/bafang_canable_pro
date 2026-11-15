@@ -232,7 +232,7 @@ class BafangCanControllerParser {
             assist_levels: [],
             displayless_mode: packet.data[58] === 1,
             lamps_always_on: packet.data[59] === 1,
-			// FW-043: Walk Assist target CHAINRING RPM, stored raw (was km/h x100 — see serializer).
+			// FW-043: Walk Assist target CHAINRING RPM, stored raw (was km/h x100 â€” see serializer).
 			walk_assist_speed: (packet.data[61] << 8) + packet.data[60],
 			par1_value_offset_62: packet.data[62],
             checksum_missmatch: packet.data[63] !== calculateChecksum(packet.data.slice(0, 63)),
@@ -350,7 +350,7 @@ class BafangCanControllerParser {
 
     }
 
-    // FW-006: profile bank blob (0x6020) — 8B header + 5x35B level records + CRC16-CCITT
+    // FW-006: profile bank blob (0x6020) â€” 8B header + 5x35B level records + CRC16-CCITT
     static bankBlob(packet) {
         const LEVELS = 5;
         const d = packet?.data;
@@ -364,7 +364,7 @@ class BafangCanControllerParser {
         // tells us the controller understands Power Curve (mode 6).
         // FW-057: v5 adds header byte 12 = cadence compensation on/off for this bank.
         // FW-068/069: v6 is the first version with a longer record. Byte 5 is the record
-        // STRIDE — read it instead of assuming a constant, so this parser keeps working
+        // STRIDE â€” read it instead of assuming a constant, so this parser keeps working
         // the next time the record grows.
         const version = d[2];
         const RECORD = d[5] >= 35 ? d[5] : 35;
@@ -411,7 +411,7 @@ class BafangCanControllerParser {
                 curve_exponent_high_x10: d[r] === 6 && d[r + 1] >= 3 && d[r + 1] <= 25 ? d[r + 1] : 15,
                 support_min_pct: u16(r + 3), support_max_pct: u16(r + 5),
                 reference_power_w: u16(r + 7),
-                // FW-056: record byte 9 is the shape byte — gamma in Power Curve
+                // FW-056: record byte 9 is the shape byte â€” gamma in Power Curve
                 // (mode 6), progression in Power Progressive (mode 2).
                 progression_pct: d[r] === 6 ? 0 : d[r + 9],
                 curve_exponent_x10: d[r] === 6 && d[r + 9] >= 3 && d[r + 9] <= 25 ? d[r + 9] : 15,
@@ -438,7 +438,7 @@ class BafangCanControllerParser {
                 // held the removed rise detector, so reading them from an older blob would
                 // present stale bytes as a live boost setting. Older controllers get the
                 // migration defaults, which have the function OFF.
-                // 0.5 kg per wire unit — the one kg field that is not 0.1 kg, because a
+                // 0.5 kg per wire unit â€” the one kg field that is not 0.1 kg, because a
                 // single byte had to cover the full 60 kg sensor scale.
                 extended_boost_trigger_load_kg: version >= 8 && RECORD >= 48
                     ? d[r + 36] / 2 : 20,
@@ -450,6 +450,7 @@ class BafangCanControllerParser {
         // 0 = written by firmware/tooling from before the field existed -> show the default.
         const waCutoffRaw = d[7];
         return {
+            _rawBytes: Array.from(d),
             bank_index: d[3],
             active_bank: d[6],
             bank_schema_version: version,
@@ -463,7 +464,7 @@ class BafangCanControllerParser {
         };
     }
 
-    // FW-010: global ride-feel tuning blob (0x6023) — 4B header + 5 u16 fields + CRC16-CCITT
+    // FW-010: global ride-feel tuning blob (0x6023) â€” 4B header + 5 u16 fields + CRC16-CCITT
     static tuningBlob(packet) {
         // v1 16 B (ramps only), v2 22 B (+latch), v3/v4/v5 24 B (+torque-run filter),
         // v6 32 B (+start steps, FW-068), v7 32 B (FW-085: offset 20 changes unit from
@@ -494,7 +495,7 @@ class BafangCanControllerParser {
         }
         const u16 = (o) => d[o] | (d[o + 1] << 8);
         const out = {
-            // FW-068: the writer must never send a version the controller cannot parse —
+            // FW-068: the writer must never send a version the controller cannot parse â€”
             // an unknown version byte makes the firmware reject the whole blob, so the
             // serializer negotiates down to whatever the controller reported here.
             tuning_schema_version: version,
@@ -512,7 +513,7 @@ class BafangCanControllerParser {
             out.assist_min_iq_pct = 2;
         }
         // FW-033/085: the RUN estimator's averaging window. Offset 20 changed UNIT in v7,
-        // from milliseconds to crank degrees — the position is the same, the meaning is not.
+        // from milliseconds to crank degrees â€” the position is the same, the meaning is not.
         //
         // A v6 value must not be shown as degrees. What a millisecond figure was worth
         // depended on the cadence it was tuned at (precisely the flaw FW-085 removes), so
@@ -530,7 +531,7 @@ class BafangCanControllerParser {
         out.assist_start_steps = (version >= 6 && u16(22) >= 1) ? u16(22) : 4;
         // FW-129: assist torque full scale (centikg) and crank length (mm). On v7 and older
         // these bytes are the reserved zeros, and 0 would read as "0 kg full scale / 0 mm
-        // crank" — both nonsense, and one of them a division by zero in the preview maths.
+        // crank" â€” both nonsense, and one of them a division by zero in the preview maths.
         // Show the firmware defaults instead, which are exactly what that firmware behaves as.
         out.assist_torque_full_scale_centikg =
             (version >= 8 && u16(24) >= 1) ? u16(24) : 6000;
@@ -707,7 +708,7 @@ class BafangCanControllerParser {
         };
     }
 
-    // FW-015/017: ride-core diagnostics (0x6029) — v1 24 B (peak only) or v2 32 B
+    // FW-015/017: ride-core diagnostics (0x6029) â€” v1 24 B (peak only) or v2 32 B
     // (peak + flags byte + current pas_idle_ms/pressure/iq_request/iq_setpoint), CRC16-CCITT.
     static rideDiagnostics(packet) {
         const d = packet?.data;
@@ -721,7 +722,7 @@ class BafangCanControllerParser {
         // v1 24 B (peak), v2 32 B (+current), v3 37 B (+torque_run, measured i_q, batt-limit),
         // v4 47 B (FW-057: +cadence compensation, u_abs, pack voltage),
         // v5 55 B (FW-084: +Extended Boost state),
-        // v6 71 B (FW-129: +the unit-domain block — calibrated pedal load, normalized torque,
+        // v6 71 B (FW-129: +the unit-domain block â€” calibrated pedal load, normalized torque,
         //          both conversion anchors, the crossfade weight, pre-limit Iq, live motor
         //          power and live u_abs). CRC = last 2 B.
         //          v7 71 B (Assist Pipeline V2: the same length and CRC, and NEW MEANINGS for
@@ -757,7 +758,7 @@ class BafangCanControllerParser {
             iq_request: i16(16),                // peak
             iq_setpoint: i16(18),               // peak
             speed_x100: u16(20),
-            // v2+ current fields — null on v1 so the UI shows "unavailable", not 0
+            // v2+ current fields â€” null on v1 so the UI shows "unavailable", not 0
             pedaling_active: version >= 2 ? (d[5] & 0x02) !== 0 : null,
             // FW-061: these two were mislabelled. The firmware packs bit 2 = brake
             // active and bit 3 = torque sensor fault (CAN_Display.c 0x6029 flags),
@@ -772,11 +773,11 @@ class BafangCanControllerParser {
             fast_pressure: version >= 2 ? u16(24) : null,     // raw (fast 35 ms)
             iq_request_now: version >= 2 ? i16(26) : null,    // effective
             iq_setpoint_now: version >= 2 ? i16(28) : null,
-            // FW-033: RUN pressure (slow estimator), measured i_q, batt-limit — null on v1/v2
+            // FW-033: RUN pressure (slow estimator), measured i_q, batt-limit â€” null on v1/v2
             run_pressure: version >= 3 ? u16(30) : null,
             measured_iq: version >= 3 ? i16(32) : null,
             battery_limiting: version >= 3 ? (d[34] & 0x01) !== 0 : null,
-            // FW-057: cadence compensation — null on older firmware so the UI says
+            // FW-057: cadence compensation â€” null on older firmware so the UI says
             // "unavailable" instead of implying the compensation ran and did nothing.
             cadence_comp_permille: version >= 4 ? u16(35) : null,   // peak, 1000 = none applied
             precomp_motor_power_w: version >= 4 ? u16(37) : null,   // peak, before compensation
@@ -796,7 +797,7 @@ class BafangCanControllerParser {
             ext_boost_cancel_reason: version >= 5 ? d[52] : null,
             // FW-129 v6 unit-domain block. All LIVE (not peak-held) on purpose: the question
             // it answers is "at THIS operating point, which conversion anchor was carrying the
-            // request and did the handover stay continuous" — a peak-hold would mix samples
+            // request and did the handover stay continuous" â€” a peak-hold would mix samples
             // taken at different duties and make the crossfade unreadable.
             assist_load_kg: version >= 6 ? u16(53) / 100 : null,
             assist_torque_x160: version >= 6 ? u16(55) : null,
@@ -813,7 +814,7 @@ class BafangCanControllerParser {
         return out;
     }
 
-    // FW-014/018: system status (0x6028) — 8 B single frame: 'S','Y',ver, engine, pending, [full_lo, full_hi], crcLo
+    // FW-014/018: system status (0x6028) â€” 8 B single frame: 'S','Y',ver, engine, pending, [full_lo, full_hi], crcLo
     // ver1: bytes 5..6 unused. ver2 (FW-018): bytes 5..6 = soc_full_pack_10mv (LE), 0 = not configured.
     static systemStatus(packet) {
         const d = packet?.data;
@@ -843,7 +844,7 @@ class BafangCanControllerParser {
         return out;
     }
 
-    // FW-013: torque load telemetry + calibration status (0x6025) — 24 B, CRC16-CCITT
+    // FW-013: torque load telemetry + calibration status (0x6025) â€” 24 B, CRC16-CCITT
     // FW-013 v1 = 24 B. FW-061 v2 = 56 B: same first 22 bytes, then the coast
     // re-zero diagnostics, then CRC. Counters are cumulative since power-on.
     static COAST_RESULTS = ['NONE', 'APPLIED', 'NO_CHANGE', 'TOO_SHORT', 'UNSTABLE',
@@ -913,7 +914,7 @@ class BafangCanControllerParser {
             // as a GAIN on top of the measured factory characteristic instead of replacing
             // that characteristic with a straight line through the calibration point. Byte 33
             // was reserved before and reads 0 on older firmware, so both fields answer "no"
-            // there — which is correct: that firmware has neither the behaviour nor the flag.
+            // there â€” which is correct: that firmware has neither the behaviour nor the flag.
             gain_calibration: (d[3] & 0x08) !== 0,
             legacy_calibration_dropped: (d[33] & 0x01) !== 0,
         });

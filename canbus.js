@@ -19,7 +19,7 @@ const requestFunctions = require('./bafang-can-requests');
 
 const CAN_EFF_FLAG = 0x80000000;
 const BAFANG_CAN_BITRATE = 250000;
-const DISPLAY_DATA_CMD = 0x63; // 99 decimal — display realtime/data command
+const DISPLAY_DATA_CMD = 0x63; // 99 decimal â€” display realtime/data command
 const TOOL_SOURCE_ID = DeviceNetworkId.BESST; // Define the ID used by this tool for sending
 
 
@@ -33,8 +33,8 @@ function formatBufferForLog(buffer) {
 
 // How seriously to take a libusb failure.
 //
-//   'fatal' — the device is gone. Tear the link down now.
-//   'soft'  — the transfer failed but the device may well still be there. Do NOT tear
+//   'fatal' â€” the device is gone. Tear the link down now.
+//   'soft'  â€” the transfer failed but the device may well still be there. Do NOT tear
 //             down on the first one: sendRawFrameWithRetry() in fw-updater.js retries by
 //             design, and killing a firmware flash over one recoverable error would be
 //             far worse than the delay of waiting for a second opinion.
@@ -77,8 +77,8 @@ class CanBusService extends EventEmitter {
         // trusting the quiet-bus shortcut. Read and cleared by checkAlive().
         this.probeNowRequested = false;
 
-        // Bound ONCE, here, not in init(). GSUsb.on() only pushes onto an array — it has
-        // no off() and close() never clears it — and this.canDevice is never replaced. A
+        // Bound ONCE, here, not in init(). GSUsb.on() only pushes onto an array â€” it has
+        // no off() and close() never clears it â€” and this.canDevice is never replaced. A
         // per-connect registration would therefore stack a new handler on every reconnect,
         // so after N sleep/wake cycles every frame would be parsed N times and every ACK
         // sent N times. Auto-recovery reconnects on its own, which makes that a loop.
@@ -117,10 +117,10 @@ class CanBusService extends EventEmitter {
                 this.connectedDeviceName = null; // Clear name on failure
                 let reason = startResult?.msg || 'Failed to start CAN device (candlelightjs)';
                 // Say what to do about it. This particular failure means the adapter is
-                // enumerated but not answering, which no amount of reconnecting fixes —
+                // enumerated but not answering, which no amount of reconnecting fixes â€”
                 // and the plain message sent the user looking in the wrong place.
                 if (reason.includes('capabilities')) {
-                    reason += ' — the adapter is visible but not responding. Unplug it, wait a few seconds and plug it back in.';
+                    reason += ' â€” the adapter is visible but not responding. Unplug it, wait a few seconds and plug it back in.';
                 }
                 throw new Error(reason);
             }
@@ -142,7 +142,7 @@ class CanBusService extends EventEmitter {
             console.log(`[CanBusService] CAN device started successfully at ${BAFANG_CAN_BITRATE} bps. Device: ${this.connectedDeviceName}`);
             this.emit('can_status', true, `CAN device connected (${this.connectedDeviceName}).`);
 
-            // 'frame' / 'error' / 'echo' / 'canerror' are bound once in the constructor —
+            // 'frame' / 'error' / 'echo' / 'canerror' are bound once in the constructor â€”
             // see the note there. A fresh connection starts with a clean liveness slate.
             this.lastRxAt = Date.now();
             this.lastTxOkAt = 0;
@@ -167,7 +167,7 @@ class CanBusService extends EventEmitter {
             this.connectedDeviceName = null; // Clear name on failure
             // Give the device back. GSUsb.start() has already opened it, reset it and
             // claimed the interface by the time most failures happen, and nothing here
-            // used to undo that — so every failed attempt leaked an open, claimed handle,
+            // used to undo that â€” so every failed attempt leaked an open, claimed handle,
             // and the next attempt piled another one on top. With auto-connect retrying,
             // that is a device being reopened and reset over and over, which is a good way
             // to keep an adapter from ever settling.
@@ -249,7 +249,7 @@ class CanBusService extends EventEmitter {
     }
 
     async _handleFrameReceived(rawFrame) {
-        // Before any parsing: a frame arriving at all — even a malformed one — proves the
+        // Before any parsing: a frame arriving at all â€” even a malformed one â€” proves the
         // USB link is alive, which is what checkAlive() needs to know.
         this.lastRxAt = Date.now();
         try {
@@ -430,7 +430,7 @@ class CanBusService extends EventEmitter {
             console.error("[CanBusService] Error handling received CAN frame:", parseErr, "Raw Frame ID:", rawFrame?.can_id?.toString(16));
             // Deliberately NOT 'can_error': that channel means "the link is gone" and now
             // starts an auto-recovery. One frame we could not parse says nothing about the
-            // USB link — the adapter is plainly alive, it just handed us something
+            // USB link â€” the adapter is plainly alive, it just handed us something
             // unexpected. Emitting can_error here tore down a perfectly good connection.
             this.emit('frame_error', 'Error processing received frame.');
         }
@@ -722,14 +722,14 @@ class CanBusService extends EventEmitter {
 
     // Best-effort teardown after a link failure. Every step is optional and raced
     // against a timer, because closing a handle whose device stopped answering can
-    // block inside libusb — and this runs on the path that is supposed to make the
+    // block inside libusb â€” and this runs on the path that is supposed to make the
     // app responsive again, so it must never be the thing that hangs.
     async _releaseDeadHandle(timeoutMs = 5000) {
         // Serialised, because two teardowns of the same USB handle at once leave the
         // adapter half-configured: _handleCanError releases the handle while the server's
         // recovery calls close(), both reach GSUsb.stop(), and the result was
         // "Failed to disable CAN Hardware" followed by a stall on the next control
-        // transfer — so reopening then failed and recovery span in circles.
+        // transfer â€” so reopening then failed and recovery span in circles.
         if (this._teardownInFlight) return this._teardownInFlight;
         const teardown = (async () => {
             try { await this.canDevice.stopPolling(); } catch (e) { console.warn('[CanBusService] stopPolling after error failed:', e.message); }
@@ -883,7 +883,7 @@ class CanBusService extends EventEmitter {
     // --- FW-006: profile banks (0x6020 read / 0x6021 RAM write / 0x6022 persist) ---
     static serializeBankBlob(bankObj) {
         // FW-056: only echo v4 back to a controller that reported v4 (i.e. one that
-        // understands Power Curve) — same layout and length as v3 either way.
+        // understands Power Curve) â€” same layout and length as v3 either way.
         // FW-057: v5 adds header byte 12, so the blob grows to 190 B. Never send a
         // version the controller did not report itself.
         // FW-068/069: v6 is the first version with a LONGER record (46 B): the per-level start
@@ -891,7 +891,7 @@ class CanBusService extends EventEmitter {
         // 255 B ceiling of the multiframe protocol (the length travels in a single byte).
         // FW-077: v7 keeps the geometry and exposes only two kg thresholds;
         // the removed rise-detector slots remain reserved.
-        // FW-084: v8 grows the record to 48 B for Extended Boost — 13 + 5*48 + 2 = 255 B,
+        // FW-084: v8 grows the record to 48 B for Extended Boost â€” 13 + 5*48 + 2 = 255 B,
         // exactly the ceiling. A v7 controller must keep receiving its own 46 B/245 B
         // format, or the write is rejected and the rider loses the whole bank.
         const version = bankObj.bank_schema_version >= 8 && bankObj.bank_schema_version <= 11 ? bankObj.bank_schema_version
@@ -902,7 +902,8 @@ class CanBusService extends EventEmitter {
         const HEADER = version >= 5 ? 13 : 12;
         const RECORD = version >= 8 ? 48 : (version >= 6 ? 46 : 35), LEVELS = 5;
         const BLOB_LEN = HEADER + LEVELS * RECORD + 2;
-        const d = new Array(BLOB_LEN).fill(0);
+        const preserveLegacy = (version === 9 || version === 10) && Array.isArray(bankObj._rawBytes) && bankObj._rawBytes.length === BLOB_LEN;
+        const d = preserveLegacy ? bankObj._rawBytes.slice() : new Array(BLOB_LEN).fill(0);
         d[0] = 0x45; d[1] = 0x42; d[2] = version;
         d[3] = bankObj.bank_index & 1; d[4] = LEVELS; d[5] = RECORD;
         d[6] = bankObj.active_bank ?? 0;
@@ -927,7 +928,7 @@ class CanBusService extends EventEmitter {
             }
             u16(r + 3, lv.support_min_pct);
             u16(r + 5, lv.support_max_pct); u16(r + 7, lv.reference_power_w);
-            // FW-056: shape byte — gamma for Power Curve, progression otherwise.
+            // FW-056: shape byte â€” gamma for Power Curve, progression otherwise.
             d[r + 9] = (lv.mode_type === 6 ? (lv.curve_exponent_x10 ?? 15) : lv.progression_pct) & 0xFF;
             d[r + 10] = lv.emtb_parameter & 0xFF;
             d[r + 11] = lv.emtb_based_on_power ? 1 : 0;
@@ -972,7 +973,7 @@ class CanBusService extends EventEmitter {
                 if (version === 8) {
                     // 0.5 kg per unit, NOT the 0.1 kg the other kg fields use: that step
                     // is what fits the whole 60 kg sensor range into one byte at one exact decimal, and there
-                    // was no second byte to be had — the blob is at the 255 B ceiling.
+                    // was no second byte to be had â€” the blob is at the 255 B ceiling.
                     // 2 = 1.0 kg (the floor; 0 would arm on any touch), 120 = 60.0 kg.
                     const triggerKg = Math.max(0, Math.min(60,
                         lv.extended_boost_trigger_load_kg ?? 8));
@@ -980,7 +981,7 @@ class CanBusService extends EventEmitter {
                     // 255 is a legal value here (2.55x), so it must never be treated as a
                     // signed byte or clipped back to 0.
                     d[r + 37] = clamp8(lv.extended_boost_strength_pct ?? 100, 255);
-                } else {
+                } else if (!preserveLegacy) {
                     d[r + 36] = 0;
                     d[r + 37] = 0;
                 }
@@ -1033,7 +1034,7 @@ class CanBusService extends EventEmitter {
         //
         // The version is NEGOTIATED, like the bank blob: firmware rejects a blob whose
         // version byte it does not know, so sending v6 to a pre-FW-068 controller would
-        // make the whole Dynamics write fail. Fall back to the v5 layout in that case —
+        // make the whole Dynamics write fail. Fall back to the v5 layout in that case â€”
         // "Crank movement to start" simply has nowhere to go on that firmware.
         // FW-085: v7 is v6's layout with offset 20 reinterpreted from ms to crank degrees.
         // FW-129: v8 is v7's layout again, plus two of the three u16 v6 left reserved
@@ -1053,7 +1054,7 @@ class CanBusService extends EventEmitter {
         u16(16, t.assist_hold_ms);
         u16(18, t.assist_min_iq_pct);
         // FW-085: offset 20 is crank degrees on v7. On an older controller it is still
-        // milliseconds, and the degrees value has no honest millisecond equivalent — so
+        // milliseconds, and the degrees value has no honest millisecond equivalent â€” so
         // send that firmware's own default instead of a number that would silently mean
         // something else. The window setting simply has nowhere to go on pre-FW-085
         // firmware, the same way "Crank movement to start" has nowhere to go below v6.
@@ -1061,7 +1062,7 @@ class CanBusService extends EventEmitter {
         if (version >= 6) {
             u16(22, Math.round(Math.max(1, Math.min(20, t.assist_start_steps ?? 4))));
         }
-        // FW-129. On a pre-v8 controller these two bytes are reserved and must stay zero —
+        // FW-129. On a pre-v8 controller these two bytes are reserved and must stay zero â€”
         // that firmware would not read them anyway, and writing a value there would only make
         // the blob differ from what the controller echoes back. The two settings simply have
         // nowhere to go below v8, the same way "Crank movement to start" has nowhere to go
@@ -1168,7 +1169,7 @@ class CanBusService extends EventEmitter {
             const success = await this.canDevice.writeCANFrame(frameToSend);
             if (!success) {
                 console.error('CAN -> Failed send');
-                // A refused write is a hint, not a verdict — let the next liveness check
+                // A refused write is a hint, not a verdict â€” let the next liveness check
                 // decide, instead of guessing from one failed frame.
                 this.probeNowRequested = true;
                 return false; }
@@ -1199,9 +1200,9 @@ class CanBusService extends EventEmitter {
      * died while the host slept still read as "connected". This answers the question for
      * real, in two stages:
      *
-     *   1. Passive — if frames arrived (or we sent one) in the last few seconds, the link
+     *   1. Passive â€” if frames arrived (or we sent one) in the last few seconds, the link
      *      demonstrably works. Free, instant, and true whenever the bike is running.
-     *   2. Active — only once it goes quiet, ask the adapter over USB. Never touches the
+     *   2. Active â€” only once it goes quiet, ask the adapter over USB. Never touches the
      *      CAN bus, so a parked bike stays "alive" instead of looking dead.
      *
      * A failure here reports through _handleCanError, so callers do not have to.
@@ -1222,7 +1223,7 @@ class CanBusService extends EventEmitter {
         const severity = classifyUsbError(probe.error);
         if (severity === 'soft') {
             // One soft failure is not proof. Say so, and make the next check probe again
-            // rather than trusting the quiet-bus shortcut — the caller counts the strikes.
+            // rather than trusting the quiet-bus shortcut â€” the caller counts the strikes.
             this.probeNowRequested = true;
             return { ok: false, soft: true, reason: probe.error };
         }
