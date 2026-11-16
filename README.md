@@ -136,3 +136,6 @@ Zakładka **eVistDrive Profiles** (dawniej „Tryby V3”): widok **Prosty** (po
 
 ### 1.0.12 — zakładki eVistDrive po audycie
 Live: „Profil (poziom HMI)”, poprawione opisy temperatury, przebiegu, prądu i mocy. System: diagnostyka v9 mapowana poprawnie, brakujące pola jako „brak w tym firmware”. Torque/System: czytelna informacja, gdy wsad NORMAL nie wysyła diagnostyki; kalibracja tylko po aktualnym odczycie. Ustawienia, które nie działają w torze V3 (kierunek, przełożenie, manetka), ukryte.
+
+### 1.0.13 — wizualizacje w profilach
+Każda karta poziomu ma trzy miniwykresy: Wsparcie, Moc (ustawiona moc na tle mocy baterii, kreska = domyślna trybu) i Kop (dodatkowy prąd przy ruszaniu 0–4 s, wygaszany z kadencją). Odświeżają się przy ruchu suwaka.
