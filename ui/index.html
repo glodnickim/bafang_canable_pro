@@ -998,7 +998,7 @@
                         <!-- CB-026: live telemetry, not a settings read — hence its own
                              wording. The top bar's "Read from bike" loads settings; this asks
                              the sensor what it sees right now. -->
-                        <div class="flex gap-2 mt-2"><button id="ebicsTorqueReadButton" class="btn btn-secondary btn-sm" title="Asks the sensor for its current reading. Does not change any setting.">↻ Refresh sensor reading</button></div>
+                        <div class="flex gap-2 mt-2"><span id="ebicsTorqueDiagStatus">Odczytaj diagnostyk? 0x6025 przed kalibracj?.</span><button id="ebicsTorqueReadButton" class="btn btn-secondary btn-sm" title="Asks the sensor for its current reading. Does not change any setting.">↻ Refresh sensor reading</button></div>
                         <p class="form-hint">Firmware is the source of truth for kg once it answers. Until then an estimated default scale is used (740 mV zero, 1620 mV = 60 kg).</p>
                     </section>
                     <section class="ebics-card">
@@ -1195,7 +1195,7 @@
                     <summary class="ebics-card-title">eVistDrive diagnostics (live + peak-hold)</summary>
                     <p class="form-hint">Enable "Auto (10 Hz)" and pedal/press. LIVE values show the current moment (good for watching the cut-off after you stop pedalling); PEAK values hold the maximum since the last read (good for catching a brief press). To diagnose slow release: click "Read tuning" first (records the stored fall ramps), then stop pedalling and watch how long iq setpoint (live) takes to reach 0. Needs firmware 0.0178+ (v2); older firmware shows live values as "—".</p>
                     <div class="flex items-center gap-2 mt-2 flex-wrap">
-                        <button id="ebicsDiagReadButton" class="btn btn-blue">Read once</button>
+                        <span id="ebicsDiagStatus">Diagnostyka 0x6029 nieodczytana.</span><button id="ebicsDiagReadButton" class="btn btn-blue">Read once</button>
                         <label><input id="ebicsDiagAuto" type="checkbox"> Auto (10 Hz)</label>
                     </div>
                     <div class="ebics-status-list mt-2">

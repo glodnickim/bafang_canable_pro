@@ -7,11 +7,22 @@ import {
 
 // The gauge is drawn against the sensor's full range, not the rider's own maximum.
 const GAUGE_FULL_SCALE_KG = 60;
+let torqueLastReceived = 0;
+let torqueReadTimer = null;
+function requestTorque() {
+    if (!socketReady()) return;
+    socket.send('READ_TORQUE');
+    clearTimeout(torqueReadTimer);
+    const requestedAt = Date.now();
+    torqueReadTimer = setTimeout(() => {
+        if (torqueLastReceived < requestedAt) setText('ebicsTorqueDiagStatus', 'Brak odpowiedzi 0x6025. Wsad NORMAL nie wysy?a diagnostyki ? wgraj DIAG. Sprawd? te? po??czenie.');
+    }, 2000);
+}
 
 export function updateTorqueSummary() {
     const load = getPedalLoadKg();
     const safeLoad = isNumber(load) ? clamp(load, 0, GAUGE_FULL_SCALE_KG) : 0;
-    setText('ebicsTorqueKg', safeLoad.toFixed(1));
+    setText('ebicsTorqueKg', isNumber(load) ? safeLoad.toFixed(1) : 'N/A');
     const fill = el('ebicsTorqueGaugeFill');
     // Rounded to whole percent and written only on change: the gauge is ~200 px wide, so
     // sub-percent precision is invisible while every write forces a layout pass.
@@ -25,6 +36,8 @@ const CAL_ERROR_LABELS = ['None', 'Not stationary', 'Signal unstable', 'Referenc
 // FW-013: refresh calibration/telemetry card from a 0x6025 snapshot.
 export function updateTorqueCalUI(t) {
     if (!t) return;
+    torqueLastReceived = Date.now();
+    setText('ebicsTorqueDiagStatus', 'Diagnostyka 0x6025 odebrana.');
     setText('ebicsTorqueSourcePill', torqueModel.source === 'firmware'
         ? `Scale: firmware (${torqueModel.calibrationSource === 'user' ? 'calibrated' : 'default'})`
         : 'Scale: default (estimated)');
@@ -116,7 +129,7 @@ function updateCoastDiag(t) {
 // FW-013: torque telemetry live read + load calibration operations
 export function bindTorqueControls() {
     el('ebicsTorqueReadButton')?.addEventListener('click', () => {
-        if (socketReady()) { socket.send('READ_TORQUE'); addLog('REQ', 'Reading torque telemetry'); }
+        if (socketReady()) { requestTorque(); addLog('REQ', 'Reading torque telemetry'); }
     });
     const calRefCentikg = () => {
         const kg = parseFloat(el('ebicsCalRefKg')?.value);
@@ -127,7 +140,7 @@ export function bindTorqueControls() {
         socket.send(`TORQUE_CAL:${op}${ref !== undefined ? ':' + ref : ''}`);
         setTimeout(() => socket.send('READ_TORQUE'), 300); // refresh status after the op
     };
-    el('ebicsCalStart')?.addEventListener('click', () => { calOp(1); addLog('REQ', 'Calibration: start (capture zero)'); });
+    el('ebicsCalStart')?.addEventListener('click', () => { if (!torqueLastReceived || Date.now() - torqueLastReceived > 10000) { requestTorque(); alert('Brak aktualnego potwierdzenia odczytu 0x6025. Wsad NORMAL nie wysy?a diagnostyki ? wgraj DIAG. Sprawd? te? po??czenie i odczytaj dane przed kalibracj?.'); return; } calOp(1); addLog('REQ', 'Calibration: start (capture zero)'); });
     el('ebicsCalCapture')?.addEventListener('click', () => {
         const ref = calRefCentikg();
         if (ref < 500 || ref > 3000) { alert('Reference weight must be 5–30 kg.'); return; }

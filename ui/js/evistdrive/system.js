@@ -11,6 +11,8 @@ const DIAG_POLL_INTERVAL_MS = 100; // 10 Hz
 // FW-015/017: ride-core diagnostics card (peak + live)
 export function updateDiagUI(d) {
     if (!d) return;
+    diagLastReceived = Date.now();
+    setText('ebicsDiagStatus', 'Diagnostyka 0x6029 odebrana.');
     if (d.version >= 8) {
         const value = (v) => v == null ? 'brak w tym firmware' : v;
         const flag = (v) => v == null ? 'brak w tym firmware' : (v ? 'yes' : 'no');
@@ -86,6 +88,18 @@ export function updateDiagUI(d) {
 }
 
 let diagTimer = null;
+let diagLastReceived = 0;
+let diagReadTimer = null;
+function requestDiag() {
+    if (!socketReady()) return;
+    socket.send('READ_DIAG');
+    if (diagReadTimer) return;
+    const requestedAt = Date.now();
+    diagReadTimer = setTimeout(() => {
+        diagReadTimer = null;
+        if (diagLastReceived < requestedAt) setText('ebicsDiagStatus', 'Brak odpowiedzi 0x6029. Wsad NORMAL nie wysy?a diagnostyki ? wgraj DIAG. Sprawd? te? po??czenie.');
+    }, 2000);
+}
 
 // Exported so leaving the tab can stop the 10 Hz poll from anywhere.
 export function stopDiagPoll() {
@@ -97,12 +111,12 @@ export function stopDiagPoll() {
 // FW-015/017: diagnostics read + auto-poll
 export function bindSystemControls() {
     el('ebicsDiagReadButton')?.addEventListener('click', () => {
-        if (socketReady()) socket.send('READ_DIAG');
+        requestDiag();
     });
     el('ebicsDiagAuto')?.addEventListener('change', (e) => {
         if (diagTimer) { clearInterval(diagTimer); diagTimer = null; }
         if (e.target.checked && socketReady()) {
-            diagTimer = setInterval(() => { if (socketReady()) socket.send('READ_DIAG'); else stopDiagPoll(); }, DIAG_POLL_INTERVAL_MS);
+            diagTimer = setInterval(() => { requestDiag(); else stopDiagPoll(); }, DIAG_POLL_INTERVAL_MS);
         }
     });
 }
