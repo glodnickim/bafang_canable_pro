@@ -139,3 +139,6 @@ Live: „Profil (poziom HMI)”, poprawione opisy temperatury, przebiegu, prądu
 
 ### 1.0.13 — wizualizacje w profilach
 Każda karta poziomu ma trzy miniwykresy: Wsparcie, Moc (ustawiona moc na tle mocy baterii, kreska = domyślna trybu) i Kop (dodatkowy prąd przy ruszaniu 0–4 s, wygaszany z kadencją). Odświeżają się przy ruchu suwaka.
+
+### 1.0.14 — jeden wykres na poziom
+Wsparcie, Moc maks. (pozioma linia limitu „W”, ucięta część krzywej blada) i Kop na starcie (żółta przerywana nakładka) na jednym wykresie w karcie poziomu; oś X = nacisk na pedał, ta sama skala dla wszystkich poziomów.
