@@ -148,3 +148,6 @@ Suwak Moc maks. sięga mocy baterii = limit prądu × napięcie systemu z P1 (ja
 
 ### 1.0.16 — progi nacisku zawsze widoczne
 Pola „Start z miejsca” i „Start w jeździe” są widoczne zawsze: przed odczytem jako podgląd fabryczny (2,5 / 1,5 kg, wyszarzone), przy firmware bez banku v11 zablokowane z informacją „wymaga 0.707 lub nowszego”.
+
+### 1.0.17 — zrozumiałe ustawienia rowerzysty
+Sekcja „Rowerzysta i model podtrzymania”: nazwy opisują odczucie (Wsparcie wg wysiłku, Twoja siła, Bez terkotu, Minimalne wsparcie przy wolnym/szybkim kręceniu w %, Wyłącz po … s bez nacisku), przy każdym mały wykres na żywo, opis w jednej linii, szczegóły pod „?”. Przed odczytem widoczne wyszarzone z wartościami fabrycznymi.
