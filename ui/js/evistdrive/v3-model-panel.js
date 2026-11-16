@@ -49,7 +49,7 @@ const LEGEND = [
     { name: 'Zakres (Range)', adv: true, short: 'Przy jakim nacisku wsparcie dochodzi do 100 %.', full: 'Jaki wysiłek daje pełne wyjście mapy wysiłku. 50 = fabrycznie (e_full trybu). W prawo krótszy zakres: 100 % przy lżejszym nacisku. W lewo dłuższy: trzeba mocniej nacisnąć. Działa tylko z włączoną mapą wysiłku.' },
     { name: 'Max Torque', adv: true, short: 'Sufit momentu silnika (% dozwolonego Iq, nie Nm).', full: 'Sufit momentu silnika: ułamek dozwolonego prądu Iq. Obcina mapę i kop Start; najbardziej czuć go pod górę i przy ruszaniu. Zmiana trybu ustawia jego domyślny Max Torque.' },
     { name: '50 i ↺', short: '50 = ustawienie fabryczne trybu; ↺ wraca do niego.', full: 'Każda korekta 0..100 działa wokół wartości fabrycznej trybu: 50 = fabrycznie, mnożnik ×0,5 przy 0 … ×2 przy 100. Ikona ↺ przy suwaku przywraca wartość fabryczną (dla mocy: domyślną moc trybu).' },
-    { name: 'Miniwykres', short: 'Wsparcie, Moc maks. i Kop na jednym wykresie od nacisku.', full: 'Jeden wykres w karcie, oś X: nacisk na pedał (kg), oś Y: udział pełnego wyjścia (ta sama skala we wszystkich kartach). Wsparcie (kolor trybu): wyjście mapy wysiłku przy 60 obr/min po korekcie Wsparcia i Zakresu, obcięte przez Max Torque. Moc (szara pozioma linia „W”): ustawiona Moc maks. jako udział mocy baterii (skonfigurowany prąd × napięcie; przed odczytem 15 A × 48 V); wsparcie powyżej linii jest ucinane (jasne pole i blada część krzywej), kreska przy prawej krawędzi to domyślna moc trybu, „bez limitu” = linia na górze. Kop (żółta przerywana linia z polem): dodatkowy cel momentu przy ruszaniu z miejsca od nacisku (Max Torque × nacisk / F_full po korekcie Kopu); gaśnie z kadencją 25–50 obr/min, przy 12 km/h i po 4 s. Wykres pokazuje zależności z wartości na ekranie, nie pomiar: moc w W zależy też od prędkości i napięcia.' },
+    { name: 'Miniwykres', short: 'Wsparcie, Kop i pasek Mocy w jednym polu (ilustracja).', full: 'Jeden wykres w karcie, poglądowy (serie nie mają wspólnej osi). Wsparcie (kolor trybu): wyjście mapy wysiłku od nacisku przy 60 obr/min, po korekcie Wsparcia i Zakresu, obcięte przez Max Torque. Kop (żółta przerywana linia z polem): dodatkowy prąd przy przykładowym ruszaniu z miejsca w czasie 0–4 s — nacisk 12 kg, kadencja rośnie o 15 obr/min na sekundę; narasta w ok. 0,3 s, gaśnie z kadencją między 25 a 50 obr/min (w firmware także przy 12 km/h) i kończy się najpóźniej po 4 s; wysokość zależy od Max Torque i korekty Kopu. Moc (szary pasek „W” na dole): ustawiona Moc maks. na tle mocy baterii (skonfigurowany prąd × napięcie; przed odczytem 15 A × 48 V); pionowa kreska = domyślna moc trybu; „bez limitu” = pełny, jaśniejszy pasek. Liczone z wartości na ekranie, nie z pomiaru.' },
     { name: 'Wartości efektywne', adv: true, short: 'Wynik korekty w jednostkach (s, kg, %).', full: 'Pod suwakiem w widoku zaawansowanym: co dana korekta daje w liczbach, obok wartości domyślnej trybu. Mnożnik (×) obok wartości: 0 → ×0,5, 50 → ×1, 100 → ×2.' },
     { name: 'Pierwszeństwo', short: 'Hamulec, błędy, stop i jazda wstecz zawsze wygrywają.', full: 'Hamulec, błędy, stop i jazda wstecz mają zawsze pierwszeństwo przed każdym ustawieniem trybu. Korekty są osobne dla każdego poziomu, także gdy kilka poziomów ma ten sam tryb.' },
 ];
@@ -366,17 +366,23 @@ function limitsRow(index) {
     return wrap;
 }
 
-// ---- one mini chart per level card: Wsparcie + Moc maks. + Kop na starcie ----------------
-// Shared axes: x = pedal force (kg), y = share of the full output (0..100 %, same scale in every
-// card). Wsparcie = effort map output at 60 rpm. Moc maks. = horizontal cap at the set power as a
-// share of the battery power (current x voltage); support above it is clipped, the band above is
-// shaded; a tick on the right edge marks the mode default. Kop = the extra start target at
-// standstill vs force (P.startTarget), dashed and translucent so it never reads as support.
+// ---- one mini chart per level card: Wsparcie + Kop na starcie + Moc maks. -----------------
+// Illustrative, not one physical axis (owner 2026-11-16). In one box:
+//  - Wsparcie: effort map output vs pedal force at 60 rpm (mode colour);
+//  - Kop: extra start current over 0..4 s of an example start — rises, then fades with cadence
+//    (yellow, dashed, translucent fill), its own time axis across the same width;
+//  - Moc: thin horizontal bar along the bottom — set Max Power against the battery power
+//    (configured current x voltage), tick = mode default, labelled "W".
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const MINI_W = 200;
-const MINI_H = 56;
-const MINI_YMAX = 1.06;
+const MINI_H = 70;
+const PLOT_BOTTOM = 52; // curves live in 0..52, the power bar below
+const PLOT_YMAX = 1.08;
+const BAR_Y = 59;
+const BAR_H = 6;
+const BAR_X0 = 6;
+const BAR_X1 = 182; // room for the "W" label on the right
 const POWER_COLOR = '#475569';
 const KOP_COLOR = '#ca8a04';
 function svgEl(tag, attrs) {
@@ -384,7 +390,11 @@ function svgEl(tag, attrs) {
     Object.entries(attrs).forEach(([k, v]) => n.setAttribute(k, String(v)));
     return n;
 }
-const miniY = (y) => MINI_H - 2 - (clamp(y, 0, MINI_YMAX) / MINI_YMAX) * (MINI_H - 4);
+const plotY = (y) => PLOT_BOTTOM - (clamp(y, 0, PLOT_YMAX) / PLOT_YMAX) * (PLOT_BOTTOM - 3);
+function plotPath(pts, xMax) {
+    return pts.map(([x, y], i) => `${i ? 'L' : 'M'}${((x / xMax) * MINI_W).toFixed(1)},${plotY(y).toFixed(1)}`).join(' ');
+}
+const areaOf = (d) => `${d} L${MINI_W},${PLOT_BOTTOM} L0,${PLOT_BOTTOM} Z`;
 
 /** Battery power = the default of a mode with a 100 % share (configured current x voltage). */
 export function batteryPowerW() {
@@ -397,6 +407,15 @@ export function powerShare(level) {
     return clamp(level.maxPowerW / Math.max(1, batteryPowerW()), 0, 1);
 }
 
+// Kop: example start from standstill — pedal force 12 kg, cadence rising 15 rpm per second; the
+// extra start target rises in ~0.3 s, fades with cadence 25 -> 50 rpm and ends at 4 s.
+const START_DEMO = { forceKg: 12, rpmPerS: 15, riseS: 0.3, endS: 4 };
+export function startDemoShare(level, tS) {
+    if (tS >= START_DEMO.endS) return 0;
+    const rise = Math.min(1, tS / START_DEMO.riseS);
+    return P.startTarget(START_DEMO.forceKg, level) * rise * P.startFade(tS * START_DEMO.rpmPerS);
+}
+
 function miniChart(index) {
     const wrap = node('div', 'evd-v3-combo');
     const box = node('div', 'evd-v3-combo-plot');
@@ -406,59 +425,53 @@ function miniChart(index) {
     svg.setAttribute('preserveAspectRatio', 'none');
     svg.setAttribute('role', 'img');
     svg.id = `evdV3Mini-${index}`;
-    const capLabel = node('span', 'evd-v3-combo-w', 'W');
-    capLabel.id = `evdV3MiniW-${index}`;
-    capLabel.setAttribute('aria-hidden', 'true');
-    box.append(svg, capLabel);
+    const w = node('span', 'evd-v3-combo-w', 'W');
+    w.setAttribute('aria-hidden', 'true');
+    box.append(svg, w);
     const legend = node('div', 'evd-v3-combo-legend');
     legend.setAttribute('aria-hidden', 'true');
-    [['is-support', 'Wsparcie'], ['is-power', 'Moc'], ['is-kop', 'Kop']].forEach(([cls, text]) => {
+    [['is-support', 'Wsparcie'], ['is-kop', 'Kop'], ['is-power', 'Moc']].forEach(([cls, text]) => {
         const item = node('span', cls);
         item.append(node('i'), text);
         legend.appendChild(item);
     });
     wrap.append(box, legend);
-    capLabel.style.top = `${(drawMini(svg, index) / MINI_H) * 100}%`;
+    drawMini(svg, index);
     return wrap;
 }
 
 function drawMini(svg, index) {
     const level = model.levels[index];
-    const t0 = model.rider.riderStrengthX10kg / 10;
-    const cadence = 60;
-    const xMax = Math.max(30, P.tMaxKg(cadence, t0) * 1.2);
-    const X = (x) => (x / xMax) * MINI_W;
-    const path = (pts) => pts.map(([x, y], i) => `${i ? 'L' : 'M'}${X(x).toFixed(1)},${miniY(y).toFixed(1)}`).join(' ');
     const color = modeColor(level.mode);
-    const cap = powerShare(level);
-    const capY = Number(miniY(cap).toFixed(1));
-    const support = sample((f) => P.effortOutput(f, cadence, level, t0).output, xMax, 48);
-    const clipped = support.map(([x, y]) => [x, Math.min(y, cap)]);
-    const kop = sample((f) => P.startTarget(f, level), xMax, 48);
-    const defY = miniY(clamp(P.modeDefaultPowerW(level.mode) / Math.max(1, batteryPowerW()), 0, 1));
     const thin = { 'vector-effect': 'non-scaling-stroke' };
-    const over = support.some(([, y]) => y > cap + 1e-6);
+    // Wsparcie
+    const t0 = model.rider.riderStrengthX10kg / 10;
+    const xMaxF = Math.max(10, P.tMaxKg(60, t0) * 1.2);
+    const support = sample((f) => P.effortOutput(f, 60, level, t0).output, xMaxF, 48);
+    const supportD = plotPath(support, xMaxF);
+    // Kop (time axis 0..4.4 s)
+    const xMaxT = START_DEMO.endS + 0.4;
+    const kop = sample((t) => startDemoShare(level, t), xMaxT, 66);
+    const kopD = plotPath(kop, xMaxT);
+    // Moc bar
+    const battery = Math.max(1, batteryPowerW());
+    const noLimit = level.maxPowerW === P.HW_POWER_W;
+    const span = BAR_X1 - BAR_X0;
+    const fill = Math.max(BAR_H, powerShare(level) * span);
+    const defX = BAR_X0 + clamp(P.modeDefaultPowerW(level.mode) / battery, 0, 1) * span;
     svg.replaceChildren(
-        // band above the power cap: what Moc maks. cuts off
-        svgEl('rect', { 'data-series': 'cap-band', x: 0, y: 0, width: MINI_W, height: Math.max(0, capY), fill: POWER_COLOR, 'fill-opacity': 0.08 }),
-        // Kop: translucent area + dashed edge, its own colour
-        svgEl('path', { 'data-series': 'kop-area', d: `${path(kop)} L${MINI_W},${MINI_H} L0,${MINI_H} Z`, fill: KOP_COLOR, 'fill-opacity': 0.13, stroke: 'none' }),
-        svgEl('path', { 'data-series': 'kop', d: path(kop), fill: 'none', stroke: KOP_COLOR, 'stroke-width': 1.8, 'stroke-dasharray': '4 3', ...thin }),
-        // support above the cap (cut off) stays faint; the delivered part is the main line
-        ...(over ? [svgEl('path', { 'data-series': 'support-cut', d: path(support), fill: 'none', stroke: color, 'stroke-width': 1.2, 'stroke-opacity': 0.35, ...thin })] : []),
-        svgEl('path', { 'data-series': 'support-area', d: `${path(clipped)} L${MINI_W},${MINI_H} L0,${MINI_H} Z`, fill: color, 'fill-opacity': 0.14, stroke: 'none' }),
-        svgEl('path', { 'data-series': 'support', d: path(clipped), fill: 'none', stroke: color, 'stroke-width': 2.5, 'stroke-linejoin': 'round', ...thin }),
-        // Moc maks. cap line and the mode-default tick on the right edge
-        svgEl('line', { 'data-series': 'power', x1: 0, x2: MINI_W, y1: capY, y2: capY, stroke: POWER_COLOR, 'stroke-width': 1.5, ...thin }),
-        svgEl('line', { 'data-series': 'power-default', x1: MINI_W - 7, x2: MINI_W, y1: defY.toFixed(1), y2: defY.toFixed(1), stroke: POWER_COLOR, 'stroke-width': 3, ...thin }),
+        svgEl('path', { 'data-series': 'support-area', d: areaOf(supportD), fill: color, 'fill-opacity': 0.14, stroke: 'none' }),
+        svgEl('path', { 'data-series': 'kop-area', d: areaOf(kopD), fill: KOP_COLOR, 'fill-opacity': 0.14, stroke: 'none' }),
+        svgEl('path', { 'data-series': 'support', d: supportD, fill: 'none', stroke: color, 'stroke-width': 2.5, 'stroke-linejoin': 'round', ...thin }),
+        svgEl('path', { 'data-series': 'kop', d: kopD, fill: 'none', stroke: KOP_COLOR, 'stroke-width': 2, 'stroke-dasharray': '4 3', 'stroke-linejoin': 'round', ...thin }),
+        svgEl('rect', { 'data-series': 'power-track', x: BAR_X0, y: BAR_Y, width: span, height: BAR_H, rx: 3, fill: '#e2e8f0' }),
+        svgEl('rect', { 'data-series': 'power', x: BAR_X0, y: BAR_Y, width: fill.toFixed(1), height: BAR_H, rx: 3, fill: POWER_COLOR, 'fill-opacity': noLimit ? 0.45 : 0.85 }),
+        svgEl('line', { 'data-series': 'power-default', x1: defX.toFixed(1), x2: defX.toFixed(1), y1: BAR_Y - 3, y2: BAR_Y + BAR_H + 3, stroke: '#0f172a', 'stroke-width': 1.5, ...thin }),
     );
-    const w = el(`evdV3MiniW-${index}`);
-    if (w) w.style.top = `${(capY / MINI_H) * 100}%`;
-    const peak = Math.round(100 * Math.max(...clipped.map((p) => p[1])));
+    const supportPeak = Math.round(100 * Math.max(...support.map((p) => p[1])));
     const kopPeak = Math.round(100 * Math.max(...kop.map((p) => p[1])));
-    const watts = level.maxPowerW === P.HW_POWER_W ? 'bez limitu trybu' : `${level.maxPowerW} W`;
-    svg.setAttribute('aria-label', `Poziom ${index + 1}: wsparcie do ${peak} % skali, Moc maks. ${watts} (${Math.round(cap * 100)} % mocy baterii), Kop do ${kopPeak} %`);
-    return capY;
+    const watts = noLimit ? 'bez limitu trybu' : `${level.maxPowerW} W`;
+    svg.setAttribute('aria-label', `Poziom ${index + 1}: wsparcie do ${supportPeak} % skali, Kop do ${kopPeak} % i gaśnie, Moc maks. ${watts} z ${battery} W baterii`);
 }
 
 function refreshMini(index) {

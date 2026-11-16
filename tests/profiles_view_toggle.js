@@ -165,46 +165,44 @@ mod.registerHooks({
     const ps = byId('evdV3PressStart'); ps.value = '2.5'; ps.dispatch('input');
     check('shared start applied to all levels, riding clamped', S.lastBanks[0].levels.every((lv) => lv.minimum_pedal_load_kg === 2.5 && lv.riding_minimum_pedal_load_kg === 2.5));
 
-    // ---- one mini chart per card: Wsparcie + Moc cap + Kop overlay, redrawn live ----
+    // ---- one mini chart per card: Wsparcie + Kop (rise and fade) + Moc bar, redrawn live ----
     for (let i = 0; i < 5; i++) {
         const card = byId(`evdV3Card-${i}`);
         const charts = card.all((n) => n.tagName === 'SVG');
         check(`simple level ${i + 1}: exactly one chart`, charts.length === 1 && charts[0].id === `evdV3Mini-${i}`);
         const series = new Set(charts[0].children.map((n) => n.getAttribute('data-series')));
-        check(`level ${i + 1}: chart has support, power cap and Kop`, ['support', 'power', 'kop'].every((k) => series.has(k)));
-        check(`level ${i + 1}: inline legend Wsparcie / Moc / Kop`, /Wsparcie.*Moc.*Kop/.test(card.all((n) => n.classList.contains('evd-v3-combo-legend'))[0]?.textContent || ''));
+        check(`level ${i + 1}: chart has support, Kop and power bar`, ['support', 'kop', 'power', 'power-default'].every((k) => series.has(k)));
+        check(`level ${i + 1}: inline legend Wsparcie / Kop / Moc`, /Wsparcie.*Kop.*Moc/.test(card.all((n) => n.classList.contains('evd-v3-combo-legend'))[0]?.textContent || ''));
     }
     const part = (key) => byId('evdV3Mini-0').children.find((n) => n.getAttribute('data-series') === key);
-    const capY = () => Number(part('power').getAttribute('y1'));
+    const barWidth = () => Number(part('power').getAttribute('width'));
     const pw = byId('evdV3-0-power');
     pw.value = '200'; pw.dispatch('input');
-    const lowCap = capY();
+    const narrow = barWidth();
     pw.value = '1000'; pw.dispatch('input');
-    check('Moc: cap line follows the slider live (higher W = higher line)', capY() < lowCap, `(${lowCap} -> ${capY()})`);
-    check('Moc: "W" label follows the cap', byId('evdV3MiniW-0').style.top === `${(capY() / 56) * 100}%`);
+    check('Moc: bar follows the slider live', barWidth() > narrow, `(${narrow} -> ${barWidth()})`);
     check('Moc: battery power from the mode share', panel.batteryPowerW() === P.modeDefaultPowerW(P.MODES.find((m) => m.powerPct === 100).id));
     const lvl0 = panel._modelForTests.levels[0];
-    check('Moc: share of the battery power', Math.abs(panel.powerShare(lvl0) - Math.min(1, 1000 / panel.batteryPowerW())) < 1e-9
+    check('Moc: share of the battery power, no limit = full', Math.abs(panel.powerShare(lvl0) - Math.min(1, 1000 / panel.batteryPowerW())) < 1e-9
         && panel.powerShare({ ...lvl0, maxPowerW: P.HW_POWER_W }) === 1);
-    // BOOST level (5): a low cap cuts the support off
-    const part4 = (key) => byId('evdV3Mini-4').children.find((n) => n.getAttribute('data-series') === key);
-    const pw4 = byId('evdV3-4-power');
-    pw4.value = '100'; pw4.dispatch('input');
-    check('Moc: support above a low cap is shown as cut off', !!part4('support-cut'));
-    const cap4 = Number(part4('power').getAttribute('y1'));
-    const supportYs = part4('support').getAttribute('d').split(/[ML]/).filter((pt) => pt.trim()).map((pt) => Number(pt.split(',')[1]));
-    check('Moc: delivered support never above the cap', supportYs.every((y) => y >= cap4 - 0.05));
-    pw4.value = String(Math.round(P.modeDefaultPowerW(panel._modelForTests.levels[4].mode) / 50) * 50); pw4.dispatch('input');
-    const kopD = () => part('kop').getAttribute('d');
-    const st = byId('evdV3-0-start');
-    st.value = '0'; st.dispatch('input');
-    check('Kop: Kop = 0 draws a flat line', kopD().split(/[ML]/).filter((pt) => pt.trim()).every((pt) => pt.trim().endsWith(',54.0')), kopD().slice(0, 80));
-    st.value = '50'; st.dispatch('input');
-    const kop50 = kopD();
-    st.value = '100'; st.dispatch('input');
-    check('Kop: overlay changes with the slider', kopD() !== kop50 && kopD() !== '');
-    st.value = '50'; st.dispatch('input');
     pw.value = String(Math.round(P.modeDefaultPowerW(lvl0.mode) / 50) * 50); pw.dispatch('input');
+    // Kop: rises, then falls (time chart), scales with the slider
+    const share = (start, t) => panel.startDemoShare({ ...lvl0, start }, t);
+    check('Kop: starts at 0, rises, then falls back to 0', share(50, 0) === 0 && share(50, 1) > share(50, 0.1) && share(50, 3.4) === 0 && share(50, 4) === 0
+        && share(50, 1) > share(50, 2.5));
+    check('Kop: more Kop = higher curve', share(100, 1) > share(50, 1) && share(0, 1) === 0);
+    const kopYs = () => part('kop').getAttribute('d').split(/[ML]/).filter((pt) => pt.trim()).map((pt) => Number(pt.split(',')[1]));
+    const st = byId('evdV3-0-start');
+    st.value = '50'; st.dispatch('input');
+    const ys = kopYs();
+    const top = Math.min(...ys);
+    const topAt = ys.indexOf(top);
+    check('Kop curve in the chart goes up and then down', top < ys[0] && top < ys[ys.length - 1] && topAt > 0 && topAt < ys.length - 1);
+    st.value = '100'; st.dispatch('input');
+    check('Kop curve higher with the slider', Math.min(...kopYs()) < top);
+    st.value = '0'; st.dispatch('input');
+    check('Kop = 0: flat curve', new Set(kopYs()).size === 1);
+    st.value = '50'; st.dispatch('input');
 
     // order: cards first, then pressure
     const order = root.children.map((n) => n.id || n.className);
