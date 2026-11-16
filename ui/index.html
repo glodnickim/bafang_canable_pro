@@ -1200,14 +1200,14 @@
                     </div>
                     <div class="ebics-status-list mt-2">
                         <div><span>PAS idle (live)</span><b><span id="diagPasIdle">—</span> ms</b></div>
-                        <div><span>Pedaling active (live)</span><b id="diagPedaling">—</b></div>
-                        <div><span>Fast pressure (live)</span><b><span id="diagFastPressure">—</span></b></div>
-                        <div><span>RUN pressure (live)</span><b><span id="diagRunPressure">—</span></b></div>
-                        <div><span>iq request (live)</span><b id="diagIqReqNow">—</b></div>
+                        <div><span>Forward validity (live)</span><b id="diagPedaling">—</b></div>
+                        <div><span>D7EC rider (live, native)</span><b><span id="diagFastPressure">—</span></b></div>
+                        <div><span>D7EC envelope (live, native)</span><b><span id="diagRunPressure">—</span></b></div>
+                        <div><span>Final allowed Iq (live)</span><b id="diagIqReqNow">—</b></div>
                         <div><span>iq setpoint (live)</span><b id="diagIqSetNow">—</b></div>
                         <div><span>iq measured (live)</span><b><span id="diagIqMeasured">—</span></b></div>
                         <div><span>Battery limiting (live)</span><b><span id="diagBattLimit">—</span></b></div>
-                        <div><span>Brake / torque fault (live)</span><b><span id="diagRelease">—</span> / <span id="diagLatched">—</span></b></div>
+                        <div><span>Safety cut / torque fault (live)</span><b><span id="diagRelease">—</span> / <span id="diagLatched">—</span></b></div>
                         <!-- FW-129: the assist chain in the order the firmware computes it —
                              pedal load, the normalized torque axis (eMTB/Torque only), the
                              requested power, the two current anchors and the crossfade
@@ -1218,22 +1218,19 @@
                              100% means the measured duty is. -->
                         <div style="opacity:.6;margin-top:6px"><span>— assist chain (live) —</span><b></b></div>
                         <div><span>Pedal load used for assist</span><b><span id="diagAssistLoadKg">—</span> kg</b></div>
-                        <div><span>Assist torque (eMTB/Torque axis)</span><b><span id="diagAssistTorqueX160">—</span> / 160</b></div>
                         <div><span>Requested motor power</span><b><span id="diagReqMotorPower">—</span> W</b></div>
-                        <div><span>Iq — launch anchor / measured duty</span><b><span id="diagIqLaunch">—</span> / <span id="diagIqNormal">—</span></b></div>
-                        <div><span>Blend (measured-duty weight)</span><b id="diagLaunchBlend">—</b></div>
-                        <div><span>Iq before the level's ceiling</span><b id="diagIqPreLimit">—</b></div>
+                        <div><span>Iq before limits</span><b id="diagIqPreLimit">—</b></div>
                         <div><span>u_abs (live, pairs with cadence)</span><b id="diagUabsLive">—</b></div>
                         <div style="opacity:.6;margin-top:6px"><span>— peak since last read —</span><b></b></div>
                         <div><span>Cadence (peak)</span><b><span id="diagCadence">N/A</span> rpm</b></div>
-                        <div><span>Torque to assist (peak)</span><b><span id="diagTorque">N/A</span> mV</b></div>
+                        <div><span>D7EC rider (peak, native)</span><b><span id="diagTorque">N/A</span></b></div>
                         <div><span>Human power (peak)</span><b><span id="diagHumanPower">N/A</span> W</b></div>
                         <div><span>Support ratio (peak)</span><b><span id="diagSupport">N/A</span> %</b></div>
                         <div><span>Motor power (peak)</span><b><span id="diagMotorPower">N/A</span> W</b></div>
-                        <div><span>Battery current (peak)</span><b><span id="diagBatCurrent">N/A</span> mA</b></div>
+                        <div><span>Battery current estimate from peak power (peak)</span><b><span id="diagBatCurrent">N/A</span> mA</b></div>
                         <div><span>iq requested (peak)</span><b id="diagIqRequest">N/A</b></div>
                         <div><span>iq setpoint (peak)</span><b id="diagIqSetpoint">N/A</b></div>
-                        <div><span>Speed</span><b><span id="diagSpeed">N/A</span> km/h</b></div>
+                        <div><span>Speed (live)</span><b><span id="diagSpeed">N/A</span> km/h</b></div>
                     </div>
                 </details>
                 <div class="ebics-two-column mt-5">

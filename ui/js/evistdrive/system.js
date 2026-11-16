@@ -11,6 +11,29 @@ const DIAG_POLL_INTERVAL_MS = 100; // 10 Hz
 // FW-015/017: ride-core diagnostics card (peak + live)
 export function updateDiagUI(d) {
     if (!d) return;
+    if (d.version >= 8) {
+        const value = (v) => v == null ? 'brak w tym firmware' : v;
+        const flag = (v) => v == null ? 'brak w tym firmware' : (v ? 'yes' : 'no');
+        const fields = {
+            diagCadence: d.peak_cadence_rpm, diagTorque: d.peak_d7ec_rider,
+            diagHumanPower: d.peak_rider_power_w, diagSupport: d.peak_support_ratio_pct,
+            diagMotorPower: d.peak_motor_power_w, diagBatCurrent: d.peak_requested_battery_current_ma,
+            diagIqRequest: d.peak_iq_request, diagIqSetpoint: d.peak_iq_setpoint,
+            diagSpeed: d.speed_x100 == null ? null : (d.speed_x100 / 100).toFixed(1),
+            diagPasIdle: d.pas_idle_ms, diagFastPressure: d.d7ec_rider,
+            diagRunPressure: d.d7ec_envelope, diagIqReqNow: d.final_iq_allowed,
+            diagIqSetNow: d.iq_setpoint_now, diagIqMeasured: d.measured_iq,
+            diagAssistLoadKg: d.pedal_load_kg == null ? null : d.pedal_load_kg.toFixed(2),
+            diagReqMotorPower: d.requested_motor_power_w,
+            diagIqPreLimit: d.iq_request_before_limits, diagUabsLive: d.u_abs_live,
+        };
+        Object.entries(fields).forEach(([id, v]) => setText(id, value(v)));
+        setText('diagPedaling', flag(d.forward_valid));
+        setText('diagBattLimit', flag(d.battery_limiting));
+        setText('diagRelease', flag(d.safety_cut));
+        setText('diagLatched', flag(d.torque_fault));
+        return;
+    }
     // peak
     setText('diagCadence', d.cadence_for_assist);
     setText('diagTorque', d.torque_for_assist_mv);
