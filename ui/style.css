@@ -1608,3 +1608,7 @@ input.evd-sl-number:focus { outline: 2px solid var(--evd-accent, #2563eb); outli
     #canDeviceName { margin-left: 0; text-align: left; }
     #controllerFlavorBadge { max-width: 100%; white-space: normal; }
 }
+
+/* Pressure thresholds shown before a read / on old firmware: visible, greyed, not editable. */
+.evd-v3-pressure.is-preview .evd-v3-pressure-simple,
+.evd-v3-pressure.is-preview .evd-v3-pressure-grid { filter: grayscale(.9); opacity: .62; }

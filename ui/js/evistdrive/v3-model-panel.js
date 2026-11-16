@@ -818,31 +818,45 @@ function pressureAdvanced(bank, index) {
     return wrap;
 }
 
+// Firmware factory thresholds in kg (bank v11): start 70 CLU ~ 2.5 kg; riding is floored at the 10 mV
+// sensor noise (41 CLU ~ 1.5 kg) by the firmware, so that is the effective default.
+const PRESSURE_DEFAULT_KG = Object.freeze({ start: 2.5, ride: 1.5 });
+
+function pressurePreviewBank() {
+    return { levels: Array.from({ length: P.LEVEL_COUNT }, () => ({
+        minimum_pedal_load_kg: PRESSURE_DEFAULT_KG.start, riding_minimum_pedal_load_kg: PRESSURE_DEFAULT_KG.ride,
+    })) };
+}
+
+/** Owner rule: a parameter CANable can set is always visible - before a read, or on firmware that cannot
+ *  take it, the fields stay on screen greyed (factory values), only editing and writing are blocked. */
+function lockPreview(box, note) {
+    box.classList.add('is-preview');
+    const walk = (e) => {
+        const tag = (e.tagName || '').toUpperCase();
+        if ((tag === 'INPUT' || tag === 'BUTTON') && e.id !== 'evdV3PressureToAdvanced') e.disabled = true;
+        Array.from(e.children || e.childNodes || []).forEach(walk);
+    };
+    walk(box);
+    box.appendChild(node('div', 'evd-v3-oneline evd-v3-muted', note));
+}
+
 function pressureSection() {
     const index = activeBankIndex();
     const read = !!(state.lastBanks && state.ebicsReceivedBanks?.[index]);
-    if (!read) {
-        // Nothing to show before the bank is read: one line, no empty card.
-        const line = node('div', 'evd-v3-oneline evd-v3-pressure is-collapsed');
-        line.id = 'evdV3Pressure';
-        line.append(node('b', '', 'Progi nacisku'), node('span', 'evd-v3-muted', '— pojawią się po odczycie z roweru („Read from bike”).'));
-        return line;
-    }
-    const bank = state.lastBanks[index];
-    const legacy = bank.bank_schema_version === 9 || bank.bank_schema_version === 10;
-    const box = section('pressure', legacy ? 'Progi nacisku (jednostka wewnętrzna)' : 'Progi nacisku', {
-        id: 'evdV3Pressure', className: 'evd-v3-pressure', help: legacy ? undefined : PRESSURE_HELP,
+    const bank = read ? state.lastBanks[index] : null;
+    const legacy = !!bank && (bank.bank_schema_version === 9 || bank.bank_schema_version === 10);
+    const box = section('pressure', 'Progi nacisku', {
+        id: 'evdV3Pressure', className: 'evd-v3-pressure', help: PRESSURE_HELP,
     });
-    if (legacy) {
-        box.appendChild(node('div', 'form-hint ebics-stale-warning', 'Stary firmware: wartości są w jednostkach wewnętrznych, nie w kg.'));
-        const table = node('div', 'evd-v3-pressure-legacy');
-        (bank.levels || []).forEach((lv, i) => {
-            table.appendChild(node('div', '', `Poziom ${i + 1}: start z miejsca ${lv.minimum_pedal_load_clu}, start w czasie jazdy ${lv.riding_minimum_pedal_load_clu}`));
-        });
-        box.appendChild(table);
-        return box;
+    const shown = read && !legacy ? bank : pressurePreviewBank();
+    box.appendChild(isAdvanced() ? pressureAdvanced(shown, index) : pressureSimple(shown, index));
+    if (!read) {
+        lockPreview(box, `podgląd fabryczny (${fmtNum(PRESSURE_DEFAULT_KG.start, 1)} / ${fmtNum(PRESSURE_DEFAULT_KG.ride, 1)} kg) — odczytaj z roweru („Read from bike”), żeby zmienić.`);
+    } else if (legacy) {
+        const raw = (bank.levels || []).map((lv, i) => `P${i + 1}: ${lv.minimum_pedal_load_clu}/${lv.riding_minimum_pedal_load_clu}`).join(', ');
+        lockPreview(box, `Ten firmware nie obsługuje progów w kg (wymaga 0.707 lub nowszego). Odczytane jednostki wewnętrzne: ${raw}.`);
     }
-    box.appendChild(isAdvanced() ? pressureAdvanced(bank, index) : pressureSimple(bank, index));
     return box;
 }
 

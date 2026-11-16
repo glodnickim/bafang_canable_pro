@@ -8,7 +8,8 @@
 //  - switching back and forth keeps the same set;
 //  - order: level cards first (after the banner), then pressure thresholds;
 //  - level cards carry no explanatory text: settings are explained once (no help text twice);
-//  - before a read: compact banner, "podgląd fabryczny" tag, pressure collapsed to one line.
+//  - before a read: compact banner, "podgląd fabryczny" tag; pressure fields stay VISIBLE (owner rule:
+//    every settable parameter has a field) with factory values, disabled.
 const path = require('path');
 const { pathToFileURL } = require('url');
 const mod = require('module');
@@ -132,9 +133,12 @@ mod.registerHooks({
     const banner = byId('evdV3Banner');
     check('not connected: compact banner', !!banner && /Read from bike/.test(banner.textContent));
     check('cards show "podgląd fabryczny"', root.all((n) => n.classList.contains('evd-v3-tag')).filter((n) => n.textContent === 'podgląd fabryczny').length === 5);
-    check('cards marked as preview', root.all((n) => n.classList.contains('is-preview')).length === 5);
+    check('cards marked as preview', root.all((n) => n.classList.contains('is-preview') && n.classList.contains('evd-v3-card')).length === 5);
     const pressureEmpty = byId('evdV3Pressure');
-    check('pressure collapsed to one line, no fields', pressureEmpty.classList.contains('is-collapsed') && pressureEmpty.all((n) => n.tagName === 'INPUT').length === 0);
+    const pInputs = pressureEmpty.all((n) => n.tagName === 'INPUT');
+    check('pressure fields visible before read (factory preview), all disabled',
+        pressureEmpty.classList.contains('is-preview') && pInputs.length >= 2 && pInputs.every((n) => n.disabled)
+        && /podgląd fabryczny/.test(pressureEmpty.textContent));
 
     // ---- Moc maks. follows the battery power (P1 current x system voltage) ----
     const powerInput = () => byId('evdV3-0-power');
