@@ -49,7 +49,9 @@ const LEGEND = [
     { name: 'Zakres (Range)', adv: true, short: 'Przy jakim nacisku wsparcie dochodzi do 100 %.', full: 'Jaki wysiłek daje pełne wyjście mapy wysiłku. 50 = fabrycznie (e_full trybu). W prawo krótszy zakres: 100 % przy lżejszym nacisku. W lewo dłuższy: trzeba mocniej nacisnąć. Działa tylko z włączoną mapą wysiłku.' },
     { name: 'Max Torque', adv: true, short: 'Sufit momentu silnika (% dozwolonego Iq, nie Nm).', full: 'Sufit momentu silnika: ułamek dozwolonego prądu Iq. Obcina mapę i kop Start; najbardziej czuć go pod górę i przy ruszaniu. Zmiana trybu ustawia jego domyślny Max Torque.' },
     { name: '50 i ↺', short: '50 = ustawienie fabryczne trybu; ↺ wraca do niego.', full: 'Każda korekta 0..100 działa wokół wartości fabrycznej trybu: 50 = fabrycznie, mnożnik ×0,5 przy 0 … ×2 przy 100. Ikona ↺ przy suwaku przywraca wartość fabryczną (dla mocy: domyślną moc trybu).' },
-    { name: 'Miniwykres', short: 'Wsparcie od nacisku; przerywana linia = fabrycznie.', full: 'Miniwykres w karcie: wyjście mapy wysiłku (po korekcie Wsparcia i Zakresu, obcięte przez Max Torque) od nacisku przy 60 obr/min. Linia przerywana: ten sam tryb z korektami 50. Liczony z wartości na ekranie, nie z pomiaru.' },
+    { name: 'Miniwykres Wsparcie', short: 'Wsparcie od nacisku; przerywana linia = fabrycznie.', full: 'Miniwykres w karcie: wyjście mapy wysiłku (po korekcie Wsparcia i Zakresu, obcięte przez Max Torque) od nacisku przy 60 obr/min. Linia przerywana: ten sam tryb z korektami 50. Liczony z wartości na ekranie, nie z pomiaru.' },
+    { name: 'Miniwykres Moc', short: 'Moc maks. na tle mocy baterii; kreska = domyślna moc trybu.', full: 'Pasek w karcie: ustawiona Moc maks. na tle mocy baterii (skonfigurowany prąd baterii × napięcie; przed odczytem 15 A × 48 V). Przerywana kreska: domyślna moc trybu (udział trybu w mocy baterii). „Bez limitu” = pełny, jaśniejszy pasek: wtedy ogranicza tylko bateria i prąd fazy. Działki co 25 %.' },
+    { name: 'Miniwykres Kop', short: 'Dodatkowy prąd przy ruszaniu w ciągu 0–4 s; przerywana = fabrycznie.', full: 'Wykres w karcie: przykładowe ruszanie z miejsca — nacisk 12 kg, kadencja rośnie o 15 obr/min na sekundę. Kop narasta w ok. 0,3 s, gaśnie z kadencją między 25 a 50 obr/min (w firmware także przy 12 km/h) i kończy się najpóźniej po 4 s. Wysokość: udział dozwolonego prądu Iq (Max Torque × nacisk / F_full po korekcie Kopu). Linia przerywana: Kop = 50. Ilustracja ze wzorów, nie pomiar.' },
     { name: 'Wartości efektywne', adv: true, short: 'Wynik korekty w jednostkach (s, kg, %).', full: 'Pod suwakiem w widoku zaawansowanym: co dana korekta daje w liczbach, obok wartości domyślnej trybu. Mnożnik (×) obok wartości: 0 → ×0,5, 50 → ×1, 100 → ×2.' },
     { name: 'Pierwszeństwo', short: 'Hamulec, błędy, stop i jazda wstecz zawsze wygrywają.', full: 'Hamulec, błędy, stop i jazda wstecz mają zawsze pierwszeństwo przed każdym ustawieniem trybu. Korekty są osobne dla każdego poziomu, także gdy kilka poziomów ma ten sam tryb.' },
 ];
@@ -366,18 +368,59 @@ function limitsRow(index) {
     return wrap;
 }
 
-/** Tiny SVG of the effort map for one level: solid = now, dashed = same mode at 50. */
-function miniChart(index) {
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svg.setAttribute('class', 'evd-v3-mini');
-    svg.setAttribute('viewBox', '0 0 200 56');
-    svg.setAttribute('preserveAspectRatio', 'none');
-    svg.setAttribute('role', 'img');
-    svg.id = `evdV3Mini-${index}`;
-    drawMini(svg, index);
-    return svg;
+// ---- mini charts in the level card: Wsparcie, Moc, Kop (light SVG, redrawn on every edit) ----
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const MINI_W = 200;
+const MINI_H = 56;
+function svgEl(tag, attrs) {
+    const n = document.createElementNS(SVG_NS, tag);
+    Object.entries(attrs).forEach(([k, v]) => n.setAttribute(k, String(v)));
+    return n;
+}
+const MINIS = [
+    { key: 'support', id: 'evdV3Mini', label: 'Wsparcie', draw: (svg, i) => drawMini(svg, i) },
+    { key: 'power', id: 'evdV3MiniPower', label: 'Moc', draw: (svg, i) => drawMiniPower(svg, i) },
+    { key: 'start', id: 'evdV3MiniStart', label: 'Kop', draw: (svg, i) => drawMiniStart(svg, i) },
+];
+
+/** Three small charts side by side; same height as the former single support chart. */
+function miniStrip(index) {
+    const strip = node('div', 'evd-v3-minis');
+    MINIS.forEach((m) => {
+        const tile = node('div', `evd-v3-mini-tile is-${m.key}`);
+        const svg = document.createElementNS(SVG_NS, 'svg');
+        svg.setAttribute('class', 'evd-v3-mini');
+        svg.setAttribute('viewBox', `0 0 ${MINI_W} ${MINI_H}`);
+        svg.setAttribute('preserveAspectRatio', 'none');
+        svg.setAttribute('role', 'img');
+        svg.id = `${m.id}-${index}`;
+        const label = node('span', 'evd-v3-mini-label', m.label);
+        label.setAttribute('aria-hidden', 'true');
+        tile.append(svg, label);
+        m.draw(svg, index);
+        strip.appendChild(tile);
+    });
+    return strip;
 }
 
+/** Polyline path in the mini chart frame (x 0..xMax, y 0..yMax, small headroom at the top). */
+function miniPath(pts, xMax, yMax) {
+    const X = (x) => (x / xMax) * MINI_W;
+    const Y = (y) => MINI_H - 2 - (Math.min(y, yMax) / yMax) * (MINI_H - 6);
+    return pts.map(([x, y], i) => `${i ? 'L' : 'M'}${X(x).toFixed(1)},${Y(y).toFixed(1)}`).join(' ');
+}
+
+/** Solid = now (with a light fill), dashed = factory. Same look for every curve chart. */
+function curveLayers(now, base, xMax, yMax, color) {
+    return [
+        svgEl('path', { d: `${miniPath(now, xMax, yMax)} L${MINI_W},${MINI_H} L0,${MINI_H} Z`, fill: color, 'fill-opacity': 0.14, stroke: 'none' }),
+        svgEl('path', { d: miniPath(base, xMax, yMax), fill: 'none', stroke: '#94a3b8', 'stroke-width': 1.5, 'stroke-dasharray': '4 3', 'vector-effect': 'non-scaling-stroke' }),
+        svgEl('path', { d: miniPath(now, xMax, yMax), fill: 'none', stroke: color, 'stroke-width': 2.5, 'vector-effect': 'non-scaling-stroke', 'stroke-linejoin': 'round' }),
+    ];
+}
+
+/** Wsparcie: effort map output vs pedal force at 60 rpm; dashed = same mode at 50. */
 function drawMini(svg, index) {
     const level = model.levels[index];
     const t0 = model.rider.riderStrengthX10kg / 10;
@@ -389,27 +432,72 @@ function drawMini(svg, index) {
     const base = sample((f) => P.effortOutput(f, cadence, factory, t0).output, xMax, 40);
     // Common scale (100 % of the full output) so the cards compare at a glance.
     const yMax = Math.max(1, ...now.map((p) => p[1]), ...base.map((p) => p[1])) * 1.04;
-    const X = (x) => (x / xMax) * 200;
-    const Y = (y) => 54 - (y / yMax) * 50;
-    const path = (pts) => pts.map(([x, y], i) => `${i ? 'L' : 'M'}${X(x).toFixed(1)},${Y(y).toFixed(1)}`).join(' ');
-    const color = modeColor(level.mode);
-    const mk = (tag, attrs) => {
-        const n = document.createElementNS('http://www.w3.org/2000/svg', tag);
-        Object.entries(attrs).forEach(([k, v]) => n.setAttribute(k, String(v)));
-        return n;
-    };
     const peak = Math.round(100 * Math.max(...now.map((p) => p[1])));
     svg.setAttribute('aria-label', `Miniwykres wsparcia poziomu ${index + 1}: szczyt ${peak} % skali`);
+    svg.replaceChildren(...curveLayers(now, base, xMax, yMax, modeColor(level.mode)));
+}
+
+/** Battery power = the default of a mode with a 100 % share (configured current x voltage). */
+export function batteryPowerW() {
+    const full = P.MODES.find((m) => m.powerPct === 100) ?? P.MODES[0];
+    return Math.round((P.modeDefaultPowerW(full.id) * 100) / full.powerPct);
+}
+
+/** Moc: gauge of the set limit against the battery power; dashed marker = mode default. */
+function drawMiniPower(svg, index) {
+    const level = model.levels[index];
+    const color = modeColor(level.mode);
+    const battery = Math.max(1, batteryPowerW());
+    const noLimit = level.maxPowerW === P.HW_POWER_W;
+    const set = noLimit ? battery : Math.min(level.maxPowerW, battery);
+    const def = Math.min(P.modeDefaultPowerW(level.mode), battery);
+    const x0 = 8;
+    const span = MINI_W - 16;
+    const X = (w) => x0 + (clamp(w, 0, battery) / battery) * span;
+    const barY = 24;
+    const barH = 14;
+    const ticks = [0.25, 0.5, 0.75].map((f) => svgEl('line', {
+        x1: X(f * battery), x2: X(f * battery), y1: barY + barH + 3, y2: barY + barH + 7,
+        stroke: '#cbd5e1', 'stroke-width': 1, 'vector-effect': 'non-scaling-stroke',
+    }));
+    svg.setAttribute('aria-label', `Miniwykres mocy poziomu ${index + 1}: ${noLimit ? 'bez limitu trybu' : `${level.maxPowerW} W`} z ${battery} W baterii, domyślnie ${P.modeDefaultPowerW(level.mode)} W`);
     svg.replaceChildren(
-        mk('path', { d: `${path(now)} L200,54 L0,54 Z`, fill: color, 'fill-opacity': 0.14, stroke: 'none' }),
-        mk('path', { d: path(base), fill: 'none', stroke: '#94a3b8', 'stroke-width': 1.5, 'stroke-dasharray': '4 3', 'vector-effect': 'non-scaling-stroke' }),
-        mk('path', { d: path(now), fill: 'none', stroke: color, 'stroke-width': 2.5, 'vector-effect': 'non-scaling-stroke', 'stroke-linejoin': 'round' }),
+        svgEl('rect', { x: x0, y: barY, width: span, height: barH, rx: 7, fill: '#e2e8f0' }),
+        svgEl('rect', { x: x0, y: barY, width: Math.max(barH, X(set) - x0), height: barH, rx: 7, fill: color, 'fill-opacity': noLimit ? 0.5 : 0.9 }),
+        ...ticks,
+        svgEl('line', {
+            x1: X(def), x2: X(def), y1: barY - 9, y2: barY + barH + 9,
+            stroke: '#64748b', 'stroke-width': 1.5, 'stroke-dasharray': '3 2', 'vector-effect': 'non-scaling-stroke',
+        }),
     );
 }
 
+// Kop: illustrative start from standstill — pedal force 12 kg, cadence rising 15 rpm per second;
+// the extra start target rises in ~0.3 s, fades with cadence 25 -> 50 rpm and ends at 4 s.
+const START_DEMO = { forceKg: 12, rpmPerS: 15, riseS: 0.3, endS: 4 };
+export function startDemoShare(level, tS) {
+    if (tS >= START_DEMO.endS) return 0;
+    const rise = Math.min(1, tS / START_DEMO.riseS);
+    return P.startTarget(START_DEMO.forceKg, level) * rise * P.startFade(tS * START_DEMO.rpmPerS);
+}
+
+/** Kop: extra start current over 0..4 s (share of the allowed Iq); dashed = same mode at 50. */
+function drawMiniStart(svg, index) {
+    const level = model.levels[index];
+    const factory = { ...level, start: 50, maxTorquePct: P.MODES[level.mode].torquePct };
+    const xMax = START_DEMO.endS + 0.4;
+    const now = sample((t) => startDemoShare(level, t), xMax, 60);
+    const base = sample((t) => startDemoShare(factory, t), xMax, 60);
+    const peak = Math.round(100 * Math.max(...now.map((p) => p[1])));
+    svg.setAttribute('aria-label', `Miniwykres kopu na starcie poziomu ${index + 1}: szczyt ${peak} % dozwolonego prądu`);
+    svg.replaceChildren(...curveLayers(now, base, xMax, 1.25, modeColor(level.mode))); // headroom for the label
+}
+
 function refreshMini(index) {
-    const svg = el(`evdV3Mini-${index}`);
-    if (svg) drawMini(svg, index);
+    MINIS.forEach((m) => {
+        const svg = el(`${m.id}-${index}`);
+        if (svg) m.draw(svg, index);
+    });
 }
 
 function modePicker(index) {
@@ -455,7 +543,7 @@ function levelCard(index) {
     head.append(title, tags);
 
     const body = node('div', 'evd-v3-body');
-    body.append(modePicker(index), miniChart(index));
+    body.append(modePicker(index), miniStrip(index));
     SLIDERS.filter((spec) => advanced || spec.simple).forEach((spec) => {
         body.appendChild(correctionSlider(index, spec));
         if (!advanced && spec.key === 'assist') body.appendChild(powerSlider(index));

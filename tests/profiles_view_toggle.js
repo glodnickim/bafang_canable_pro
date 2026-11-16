@@ -165,6 +165,27 @@ mod.registerHooks({
     const ps = byId('evdV3PressStart'); ps.value = '2.5'; ps.dispatch('input');
     check('shared start applied to all levels, riding clamped', S.lastBanks[0].levels.every((lv) => lv.minimum_pedal_load_kg === 2.5 && lv.riding_minimum_pedal_load_kg === 2.5));
 
+    // ---- mini charts: Wsparcie, Moc, Kop in every card, redrawn live ----
+    for (let i = 0; i < 5; i++) {
+        check(`simple level ${i + 1}: three mini charts`, ['evdV3Mini', 'evdV3MiniPower', 'evdV3MiniStart'].every((id) => byId(`${id}-${i}`)?.closestClass('evd-v3-card')?.id === `evdV3Card-${i}`));
+    }
+    const powerBarWidth = () => Number(byId('evdV3MiniPower-0').children[1].getAttribute('width'));
+    const pw = byId('evdV3-0-power');
+    pw.value = '200'; pw.dispatch('input');
+    const narrow = powerBarWidth();
+    pw.value = '1000'; pw.dispatch('input');
+    check('Moc mini: bar follows the slider live', powerBarWidth() > narrow, `(${narrow} -> ${powerBarWidth()})`);
+    check('Moc mini: battery power from the mode share', panel.batteryPowerW() === P.modeDefaultPowerW(P.MODES.find((m) => m.powerPct === 100).id));
+    const startPath = () => byId('evdV3MiniStart-0').children[2].getAttribute('d');
+    const st = byId('evdV3-0-start');
+    st.value = '0'; st.dispatch('input');
+    check('Kop mini: Kop = 0 draws a flat line', startPath().split(/[ML]/).filter((pt) => pt.trim()).every((pt) => pt.trim().endsWith(',54.0')), startPath().slice(0, 80));
+    const lvl = panel._modelForTests.levels[0];
+    const share = (start, t) => panel.startDemoShare({ ...lvl, start }, t);
+    check('Kop mini: more Kop = higher peak', share(100, 1) > share(50, 1) && share(50, 1) > 0);
+    check('Kop mini: rises from 0, gone by 4 s and after the cadence fade', share(50, 0) === 0 && share(50, 3.4) === 0 && share(50, 4) === 0);
+    st.value = '50'; st.dispatch('input');
+
     // order: cards first, then pressure
     const order = root.children.map((n) => n.id || n.className);
     check('order: level cards first, then pressure', order[0] === 'evd-v3-grid' && order[1] === 'evdV3Pressure', JSON.stringify(order));
