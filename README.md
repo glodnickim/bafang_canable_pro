@@ -145,3 +145,6 @@ Wsparcie, Moc maks. (pozioma linia limitu „W”, ucięta część krzywej blad
 
 ### 1.0.15 — prawdziwy zakres mocy
 Suwak Moc maks. sięga mocy baterii = limit prądu × napięcie systemu z P1 (jak w firmware; zmiany w zakładce Limits też się liczą), plus pozycja „bez limitu”. Domyślne moce trybów to procent tej mocy. Przed odczytem z roweru: wyraźnie oznaczone „przyjęto 15 A × 48 V”. Wykres: kop w czasie (narasta i gaśnie), moc jako poziomy pasek — w jednym polu.
+
+### 1.0.16 — progi nacisku zawsze widoczne
+Pola „Start z miejsca” i „Start w jeździe” są widoczne zawsze: przed odczytem jako podgląd fabryczny (2,5 / 1,5 kg, wyszarzone), przy firmware bez banku v11 zablokowane z informacją „wymaga 0.707 lub nowszego”.
