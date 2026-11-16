@@ -635,84 +635,97 @@ function checkRow(id, label, checked, help, onChange) {
     return row;
 }
 
-function numberRow({ label, unit, min, max, step, value, onChange, help, aria }) {
-    const row = node('div', 'evd-v3-row');
-    const line = node('label', 'evd-v3-limit');
-    const input = document.createElement('input');
-    input.type = 'number'; input.className = 'form-input';
-    input.min = String(min); input.max = String(max); input.step = String(step); input.value = String(value);
-    if (aria) input.setAttribute('aria-label', aria);
-    input.addEventListener('change', () => { const v = Number(input.value); if (Number.isFinite(v)) onChange(v); });
-    line.append(node('span', 'evd-v3-label', label), input, node('span', 'evd-v3-unit', unit));
-    row.appendChild(line);
-    if (help) row.appendChild(helpBadge(help));
-    return row;
+function riderChart(kind, r) {
+    const svg = svgEl('svg', { viewBox: '0 0 200 70', class: 'evd-rider-chart', role: 'img', 'aria-label': kind === 'strength' ? 'Nacisk do pełnego wsparcia a kadencja' : kind === 'minimum' ? 'Minimalne wsparcie a kadencja' : 'Nacisk i czas wyłączenia przy 60 obr/min' });
+    const path = svgEl('path', { fill: 'none', stroke: '#2563eb', 'stroke-width': 2 });
+    svg.appendChild(path);
+    const labels = svgEl('text', { x: 4, y: 68, fill: '#64748b', 'font-size': 9 });
+    labels.textContent = kind === 'timeout' ? 'nacisk → brak nacisku · 60 obr/min' : 'kadencja (obr/min)';
+    svg.appendChild(labels);
+    const marks = [];
+    if (kind !== 'timeout') [30, 60, 90].forEach((cad) => {
+        const x = 4 + cad / (kind === 'strength' ? 150 : 90) * 192;
+        const text = svgEl('text', { x, y: 63, 'text-anchor': 'middle', fill: '#64748b', 'font-size': 8 });
+        text.textContent = String(cad); svg.appendChild(text);
+        if (kind === 'strength') { const dot = svgEl('circle', { cx: x, r: 2, fill: '#2563eb' }); svg.appendChild(dot); marks.push([cad, dot]); }
+    });
+    let motor;
+    if (kind === 'timeout') {
+        motor = svgEl('path', { fill: 'none', stroke: '#ca8a04', 'stroke-width': 5 });
+        svg.appendChild(motor);
+    }
+    function update() {
+        if (kind === 'strength') {
+            const pts = [0, 30, 60, 90, 120, 150].map((cad) => [cad / 150 * 192 + 4, 55 - (r.riderStrengthX10kg / 10 * (1 - Math.min(cad, 150) / 190)) / 60 * 50]);
+            path.setAttribute('d', pts.map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`).join(' '));
+            marks.forEach(([cad, dot]) => dot.setAttribute('cy', 55 - (r.riderStrengthX10kg / 10 * (1 - cad / 190)) / 60 * 50));
+        } else if (kind === 'minimum') {
+            const y = (iq) => 55 - iq / P.RIDER_LIMITS.iqMinMax * 48;
+            path.setAttribute('d', `M4,${y(r.iqMinLow)} L68,${y(r.iqMinLow)} L132,${y(r.iqMinHigh)} L196,${y(r.iqMinHigh)}`);
+        } else {
+            path.setAttribute('d', 'M4,40 Q12,8 20,40 Q28,8 36,40 Q44,8 52,40 L196,40');
+            const end = 52 + Math.min(4, Math.max(r.tHold100ms / 10, 1)) / 4 * 140;
+            motor.setAttribute('d', `M4,52 L${end.toFixed(1)},52`);
+        }
+    }
+    update();
+    return { svg, update };
 }
 
 function riderSection() {
-    const box = section('rider', 'Rowerzysta i model podtrzymania', {
-        id: 'evdV3Rider', className: 'evd-v3-rider',
-        help: 'Ustawienia wspólne dla wszystkich poziomów: dotyczą Ciebie i silnika, nie trybu.',
-    });
-    const r = model.rider;
-    const mapRow = checkRow('evdV3EffortMap', 'Mapa wysiłku', r.effortMap,
-        'Włączona (domyślnie): wsparcie zależy od tego, jaką część swoich możliwości przy danej kadencji dajesz — liniowo do 60 % wysiłku (80 % wyjścia), dalej łagodnie. Mocniejszy tryb ma krótszy zakres. Wyłączona: stara mapa (nacisk × kadencja, tabela współczynników), jak przed zmianą; Zakres i Siła rowerzysty wtedy nie działają.',
-        (v) => { r.effortMap = v; riderEdited(); model.levels.forEach((_, i) => refreshWarnings(i)); });
-    const strength = numberRow({
-        label: 'Siła rowerzysty T0', unit: 'kg', min: 10, max: 60, step: 0.5,
-        value: r.riderStrengthX10kg / 10,
-        onChange: (v) => { r.riderStrengthX10kg = Math.round(v * 10); riderEdited(); },
-        help: 'Nacisk (kg) przy pełnym wysiłku na małej kadencji. Możliwości przy kadencji liczone są jako T0·(1 − kad/190). Więcej kg = na to samo wsparcie trzeba mocniej naciskać (silny rowerzysta), mniej = pełne wsparcie przy lżejszym nacisku. Domyślnie 30 kg (z logów jazd).',
-    });
+    const box = section('rider', 'Rowerzysta i model podtrzymania', { id: 'evdV3Rider', className: 'evd-v3-rider' });
+    const read = !!model.riderBaseline;
+    const supported = !!model.caps?.rider;
+    const holdSupported = supported && !!model.caps?.riderHold && !model.rider.legacy;
+    const r = read ? model.rider : P.factoryRider();
+    const hold = holdSupported ? r : P.factoryRider();
     const grid = node('div', 'evd-v3-rider-grid');
-
-    // Hold model (OWNER-DEC-20261115-PRESSURE-HOLD, replaces C1). Older firmware (no capability
-    // bit 12): the C1 fields are shown read-only with a note to update the firmware.
-    if (r.legacy) {
-        const note = node('div', 'form-hint ebics-stale-warning', 'Firmware bez modelu podtrzymania (stary obiekt 5 z C1). Minimum Iq i czas bez nacisku po wgraniu nowego firmware; poniżej C1 tylko do odczytu.');
-        const c1 = node('div', 'evd-v3-effective', `C1 (stare firmware): Iq_off ${r.lowAssistOffIq}, Iq_on ${r.lowAssistOnIq} — tylko do odczytu.`);
-        const errorsLegacy = node('div', 'form-hint'); errorsLegacy.id = 'evdV3RiderErrors';
-        const writableLegacy = v3RiderCanWrite();
-        const actionsLegacy = node('div', 'evd-v3-actions');
-        actionsLegacy.append(button('Zapisz rowerzystę i sprzęt (RAM)', 'btn btn-blue btn-sm', () => { void writeRider(); },
-            { id: 'evdV3WriteRider', disabled: !writableLegacy, title: writableLegacy ? 'Zapis siły i mapy wysiłku; C1 bez zmian.' : 'Zablokowane: firmware nie zgłasza obiektu 5 (bit 11).' }));
-        grid.append(mapRow, strength);
-        box.append(grid, note, c1, errorsLegacy, actionsLegacy);
-        return box;
+    const charts = [];
+    const refresh = () => { charts.forEach((c) => c.update()); riderEdited(); };
+    const toggle = (id, label, technical, checked, help, effect, disabled, change) => {
+        const row = checkRow(id, label, checked, help, (v) => { change(v); refresh(); });
+        row.classList.add('evd-rider-toggle');
+        row.append(node('div', 'evd-v3-effective', technical), node('div', 'evd-v3-effective', effect));
+        if (disabled) lockPreview(row, '');
+        return row;
+    };
+    const slider = ({ id, label, technical, help, min, max, step, get, set, badge, aria, kind, disabled }) => {
+        const item = node('div', 'evd-rider-item');
+        const s = bigSlider({ id, label, min, max, step, get, badge, onInput: (v) => { set(v); refresh(); }, disabled });
+        if (aria) s.row.children[1].setAttribute('aria-label', aria);
+        s.row.children[0].appendChild(helpBadge(help));
+        const chart = riderChart(kind, kind === 'strength' ? r : hold); charts.push(chart);
+        item.append(s.row, node('div', 'evd-v3-effective', technical), chart.svg);
+        if (disabled) item.classList.add('is-preview');
+        return item;
+    };
+    grid.appendChild(toggle('evdV3EffortMap', 'Wsparcie wg wysiłku (zalecane)', 'Mapa wysiłku', r.effortMap,
+        'Wsparcie zależy od nacisku względem Twojej siły i kadencji. Po wyłączeniu działa stara mapa nacisk × kadencja; siła i Zakres nie działają.',
+        'wyłączone: stara mapa nacisk × kadencja', !read || !supported, (v) => { r.effortMap = v; model.levels.forEach((_, i) => refreshWarnings(i)); }));
+    grid.appendChild(slider({ id: 'evdV3RiderStrength', label: 'Twoja siła (kg)', technical: 'T0 · więcej kg = mocniejszy nacisk do pełnego wsparcia',
+        help: 'Większa wartość wymaga mocniejszego nacisku do pełnego wsparcia. Krzywa pokazuje T0 × (1 − kadencja/190), do 150 obr/min.', min: P.RIDER_LIMITS.strengthMin / 10, max: P.RIDER_LIMITS.strengthMax / 10, step: 0.5,
+        get: () => r.riderStrengthX10kg / 10, set: (v) => { r.riderStrengthX10kg = Math.round(v * 10); }, badge: (v) => `${fmtNum(v, 1)} kg`, kind: 'strength', disabled: !read || !supported }));
+    grid.appendChild(toggle('evdV3HoldModel', 'Bez terkotu: stałe minimum + szybkie wyłączenie', 'Model podtrzymania', hold.holdModel,
+        'Po starcie utrzymuje minimum prądu i szybko wyłącza wsparcie po braku nacisku. Limity i hamulec nadal działają.',
+        'wyłączone: brak minimum i szybkiego wyłączenia', !read || !holdSupported, (v) => { hold.holdModel = v; }));
+    for (const [key, label, aria] of [['iqMinLow', 'Minimalne wsparcie przy wolnym kręceniu', 'Minimum Iq przy ≤30 obr/min'], ['iqMinHigh', 'Minimalne wsparcie przy szybkim kręceniu', 'Minimum Iq przy ≥60 obr/min']]) {
+        grid.appendChild(slider({ id: `evdV3-${key}`, label, aria, technical: key === 'iqMinLow' ? 'Iq · do 30 obr/min' : 'Iq · od 60 obr/min',
+            help: key === 'iqMinLow' ? 'Minimum do 30 obr/min, dalej rośnie liniowo do wartości przy 60 obr/min. Procent odnosi się do 700 Iq; pozostałe limity nadal działają.' : 'Minimum od 60 obr/min. Procent odnosi się do 700 Iq; pozostałe limity nadal ograniczają prąd.',
+            min: 0, max: P.RIDER_LIMITS.iqMinMax, step: 1, get: () => hold[key], set: (v) => { hold[key] = Math.round(v); },
+            badge: (v) => `${String(P.iqPercent(v)).replace('.', ',')} % (${v} Iq)`, kind: 'minimum', disabled: !read || !holdSupported }));
     }
-    const pct = (iq) => `${String(P.iqPercent(iq)).replace('.', ',')} % z ${P.PHASE_CURRENT_MAX_IQ}`;
-    const holdRow = checkRow('evdV3HoldModel', 'Model podtrzymania', r.holdModel,
-        'Włączony (domyślnie): wspomaganie startuje po przekroczeniu progu startu, w czasie jazdy trzyma co najmniej minimum Iq poniżej i gaśnie szybko (w tempie BDE8), gdy przez pełny obrót korby albo przez „Czas bez nacisku” nacisk ani razu nie przekroczy progu „Start w czasie jazdy”. Gaśnie też przy zatrzymaniu korby, cofaniu, hamulcu i poziomie 0. Wyłączony: bez minimum i bez tych warunków końca.',
-        (v) => { r.holdModel = v; riderEdited(); });
-    const minLow = numberRow({
-        label: 'Minimum Iq ≤30 obr/min', unit: 'Iq', min: 0, max: P.RIDER_LIMITS.iqMinMax, step: 1, value: r.iqMinLow,
-        aria: 'Minimum Iq przy ≤30 obr/min',
-        onChange: (v) => { r.iqMinLow = Math.round(v); riderEdited(); },
-        help: `Najmniejszy prąd silnika w czasie jazdy z naciskiem przy kadencji do 30 obr/min (między 30 a 60 obr/min liniowo do wartości ≥60). Trzyma silnik nad pasmem terkotu wolnobiegu; limity mocy, baterii, prędkości i Max Torque i tak go obcinają. 0 = brak minimum. Domyślnie 28 Iq (4 % z ${P.PHASE_CURRENT_MAX_IQ}); teraz ${pct(r.iqMinLow)}. Nie więcej niż przy ≥60 obr/min.`,
-    });
-    const minHigh = numberRow({
-        label: 'Minimum Iq ≥60 obr/min', unit: 'Iq', min: 0, max: P.RIDER_LIMITS.iqMinMax, step: 1, value: r.iqMinHigh,
-        aria: 'Minimum Iq przy ≥60 obr/min',
-        onChange: (v) => { r.iqMinHigh = Math.round(v); riderEdited(); },
-        help: `Najmniejszy prąd silnika w czasie jazdy z naciskiem przy kadencji od 60 obr/min. Do minimum prąd dochodzi płynnie (tempo BDE8, bez skoku). 0 = brak minimum (oba punkty). Maks. 120. Domyślnie 42 Iq (6 % z ${P.PHASE_CURRENT_MAX_IQ}); teraz ${pct(r.iqMinHigh)}.`,
-    });
-    const tHold = numberRow({
-        label: 'Czas bez nacisku', unit: 's', min: P.RIDER_LIMITS.tHoldMin / 10, max: P.RIDER_LIMITS.tHoldMax / 10, step: 0.1, value: r.tHold100ms / 10,
-        onChange: (v) => { r.tHold100ms = Math.round(v * 10); riderEdited(); },
-        help: 'Jak długo wspomaganie czeka na kolejne „trafienie” (nacisk ≥ próg „Start w czasie jazdy”), zanim zgaśnie. Liczy się dłuższy z: ten czas albo czas jednego obrotu korby, najwyżej 4 s (przy bardzo wolnym kręceniu). Niezależnie od czasu wspomaganie gaśnie po pełnym obrocie korby bez nacisku. Zakres 0,5–4,0 s, domyślnie 2,0 s.',
-    });
-    grid.append(mapRow, strength, holdRow, minLow, minHigh, tHold);
-
+    grid.appendChild(slider({ id: 'evdV3HoldTime', label: 'Wyłącz po … s bez nacisku', technical: 'Czas bez nacisku · przykład: 60 obr/min',
+        help: 'Czas oczekiwania to dłuższy z ustawionego czasu i jednego obrotu, najwyżej 4 s. Pełny obrót bez nacisku może też zakończyć wsparcie.',
+        min: P.RIDER_LIMITS.tHoldMin / 10, max: P.RIDER_LIMITS.tHoldMax / 10, step: 0.1, get: () => hold.tHold100ms / 10,
+        set: (v) => { hold.tHold100ms = Math.round(v * 10); }, badge: (v) => `${fmtNum(v, 1)} s`, kind: 'timeout', disabled: !read || !holdSupported }));
     const errors = node('div', 'form-hint'); errors.id = 'evdV3RiderErrors';
-    const writable = v3RiderCanWrite();
     const actions = node('div', 'evd-v3-actions');
-    actions.append(
-        button('Fabryczne na ekranie', 'btn btn-secondary btn-sm', () => { model.rider = P.factoryRider(); riderEdited(); renderPanel(); },
-            { title: 'Siła 30 kg, minimum 28 / 42 Iq, czas bez nacisku 2,0 s, mapa wysiłku i model podtrzymania włączone. Nic nie wysyła.' }),
-        button('Zapisz rowerzystę i sprzęt (RAM)', 'btn btn-blue btn-sm', () => { void writeRider(); },
-            { id: 'evdV3WriteRider', disabled: !writable, title: writable ? 'Zapis obiektu 5 do RAM sterownika, potem odczyt kontrolny.' : 'Zablokowane: firmware nie zgłasza obiektu 5 (bit 11).' }),
-    );
+    actions.append(button('Fabryczne na ekranie', 'btn btn-secondary btn-sm', () => { model.rider = model.rider.legacy ? P.factoryLegacyRider() : P.factoryRider(); riderEdited(); renderPanel(); }, { disabled: !read || !supported }),
+        button('Zapisz rowerzystę i sprzęt (RAM)', 'btn btn-blue btn-sm', () => { void writeRider(); }, { id: 'evdV3WriteRider', disabled: !read || !supported }));
     box.append(grid, errors, actions);
+    if (model.caps && !supported) box.appendChild(node('div', 'evd-v3-muted', 'Ten firmware nie obsługuje ustawień rowerzysty — podgląd fabryczny.'));
+    else if (!read) box.appendChild(node('div', 'evd-v3-muted', 'podgląd fabryczny — odczytaj ustawienia z roweru.'));
+    else if (!holdSupported) box.appendChild(node('div', 'evd-v3-muted', `Ten firmware nie obsługuje modelu podtrzymania. C1: Iq_off ${r.lowAssistOffIq}, Iq_on ${r.lowAssistOnIq} — tylko do odczytu.`));
     return box;
 }
 

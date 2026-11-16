@@ -139,6 +139,12 @@ mod.registerHooks({
     check('pressure fields visible before read (factory preview), all disabled',
         pressureEmpty.classList.contains('is-preview') && pInputs.length >= 2 && pInputs.every((n) => n.disabled)
         && /podgląd fabryczny/.test(pressureEmpty.textContent));
+    panel.setProfilesView('advanced');
+    const riderPreview = byId('evdV3Rider');
+    check('rider factory preview has all disabled fields', riderPreview.all((n) => n.tagName === 'INPUT').length === 6
+        && riderPreview.all((n) => n.tagName === 'INPUT').every((n) => n.disabled)
+        && /podgląd fabryczny/.test(riderPreview.textContent));
+    panel.setProfilesView('simple');
 
     // ---- Moc maks. follows the battery power (P1 current x system voltage) ----
     const powerInput = () => byId('evdV3-0-power');
@@ -239,7 +245,7 @@ mod.registerHooks({
     check('click Zaawansowany -> stored', storage.get('evdProfilesView') === 'advanced' && root.dataset.view === 'advanced');
     const advanced = new Set(controls());
     const required = [
-        'BUTTON:evdV3WriteRider', 'INPUT:evdV3EffortMap', 'INPUT:evdV3HoldModel', 'INPUT:Minimum Iq przy ≤30 obr/min', 'INPUT:Minimum Iq przy ≥60 obr/min',
+        'BUTTON:evdV3WriteRider', 'INPUT:evdV3EffortMap', 'INPUT:evdV3HoldModel', 'INPUT:evdV3-iqMinLow', 'INPUT:evdV3-iqMinHigh',
         'BUTTON:Fabryczne na ekranie', 'BUTTON:evdV3WritePressure', 'SELECT:evdV3ChartLevel', 'INPUT:evdV3ChartCadence', 'INPUT:evdV3ChartForce',
         'BUTTON:Otwórz: Torque', 'BUTTON:Otwórz: Limits', 'BUTTON:Otwórz: System', 'BUTTON:Otwórz: Walk',
     ];
@@ -255,6 +261,19 @@ mod.registerHooks({
     }
     const missing = required.filter((k) => !advanced.has(k));
     check(`advanced holds every action (${required.length} checked)`, missing.length === 0, JSON.stringify(missing));
+    const rider = byId('evdV3Rider');
+    check('rider has four live SVG charts', rider.all((n) => n.tagName === 'SVG' && n.getAttribute('class') === 'evd-rider-chart').length === 4);
+    for (const [id, value, pathIndex] of [['evdV3RiderStrength', 45, 0], ['evdV3-iqMinLow', 20, 0], ['evdV3-iqMinHigh', 60, 0], ['evdV3HoldTime', 3, 1]]) {
+        const input = byId(id);
+        const chart = input.parent.parent.all((n) => n.tagName === 'SVG')[0];
+        const path = chart.all((n) => n.tagName === 'PATH')[pathIndex];
+        const before = path.getAttribute('d');
+        input.value = String(value); input.dispatch('input');
+        check(`${id}: chart updates`, path.getAttribute('d') !== before);
+    }
+    const css = require('fs').readFileSync(path.join(__dirname, '..', 'ui', 'style.css'), 'utf8');
+    check('rider layout can shrink at 375 px', /\.evd-v3-rider-grid\s*\{[^}]*minmax\(min\(100%,\s*280px\)/.test(css)
+        && /\.evd-rider-chart\s*\{[^}]*max-width:\s*100%/.test(css));
     check('advanced: 4 detailed charts', ['evdV3ChartEffort', 'evdV3ChartStart', 'evdV3ChartFade', 'evdV3ChartC1'].every((id) => byId(id)));
     // Everything in Prosty exists in Zaawansowany, except the simple-only shortcuts
     // (shared pressure pair, link, power slider) whose function the advanced fields cover.

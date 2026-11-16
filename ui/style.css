@@ -1612,3 +1612,10 @@ input.evd-sl-number:focus { outline: 2px solid var(--evd-accent, #2563eb); outli
 /* Pressure thresholds shown before a read / on old firmware: visible, greyed, not editable. */
 .evd-v3-pressure.is-preview .evd-v3-pressure-simple,
 .evd-v3-pressure.is-preview .evd-v3-pressure-grid { filter: grayscale(.9); opacity: .62; }
+.evd-v3-rider-grid > * { min-width: 0; }
+.evd-rider-item, .evd-rider-toggle { min-width: 0; padding: 8px; border: 1px solid #e2e8f0; border-radius: 8px; }
+.evd-rider-toggle { display: block; }
+.evd-rider-toggle .evd-v3-limit { display: flex; }
+.evd-rider-item .evd-sl-head { flex-wrap: wrap; }
+.evd-rider-chart { display: block; width: 100%; height: 70px; max-width: 100%; background: #f8fafc; border-radius: 6px; }
+.evd-rider-item.is-preview, .evd-rider-toggle.is-preview { filter: grayscale(.9); opacity: .62; }
