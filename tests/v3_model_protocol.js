@@ -31,11 +31,11 @@ const throwsMsg = (name, fn, part) => {
     // Factory preset and effective values match the design document table (ECO 95 % / 3.5 s).
     const factory = P.factoryLevels();
     eq('factory modes ECO..BOOST', factory.map((l) => l.mode), [0, 1, 2, 3, 4]);
-    eq('factory ECO limits', [factory[0].maxPowerW, factory[0].maxTorquePct], [350, 80]);
-    eq('factory power per plan E350/T550/S750/S+950/B1100', factory.map((l) => l.maxPowerW), [350, 550, 750, 950, 1100]);
+    eq('factory ECO limits', [factory[0].maxPowerW, factory[0].maxTorquePct], [360, 80]);
+    eq('factory power from battery share 50/75/100/100/100 % at 15 A x 48 V', factory.map((l) => l.maxPowerW), [360, 540, 720, 720, 720]);
     eq('factory torque per plan', factory.map((l) => l.maxTorquePct), [80, 100, 100, 100, 100]);
     eq('factory range 50', factory.map((l) => l.range), [50, 50, 50, 50, 50]);
-    eq('AUTO defaults 750 W / 100 %', [P.MODES[5].powerW, P.MODES[5].torquePct], [750, 100]);
+    eq('AUTO defaults 75 % of battery power / 100 % (15 A x 48 V -> 540 W)', [P.MODES[5].powerPct, P.modeDefaultPowerW(5), P.MODES[5].torquePct], [75, 540, 100]);
     const eco50 = P.effectiveValues(factory[0]);
     eq('ECO@50 ratio', eco50.ratioPct, 95);
     eq('ECO@50 attack ms', eco50.attackMs, 3500);
@@ -69,8 +69,8 @@ const throwsMsg = (name, fn, part) => {
     eq('header magic/schema/version 2', [...all.slice(0, 4)], [0x42, 0x56, 4, 2]);
     eq('header len/index/count/stride 12', [all[4] | (all[5] << 8), all[6], all[7], all[8]], [78, 1, 5, 12]);
     eq('generation 0xFFFF (no check)', [all[14], all[15]], [0xFF, 0xFF]);
-    eq('record 0 bytes (12 B, range, reserved 0)', [...all.slice(16, 28)], [1, 0, 50, 50, 50, 50, 50, 350 & 0xFF, 350 >> 8, 80, 50, 0]);
-    eq('record 4 power 1100 LE', [all[16 + 48 + 7], all[16 + 48 + 8]], [1100 & 0xFF, 1100 >> 8]);
+    eq('record 0 bytes (12 B, range, reserved 0)', [...all.slice(16, 28)], [1, 0, 50, 50, 50, 50, 50, 360 & 0xFF, 360 >> 8, 80, 50, 0]);
+    eq('record 4 power 720 LE', [all[16 + 48 + 7], all[16 + 48 + 8]], [720 & 0xFF, 720 >> 8]);
     eq('crc matches', all[76] | (all[77] << 8), P.crc16(all, 76));
     // Byte vector: level 3 SPORT, assist 70, range 80, power 65000 (HW), torque 90, generation 0x0102.
     const vec = P.encodeModelWrite(3, [{ mode: 2, assist: 70, attack: 50, release: 40, start: 0, carry: 100, range: 80, maxPowerW: 65000, maxTorquePct: 90 }], { baseGeneration: 0x0102 });

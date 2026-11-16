@@ -67,13 +67,27 @@ export const REASON_TEXT = Object.freeze({
 // effort at which the output reaches 100 %) and Start `fFullKg` (pedal force for the full
 // start target). Firmware stays the source of truth; the panel shows what it reads back.
 export const MODES = Object.freeze([
-    { id: 0, name: 'ECO', short: 'E', ratio: 95, attackMs: 3500, releaseMs: 2334, start: 40, carry: 20, powerW: 350, torquePct: 80, s: 0.15, eFull: 1.0, fFullKg: 35 },
-    { id: 1, name: 'TRAIL', short: 'T', ratio: 215, attackMs: 2800, releaseMs: 1867, start: 60, carry: 70, powerW: 550, torquePct: 100, s: 0.33, eFull: 1.0, fFullKg: 28 },
-    { id: 2, name: 'SPORT', short: 'S', ratio: 310, attackMs: 2200, releaseMs: 1467, start: 80, carry: 50, powerW: 750, torquePct: 100, s: 0.47, eFull: 0.9, fFullKg: 24 },
-    { id: 3, name: 'SPORT+', short: 'S+', ratio: 525, attackMs: 1100, releaseMs: 734, start: 90, carry: 80, powerW: 950, torquePct: 100, s: 0.77, eFull: 0.75, fFullKg: 20, progressive: true },
-    { id: 4, name: 'BOOST', short: 'B', ratio: 525, attackMs: 1300, releaseMs: 867, start: 80, carry: 50, powerW: 1100, torquePct: 100, s: 1.0, eFull: 0.6, fFullKg: 16 },
-    { id: 5, name: 'AUTO', short: 'AUTO', ratio: 215, attackMs: 2800, releaseMs: 1867, start: 60, carry: 60, powerW: 750, torquePct: 100, s: 0.33, eFull: 1.0, fFullKg: 28 },
+    { id: 0, name: 'ECO', short: 'E', ratio: 95, attackMs: 3500, releaseMs: 2334, start: 40, carry: 20, powerPct: 50, torquePct: 80, s: 0.15, eFull: 1.0, fFullKg: 35 },
+    { id: 1, name: 'TRAIL', short: 'T', ratio: 215, attackMs: 2800, releaseMs: 1867, start: 60, carry: 70, powerPct: 75, torquePct: 100, s: 0.33, eFull: 1.0, fFullKg: 28 },
+    { id: 2, name: 'SPORT', short: 'S', ratio: 310, attackMs: 2200, releaseMs: 1467, start: 80, carry: 50, powerPct: 100, torquePct: 100, s: 0.47, eFull: 0.9, fFullKg: 24 },
+    { id: 3, name: 'SPORT+', short: 'S+', ratio: 525, attackMs: 1100, releaseMs: 734, start: 90, carry: 80, powerPct: 100, torquePct: 100, s: 0.77, eFull: 0.75, fFullKg: 20, progressive: true },
+    { id: 4, name: 'BOOST', short: 'B', ratio: 525, attackMs: 1300, releaseMs: 867, start: 80, carry: 50, powerPct: 100, torquePct: 100, s: 1.0, eFull: 0.6, fFullKg: 16 },
+    { id: 5, name: 'AUTO', short: 'AUTO', ratio: 215, attackMs: 2800, releaseMs: 1867, start: 60, carry: 60, powerPct: 75, torquePct: 100, s: 0.33, eFull: 1.0, fFullKg: 28 },
 ]);
+
+// Firmware (05dd914, OWNER-DEC-20261114): a mode's default Max Power is a share of the battery power
+// = configured battery current x selected nominal voltage (P1). Before a read the panel previews it with
+// the firmware's own fallback 15 A x 48 V; after a read the levels come from the controller.
+export const POWER_SOURCE_DEFAULT = Object.freeze({ currentMa: 15000, voltageV: 48 });
+let powerSource = { ...POWER_SOURCE_DEFAULT };
+export function setPowerSource(currentMa, voltageV) {
+    if (currentMa > 0 && voltageV > 0) powerSource = { currentMa, voltageV };
+}
+export function modeDefaultPowerW(modeId) {
+    const mode = MODES[modeId] ?? MODES[0];
+    const w = Math.round(powerSource.currentMa * powerSource.voltageV * mode.powerPct / 100000);
+    return Math.max(1, Math.min(w, HW_POWER_W));
+}
 
 export const CORRECTIONS = Object.freeze(['assist', 'attack', 'release', 'start', 'carry', 'range']);
 const LEVEL_KEYS = Object.freeze(['mode', ...CORRECTIONS, 'maxPowerW', 'maxTorquePct']);
@@ -84,7 +98,7 @@ export function factoryLevels() {
         const mode = MODES[index];
         return {
             mode: mode.id, assist: 50, attack: 50, release: 50, start: 50, carry: 50, range: 50,
-            maxPowerW: mode.powerW, maxTorquePct: mode.torquePct,
+            maxPowerW: modeDefaultPowerW(mode.id), maxTorquePct: mode.torquePct,
         };
     });
 }

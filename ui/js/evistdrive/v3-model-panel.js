@@ -154,8 +154,8 @@ function levelWarning(level) {
     const out = [];
     if (level.start === 0) out.push('Kop na starcie = 0: kop przy ruszaniu wyłączony.');
     if (level.carry === 0) out.push('Podtrzymanie = 0: wyłączone.');
-    if (level.maxPowerW !== P.HW_POWER_W && level.maxPowerW < mode.powerW) {
-        out.push(`Moc maks. poniżej domyślnej dla ${mode.name} (${mode.powerW} W): moc obcięta wcześniej niż fabrycznie.`);
+    if (level.maxPowerW !== P.HW_POWER_W && level.maxPowerW < P.modeDefaultPowerW(mode.id)) {
+        out.push(`Moc maks. poniżej domyślnej dla ${mode.name} (${P.modeDefaultPowerW(mode.id)} W): moc obcięta wcześniej niż fabrycznie.`);
     }
     if (level.maxTorquePct < mode.torquePct) out.push(`Max Torque poniżej domyślnego (${mode.torquePct} %): obcina też kop na starcie.`);
     if (!model.rider.effortMap && level.range !== 50) out.push('Zakres ≠ 50, ale mapa wysiłku jest wyłączona: korekta nie działa.');
@@ -298,8 +298,8 @@ function powerSlider(index) {
         id: `evdV3-${index}-power`, label: 'Moc maks.', min: POWER_MIN, max: POWER_HW_POS, step: 50,
         get: () => powerPos(level.maxPowerW),
         badge: () => (level.maxPowerW === P.HW_POWER_W ? 'bez limitu' : `${level.maxPowerW} W`),
-        isDefault: () => level.maxPowerW === P.MODES[level.mode].powerW,
-        reset: { title: 'domyślna moc trybu', value: () => powerPos(P.MODES[level.mode].powerW) },
+        isDefault: () => level.maxPowerW === P.modeDefaultPowerW(level.mode),
+        reset: { title: 'domyślna moc trybu', value: () => powerPos(P.modeDefaultPowerW(level.mode)) },
         onInput: (pos) => {
             level.maxPowerW = pos >= POWER_HW_POS ? P.HW_POWER_W : clamp(Math.round(pos), POWER_MIN, POWER_MAX);
             afterLevelEdit(index);
@@ -342,7 +342,7 @@ function limitsRow(index) {
         if (hwBox.checked) { level.maxPowerW = P.HW_POWER_W; watts.disabled = true; watts.value = ''; }
         else {
             watts.disabled = false;
-            if (!watts.value) watts.value = String(mode.powerW === P.HW_POWER_W ? 750 : mode.powerW);
+            if (!watts.value) watts.value = String(P.modeDefaultPowerW(mode.id));
             level.maxPowerW = Math.round(Number(watts.value));
         }
         afterLevelEdit(index);
@@ -350,7 +350,7 @@ function limitsRow(index) {
     hwBox.addEventListener('change', onPower);
     watts.addEventListener('change', onPower);
     power.append(node('span', 'evd-v3-label', 'Moc maks.'), watts, node('span', 'evd-v3-unit', 'W'), hwBox, node('span', 'evd-v3-unit', 'limit sprzętu'));
-    power.title = `Domyślnie ${mode.powerW === P.HW_POWER_W ? 'limit sprzętu' : `${mode.powerW} W`}`;
+    power.title = `Domyślnie ${P.modeDefaultPowerW(mode.id)} W (z baterii)`;
 
     const torque = node('label', 'evd-v3-limit');
     const pct = document.createElement('input');
@@ -422,7 +422,7 @@ function modePicker(index) {
             if (level.mode === mode.id) return;
             level.mode = mode.id;
             // A new mode brings its own default limits; the corrections stay where the rider put them.
-            level.maxPowerW = mode.powerW; level.maxTorquePct = mode.torquePct;
+            level.maxPowerW = P.modeDefaultPowerW(mode.id); level.maxTorquePct = mode.torquePct;
             markEdited(index);
             renderPanel();
         }, { title: MODE_STYLE[mode.id]?.line ?? '' });
