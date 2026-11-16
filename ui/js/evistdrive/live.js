@@ -29,7 +29,6 @@ export function updateLiveSummary(eventType = '') {
     setText('ebicsLivePower', displayNumber(power));
     setText('ebicsLiveCurrent', displayNumber(realtime?.current, 1));
     setText('ebicsLiveControllerTemp', displayNumber(realtime?.temperature));
-    setText('ebicsLiveMotorTemp', displayNumber(realtime?.motor_temperature));
     setText('ebicsLiveControllerState', state.controllerState?.state_number ?? 'N/A');
     setText('ebicsLiveRemainingCapacity', displayNumber(state.controllerRealtime0?.remaining_capacity));
     setText('ebicsLiveRemainingDistance', displayNumber(state.controllerRealtime0?.remaining_distance, 1));
@@ -57,10 +56,10 @@ function updateLiveChart(load, cadence, power, speed) {
         { x: liveHistory.time, y: liveHistory.load, name: 'Load (kg)', type: 'scatter', mode: 'lines', line: { color: '#2563eb' } },
         { x: liveHistory.time, y: liveHistory.cadence, name: 'Cadence (rpm)', type: 'scatter', mode: 'lines', line: { color: '#16a34a' } },
         { x: liveHistory.time, y: liveHistory.speed, name: 'Speed (km/h)', type: 'scatter', mode: 'lines', line: { color: '#9333ea' } },
-        { x: liveHistory.time, y: liveHistory.power, name: 'Power (W)', type: 'scatter', mode: 'lines', yaxis: 'y2', line: { color: '#ea580c' } },
+        { x: liveHistory.time, y: liveHistory.power, name: 'Power magnitude (W)', type: 'scatter', mode: 'lines', yaxis: 'y2', line: { color: '#ea580c' } },
     ];
     const layout = plotLayout('Time', 'Load / cadence / speed');
-    layout.yaxis2 = { title: 'Power (W)', overlaying: 'y', side: 'right', rangemode: 'tozero', gridcolor: 'transparent' };
+    layout.yaxis2 = { title: 'Power magnitude (W)', overlaying: 'y', side: 'right', rangemode: 'tozero', gridcolor: 'transparent' };
     layout.margin.r = 58;
     Plotly.react(chart, traces, layout, { responsive: true, displaylogo: false });
 }
