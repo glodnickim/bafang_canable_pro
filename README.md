@@ -133,3 +133,6 @@ Panel **Tryby V3**: tryb i korekty dla każdego poziomu, sekcja **Rowerzysta i s
 
 ### 1.0.11 — eVistDrive Profiles
 Zakładka **eVistDrive Profiles** (dawniej „Tryby V3”): widok **Prosty** (poziomy na górze, kolorowe tryby, trzy duże suwaki: Wsparcie, Moc maks., Kop na starcie; jedna para progów nacisku dla wszystkich poziomów) i **Zaawansowany** (wszystkie ustawienia, model podtrzymania, wykresy, narzędzia). Opisy raz, w legendzie i pod „?”. Podgląd mocy fabrycznej liczony jak w firmware: procent mocy baterii.
+
+### 1.0.12 — zakładki eVistDrive po audycie
+Live: „Profil (poziom HMI)”, poprawione opisy temperatury, przebiegu, prądu i mocy. System: diagnostyka v9 mapowana poprawnie, brakujące pola jako „brak w tym firmware”. Torque/System: czytelna informacja, gdy wsad NORMAL nie wysyła diagnostyki; kalibracja tylko po aktualnym odczycie. Ustawienia, które nie działają w torze V3 (kierunek, przełożenie, manetka), ukryte.
