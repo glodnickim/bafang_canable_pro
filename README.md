@@ -130,3 +130,6 @@ This program is free software: you can redistribute it and/or modify it under th
 
 ### 1.0.10 — Tryby V3 i progi nacisku (firmware 0.705 DIAG lub nowszy)
 Panel **Tryby V3**: tryb i korekty dla każdego poziomu, sekcja **Rowerzysta i sprzęt** (model podtrzymania: minimum Iq przy niskiej i wysokiej kadencji, czas bez nacisku) oraz **Progi nacisku (kg)**: start z miejsca i start w czasie jazdy. Z firmware v11 banku wartości są prawdziwymi kg; przy starszym firmware panel pokazuje je jako jednostki wewnętrzne, z ostrzeżeniem. Działa także w wersji przeglądarkowej (WebUSB).
+
+### 1.0.11 — eVistDrive Profiles
+Zakładka **eVistDrive Profiles** (dawniej „Tryby V3”): widok **Prosty** (poziomy na górze, kolorowe tryby, trzy duże suwaki: Wsparcie, Moc maks., Kop na starcie; jedna para progów nacisku dla wszystkich poziomów) i **Zaawansowany** (wszystkie ustawienia, model podtrzymania, wykresy, narzędzia). Opisy raz, w legendzie i pod „?”. Podgląd mocy fabrycznej liczony jak w firmware: procent mocy baterii.
