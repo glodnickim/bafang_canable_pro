@@ -797,18 +797,10 @@ function renderSystemFields() {
     if (motor) motor.innerHTML = '';
     if (ride) ride.innerHTML = '';
     [
-        { key: 'motor_type', label: 'Motor direction', options: [{ value: 1, label: 'Forward' }, { value: 0, label: 'Reverse' }],
-            help: 'Which direction counts as "forward" for the motor\'s commutation. Wrong setting makes the motor fight itself or spin the wrong way — leave this alone unless you know it needs changing after a wiring/sensor change.' },
-        { key: 'motor_pole_pair_number', label: 'Mechanical gear ratio', min: 1, max: 255, step: 1,
-            help: 'Despite the label, this is electrical revolutions per crank revolution (motor pole pairs × the gearbox\'s mechanical reduction), not a simple mechanical ratio. On the M820: 7 pole pairs × 11.43:1 gearbox = 80. This feeds every speed/cadence/Walk-Assist-RPM calculation that depends on motor revolutions — do not "correct" it down to the mechanical ratio (≈11.4), that would inflate those readings roughly 7×.' },
         { key: 'speedmeter_magnets_number', label: 'Speed sensor pulses/revolution', min: 1, max: 255, step: 1,
             help: 'Number of speed-sensor pulses per wheel revolution. Must match your actual sensor/magnet setup — wrong here means every speed and distance reading (and the speed limit) is scaled incorrectly.' },
     ].forEach((field) => createField(motor, draft.p1, field));
     [
-        { key: 'throttle_start_voltage', label: 'Throttle start voltage', unit: 'V', min: 0, max: 4.2, step: 0.1,
-            help: 'Throttle ADC voltage that reads as "no throttle input". Below this, the throttle contributes nothing — the natural off-point for a disconnected or idle throttle.' },
-        { key: 'throttle_max_voltage', label: 'Throttle maximum voltage', unit: 'V', min: 0, max: 4.2, step: 0.1,
-            help: 'Throttle ADC voltage that reads as "full throttle". Between Start and here, throttle current ramps linearly up to the level\'s current limit.' },
         { key: 'current_loading_time', label: 'PAS timeout', unit: 's', min: 0.1, max: 25.5, step: 0.1,
             help: 'LIVE setting that affects riding. It is how long the pedal sensor may go without a torque/rotation signal before cadence is forced to zero and the reverse-pedalling latch clears. Very short values can falsely read as "stopped pedalling" during the normal dead-spots between pedal strokes.' },
     ].forEach((field) => createField(ride, draft.p1, field));
