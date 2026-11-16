@@ -15,7 +15,7 @@ function requestTorque() {
     clearTimeout(torqueReadTimer);
     const requestedAt = Date.now();
     torqueReadTimer = setTimeout(() => {
-        if (torqueLastReceived < requestedAt) setText('ebicsTorqueDiagStatus', 'Brak odpowiedzi 0x6025. Wsad NORMAL nie wysy?a diagnostyki ? wgraj DIAG. Sprawd? te? po??czenie.');
+        if (torqueLastReceived < requestedAt) setText('ebicsTorqueDiagStatus', 'Brak odpowiedzi 0x6025. Wsad NORMAL nie wysyła diagnostyki — wgraj DIAG. Sprawdź też połączenie.');
     }, 2000);
 }
 
@@ -140,7 +140,7 @@ export function bindTorqueControls() {
         socket.send(`TORQUE_CAL:${op}${ref !== undefined ? ':' + ref : ''}`);
         setTimeout(() => socket.send('READ_TORQUE'), 300); // refresh status after the op
     };
-    el('ebicsCalStart')?.addEventListener('click', () => { if (!torqueLastReceived || Date.now() - torqueLastReceived > 10000) { requestTorque(); alert('Brak aktualnego potwierdzenia odczytu 0x6025. Wsad NORMAL nie wysy?a diagnostyki ? wgraj DIAG. Sprawd? te? po??czenie i odczytaj dane przed kalibracj?.'); return; } calOp(1); addLog('REQ', 'Calibration: start (capture zero)'); });
+    el('ebicsCalStart')?.addEventListener('click', () => { if (!torqueLastReceived || Date.now() - torqueLastReceived > 10000) { requestTorque(); alert('Brak aktualnego potwierdzenia odczytu 0x6025. Wsad NORMAL nie wysyła diagnostyki — wgraj DIAG. Sprawdź też połączenie i odczytaj dane przed kalibracją.'); return; } calOp(1); addLog('REQ', 'Calibration: start (capture zero)'); });
     el('ebicsCalCapture')?.addEventListener('click', () => {
         const ref = calRefCentikg();
         if (ref < 500 || ref > 3000) { alert('Reference weight must be 5–30 kg.'); return; }

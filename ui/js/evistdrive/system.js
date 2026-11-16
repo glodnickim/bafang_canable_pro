@@ -97,7 +97,7 @@ function requestDiag() {
     const requestedAt = Date.now();
     diagReadTimer = setTimeout(() => {
         diagReadTimer = null;
-        if (diagLastReceived < requestedAt) setText('ebicsDiagStatus', 'Brak odpowiedzi 0x6029. Wsad NORMAL nie wysy?a diagnostyki ? wgraj DIAG. Sprawd? te? po??czenie.');
+        if (diagLastReceived < requestedAt) setText('ebicsDiagStatus', 'Brak odpowiedzi 0x6029. Wsad NORMAL nie wysyła diagnostyki — wgraj DIAG. Sprawdź też połączenie.');
     }, 2000);
 }
 
