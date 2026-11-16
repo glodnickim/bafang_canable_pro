@@ -142,3 +142,6 @@ Każda karta poziomu ma trzy miniwykresy: Wsparcie, Moc (ustawiona moc na tle mo
 
 ### 1.0.14 — jeden wykres na poziom
 Wsparcie, Moc maks. (pozioma linia limitu „W”, ucięta część krzywej blada) i Kop na starcie (żółta przerywana nakładka) na jednym wykresie w karcie poziomu; oś X = nacisk na pedał, ta sama skala dla wszystkich poziomów.
+
+### 1.0.15 — prawdziwy zakres mocy
+Suwak Moc maks. sięga mocy baterii = limit prądu × napięcie systemu z P1 (jak w firmware; zmiany w zakładce Limits też się liczą), plus pozycja „bez limitu”. Domyślne moce trybów to procent tej mocy. Przed odczytem z roweru: wyraźnie oznaczone „przyjęto 15 A × 48 V”. Wykres: kop w czasie (narasta i gaśnie), moc jako poziomy pasek — w jednym polu.
