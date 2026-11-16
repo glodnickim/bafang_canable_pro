@@ -1,43 +1,70 @@
-// evistdrive/v3-model-panel.js — the "Tryby V3" panel: per HMI level a mode, six corrections and
-// two limits, plus the rider/hardware object and live charts of what the settings do.
+// evistdrive/v3-model-panel.js — the "eVistDrive Profiles" panel: per HMI level a mode, six
+// corrections and two limits, plus the rider/hardware object and live charts of what the settings do.
+//
+// Two views of the same model (owner 2026-11-16): "Prosty" (default) shows per level the mode,
+// Wsparcie, Moc maks. and Kop na starcie; "Zaawansowany" shows everything. Every setting is
+// explained ONCE (legend, or one "?" per section) — never repeated in the level cards.
 //
 // One source for the rider-facing character of the bike (design: integration/roadmap/
 // V3_JEDEN_MODEL_PROJEKT_PL.md, plan V3_PLAN_WDROZENIA_20261114_PL.md). Every protocol call goes
 // through v3-model-protocol.js; this file only draws and edits. Until the firmware reports the
 // capability bits (8/10 model, 11 rider) the panel works offline and NEVER sends a write.
-import { socket, addLog, state } from '../shared.js';
+import { socket, addLog, state, helpBadge } from '../shared.js';
 import * as P from './v3-model-protocol.js';
 import { drawLineChart, sample } from './v3-model-charts.js';
 import { el, socketReady, markReadNeeded, writeBankAndWait } from './common.js';
 import { markUnsavedInRam } from './global-actions.js';
 
+// Chart colours per HMI level (the detailed charts draw five levels at once).
 const LEVEL_COLORS = ['#16a34a', '#0ea5e9', '#6366f1', '#f59e0b', '#dc2626'];
-const SLIDERS = [
-    {
-        key: 'assist', label: 'Assist', left: 'mniej', right: 'więcej',
-        help: 'Siła wspomagania: mnoży to, co daje mapa. 50 = fabrycznie dla trybu. W prawo więcej wsparcia przy tym samym nacisku, w lewo mniej (×0,5…×2).',
-    },
-    {
-        key: 'attack', label: 'Attack', left: 'łagodniej', right: 'szybciej',
-        help: 'Jak szybko silnik dochodzi do mocy po naciśnięciu pedału. 50 = fabrycznie. W prawo szybciej (krótszy czas narastania), w lewo łagodniej.',
-    },
-    {
-        key: 'release', label: 'Release', left: 'wolniej', right: 'szybciej',
-        help: 'Jak szybko wspomaganie opada, gdy odpuszczasz nacisk. 50 = fabrycznie. W prawo szybsze opadanie, w lewo silnik dłużej trzyma moc.',
-    },
-    {
-        key: 'start', label: 'Start', left: 'wył. / łagodniej', right: 'żwawiej',
-        help: 'Kop przy ruszaniu (stan Start: tylko z postoju, poniżej 6 km/h, gaśnie do 50 obr/min). 50 = fabrycznie. W prawo pełny kop przy lżejszym nacisku, w lewo potrzeba mocniejszego. 0 = Start wyłączony.',
-    },
-    {
-        key: 'carry', label: 'Carry', left: 'wył. / słabiej', right: 'mocniej',
-        help: 'Podtrzymanie wspomagania po chwilowym przerwaniu pedałowania (np. zmiana biegu, przeszkoda). 50 = fabrycznie. W prawo mocniej, w lewo słabiej. 0 = wyłączone.',
-    },
-    {
-        key: 'range', label: 'Zakres', left: 'dłuższy', right: 'krótszy',
-        help: 'Jaki wysiłek daje pełne wyjście mapy wysiłku. 50 = fabrycznie (e_full trybu). W prawo krótszy zakres: 100 % przy lżejszym nacisku. W lewo dłuższy: trzeba mocniej nacisnąć. Działa tylko z włączoną mapą wysiłku.',
-    },
+// Colour and one-line character per mode (index = P.MODES id).
+const MODE_STYLE = [
+    { color: '#16a34a', line: 'Spokojnie i oszczędnie: łagodne wsparcie, długi zasięg.' },
+    { color: '#0d9488', line: 'Równe, naturalne wsparcie na co dzień i w teren.' },
+    { color: '#ea580c', line: 'Żwawo: mocne wsparcie i szybsza reakcja.' },
+    { color: '#dc2626', line: 'Bardzo dynamicznie: wsparcie mocno rośnie z naciskiem.' },
+    { color: '#9333ea', line: 'Pełna moc już przy krótkim zakresie nacisku.' },
+    { color: '#2563eb', line: 'Charakter jak TRAIL (punkt TRAIL), moc do 750 W.' },
 ];
+const modeColor = (id) => MODE_STYLE[id]?.color ?? '#2563eb';
+
+// Corrections 0..100 (50 = factory for the mode). `simple` = shown in the simple view.
+const SLIDERS = [
+    { key: 'assist', label: 'Wsparcie', simple: true },
+    { key: 'attack', label: 'Narastanie' },
+    { key: 'release', label: 'Opadanie' },
+    { key: 'start', label: 'Kop na starcie', simple: true, off: true },
+    { key: 'carry', label: 'Podtrzymanie', off: true },
+    { key: 'range', label: 'Zakres' },
+];
+
+// The ONE place every setting is explained. `adv` = only relevant in the advanced view.
+const LEGEND = [
+    { name: 'Wsparcie (Assist)', short: 'Ile silnik dokłada do Twojego nacisku.', full: 'Siła wspomagania: mnoży to, co daje mapa. 50 = fabrycznie dla trybu. W prawo więcej wsparcia przy tym samym nacisku, w lewo mniej (×0,5…×2).' },
+    { name: 'Moc maks. (Max Power)', short: 'Sufit mocy z baterii na tym poziomie.', full: 'Sufit mocy pobieranej z baterii na tym poziomie. Limit baterii i prądu fazy zostają nadrzędne. Skrajnie w prawo albo „limit sprzętu” (65000) = bez limitu trybu. Mniej W = spokojniej przy wysokiej kadencji i prędkości. Zmiana trybu ustawia jego domyślną moc.' },
+    { name: 'Kop na starcie (Start)', short: 'Dodatkowa siła przy ruszaniu z miejsca. 0 = wyłączony.', full: 'Kop przy ruszaniu (stan Start: tylko z postoju, poniżej 6 km/h, gaśnie do 50 obr/min). 50 = fabrycznie. W prawo pełny kop przy lżejszym nacisku, w lewo potrzeba mocniejszego. 0 = Start wyłączony.' },
+    { name: 'Narastanie (Attack)', adv: true, short: 'Jak szybko silnik dochodzi do mocy.', full: 'Jak szybko silnik dochodzi do mocy po naciśnięciu pedału. 50 = fabrycznie. W prawo szybciej (krótszy czas narastania), w lewo łagodniej.' },
+    { name: 'Opadanie (Release)', adv: true, short: 'Jak szybko wsparcie gaśnie, gdy odpuszczasz.', full: 'Jak szybko wspomaganie opada, gdy odpuszczasz nacisk. 50 = fabrycznie. W prawo szybsze opadanie, w lewo silnik dłużej trzyma moc.' },
+    { name: 'Podtrzymanie (Carry)', adv: true, short: 'Wsparcie w krótkiej przerwie pedałowania. 0 = wył.', full: 'Podtrzymanie wspomagania po chwilowym przerwaniu pedałowania (np. zmiana biegu, przeszkoda). 50 = fabrycznie. W prawo mocniej, w lewo słabiej. 0 = wyłączone.' },
+    { name: 'Zakres (Range)', adv: true, short: 'Przy jakim nacisku wsparcie dochodzi do 100 %.', full: 'Jaki wysiłek daje pełne wyjście mapy wysiłku. 50 = fabrycznie (e_full trybu). W prawo krótszy zakres: 100 % przy lżejszym nacisku. W lewo dłuższy: trzeba mocniej nacisnąć. Działa tylko z włączoną mapą wysiłku.' },
+    { name: 'Max Torque', adv: true, short: 'Sufit momentu silnika (% dozwolonego Iq, nie Nm).', full: 'Sufit momentu silnika: ułamek dozwolonego prądu Iq. Obcina mapę i kop Start; najbardziej czuć go pod górę i przy ruszaniu. Zmiana trybu ustawia jego domyślny Max Torque.' },
+    { name: '50 i ↺', short: '50 = ustawienie fabryczne trybu; ↺ wraca do niego.', full: 'Każda korekta 0..100 działa wokół wartości fabrycznej trybu: 50 = fabrycznie, mnożnik ×0,5 przy 0 … ×2 przy 100. Ikona ↺ przy suwaku przywraca wartość fabryczną (dla mocy: domyślną moc trybu).' },
+    { name: 'Miniwykres', short: 'Wsparcie od nacisku; przerywana linia = fabrycznie.', full: 'Miniwykres w karcie: wyjście mapy wysiłku (po korekcie Wsparcia i Zakresu, obcięte przez Max Torque) od nacisku przy 60 obr/min. Linia przerywana: ten sam tryb z korektami 50. Liczony z wartości na ekranie, nie z pomiaru.' },
+    { name: 'Wartości efektywne', adv: true, short: 'Wynik korekty w jednostkach (s, kg, %).', full: 'Pod suwakiem w widoku zaawansowanym: co dana korekta daje w liczbach, obok wartości domyślnej trybu. Mnożnik (×) obok wartości: 0 → ×0,5, 50 → ×1, 100 → ×2.' },
+    { name: 'Pierwszeństwo', short: 'Hamulec, błędy, stop i jazda wstecz zawsze wygrywają.', full: 'Hamulec, błędy, stop i jazda wstecz mają zawsze pierwszeństwo przed każdym ustawieniem trybu. Korekty są osobne dla każdego poziomu, także gdy kilka poziomów ma ten sam tryb.' },
+];
+
+const PRESSURE_HELP = 'Start z miejsca: najmniejszy nacisk, przy którym wspomaganie rusza, gdy koło stoi (wymaga też obrotu korby). '
+    + 'Start w czasie jazdy: próg, gdy koło się toczy (powyżej 3 km/h); ten sam próg jest „trafieniem” podtrzymania — jadące wspomaganie gaśnie, gdy przez pełny obrót korby albo „Czas bez nacisku” nacisk ani razu go nie przekroczy. Nie może być większy niż start z miejsca. '
+    + 'Wartości są faktycznym progiem zadziałania V3 (dokładność czujnika ok. ±0,3 kg); dolna granica obu progów to ok. 1,5 kg (szum czujnika 10 mV) — niższa wartość działa jak 1,5 kg.';
+
+const VIEW_KEY = 'evdProfilesView';
+function loadView() {
+    try { return globalThis.localStorage?.getItem(VIEW_KEY) === 'advanced' ? 'advanced' : 'simple'; } catch { return 'simple'; }
+}
+function saveView(view) {
+    try { globalThis.localStorage?.setItem(VIEW_KEY, view); } catch { /* private window: the choice just is not remembered */ }
+}
 
 const model = {
     levels: P.factoryLevels(),
@@ -53,12 +80,15 @@ const model = {
     chartLevel: 2, // index 0..4 of the level drawn in the Start chart
     chartCadence: 60,
     chartForce: 20,
+    view: loadView(),
+    // open state of the collapsible sections, kept across re-renders
+    open: { legend: false, pressure: true, rider: false, charts: false, hardware: false },
 };
 
 const seconds = (ms) => `${(ms / 1000).toFixed(ms >= 10000 ? 0 : 2).replace(/\.?0+$/, '')} s`;
 const fmtPercent = (value) => `${(Math.round(value * 10) / 10).toString().replace('.', ',')} %`;
 const fmtNum = (value, digits = 2) => value.toFixed(digits).replace('.', ',');
-const kg = (x10) => `${fmtNum(x10 / 10, 1)} kg`;
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
 function clientFor() {
     if (!model.client) model.client = P.createModelClient(P.createSocketTransport(socket));
@@ -73,6 +103,8 @@ const canPersist = () => v3ModelCanWrite() || v3RiderCanWrite();
 export const v3ModelIsDirty = () => !!model.baseline
     && !P.levelsEqual(model.levels, model.baseline);
 const riderDirty = () => !model.riderBaseline || !P.ridersEqual(model.rider, model.riderBaseline);
+const readDone = () => !!(model.baseline || model.riderBaseline);
+const isAdvanced = () => model.view === 'advanced';
 
 /** Multiplier shown next to a slider (×0,50 … ×2,00). */
 const multiplierText = (x) => `×${fmtNum(P.multiplier(x))}`;
@@ -120,145 +152,23 @@ function statusText() {
 function levelWarning(level) {
     const mode = P.MODES[level.mode];
     const out = [];
-    if (level.start === 0) out.push('Start = 0: kop przy ruszaniu wyłączony.');
-    if (level.carry === 0) out.push('Carry = 0: podtrzymanie wyłączone.');
+    if (level.start === 0) out.push('Kop na starcie = 0: kop przy ruszaniu wyłączony.');
+    if (level.carry === 0) out.push('Podtrzymanie = 0: wyłączone.');
     if (level.maxPowerW !== P.HW_POWER_W && level.maxPowerW < mode.powerW) {
-        out.push(`Max Power poniżej domyślnego dla ${mode.name} (${mode.powerW} W): moc obcięta wcześniej niż fabrycznie.`);
+        out.push(`Moc maks. poniżej domyślnej dla ${mode.name} (${mode.powerW} W): moc obcięta wcześniej niż fabrycznie.`);
     }
-    if (level.maxTorquePct < mode.torquePct) out.push(`Max Torque poniżej domyślnego (${mode.torquePct} %): obcina też kop Start.`);
+    if (level.maxTorquePct < mode.torquePct) out.push(`Max Torque poniżej domyślnego (${mode.torquePct} %): obcina też kop na starcie.`);
     if (!model.rider.effortMap && level.range !== 50) out.push('Zakres ≠ 50, ale mapa wysiłku jest wyłączona: korekta nie działa.');
     return out;
 }
 
-function hint(text) {
-    const p = document.createElement('div');
-    p.className = 'evd-v3-help';
-    p.textContent = text;
-    return p;
-}
+// ---- small DOM helpers ------------------------------------------------------------------
 
-function sliderRow(index, spec) {
-    const level = model.levels[index];
-    const wrap = document.createElement('div');
-    wrap.className = 'evd-v3-row';
-    const id = `evdV3-${index}-${spec.key}`;
-    const label = document.createElement('label');
-    label.htmlFor = id;
-    label.className = 'evd-v3-label';
-    label.textContent = spec.label;
-    const track = document.createElement('div');
-    track.className = 'evd-v3-track';
-    const left = document.createElement('small');
-    left.textContent = spec.left;
-    const input = document.createElement('input');
-    input.type = 'range'; input.min = '0'; input.max = '100'; input.step = '1';
-    input.id = id; input.value = String(level[spec.key]); input.className = 'evd-v3-slider';
-    input.setAttribute('list', 'evdV3Ticks');
-    const right = document.createElement('small');
-    right.textContent = spec.right;
-    const value = document.createElement('input');
-    value.type = 'number'; value.min = '0'; value.max = '100'; value.step = '1';
-    value.value = String(level[spec.key]); value.className = 'form-input evd-v3-number';
-    value.setAttribute('aria-label', `${spec.label}, poziom ${index + 1}`);
-    const mult = document.createElement('span');
-    mult.className = 'evd-v3-mult';
-    mult.textContent = multiplierText(level[spec.key]);
-    const reset = document.createElement('button');
-    reset.type = 'button'; reset.className = 'btn btn-secondary btn-sm evd-v3-fifty';
-    reset.textContent = '50'; reset.title = '50 = fabryczna wartość trybu';
-    track.append(left, input, right, value, mult, reset);
-    const caption = document.createElement('div');
-    caption.className = 'evd-v3-effective';
-    caption.textContent = describeEffective(level, spec.key);
-    const disabled = spec.key === 'range' && !model.rangeKnown;
-    if (disabled) {
-        [input, value, reset].forEach((x) => { x.disabled = true; });
-        caption.textContent = 'Firmware przysłał obiekt w wersji 1 (bez pola Zakres): korekta niedostępna, sterownik używa e_full trybu.';
-    }
-    const apply = (raw) => {
-        const next = Math.min(100, Math.max(0, Math.round(Number(raw))));
-        if (!Number.isFinite(next)) return;
-        level[spec.key] = next;
-        input.value = String(next); value.value = String(next);
-        mult.textContent = multiplierText(next);
-        wrap.classList.toggle('is-default', next === 50);
-        caption.textContent = describeEffective(level, spec.key);
-        refreshWarnings(index);
-        markEdited(index);
-        refreshCharts();
-    };
-    wrap.classList.toggle('is-default', level[spec.key] === 50);
-    input.addEventListener('input', () => apply(input.value));
-    value.addEventListener('change', () => apply(value.value));
-    reset.addEventListener('click', () => apply(50));
-    wrap.append(label, track, caption, hint(spec.help));
-    return wrap;
-}
-
-function refreshWarnings(index) {
-    const box = el(`evdV3Warn-${index}`);
-    if (!box) return;
-    box.replaceChildren(...levelWarning(model.levels[index]).map((text) => {
-        const p = document.createElement('div'); p.className = 'form-hint'; p.textContent = text; return p;
-    }));
-}
-
-function markEdited(index) {
-    el(`evdV3Card-${index}`)?.classList.add('is-edited');
-    markUnsavedInRam();
-}
-
-function limitsRow(index) {
-    const level = model.levels[index];
-    const wrap = document.createElement('div');
-    wrap.className = 'evd-v3-limits';
-    const mode = P.MODES[level.mode];
-
-    const powerBox = document.createElement('div');
-    const power = document.createElement('label');
-    power.className = 'evd-v3-limit';
-    const hw = level.maxPowerW === P.HW_POWER_W;
-    const powerName = document.createElement('span'); powerName.className = 'evd-v3-label'; powerName.textContent = 'Max Power';
-    const hwBox = document.createElement('input');
-    hwBox.type = 'checkbox'; hwBox.checked = hw;
-    const hwText = document.createElement('span'); hwText.textContent = 'limit sprzętu';
-    const watts = document.createElement('input');
-    watts.type = 'number'; watts.min = '50'; watts.max = '64999'; watts.step = '10';
-    watts.className = 'form-input'; watts.disabled = hw;
-    watts.value = hw ? '' : String(level.maxPowerW);
-    watts.setAttribute('aria-label', `Max Power w watach, poziom ${index + 1}`);
-    const unit = document.createElement('span'); unit.textContent = `W (domyślnie ${mode.powerW === P.HW_POWER_W ? 'limit sprzętu' : `${mode.powerW} W`})`;
-    const onPower = () => {
-        if (hwBox.checked) { level.maxPowerW = P.HW_POWER_W; watts.disabled = true; watts.value = ''; }
-        else {
-            watts.disabled = false;
-            if (!watts.value) watts.value = String(mode.powerW === P.HW_POWER_W ? 750 : mode.powerW);
-            level.maxPowerW = Math.round(Number(watts.value));
-        }
-        refreshWarnings(index); markEdited(index); refreshCharts();
-    };
-    hwBox.addEventListener('change', onPower);
-    watts.addEventListener('change', onPower);
-    power.append(powerName, hwBox, hwText, watts, unit);
-    powerBox.append(power, hint('Sufit mocy pobieranej z baterii na tym poziomie. Limit baterii i prądu fazy zostają nadrzędne. „limit sprzętu” (65000) = bez limitu trybu. Mniej W = spokojniej przy wysokiej kadencji i prędkości.'));
-
-    const torqueBox = document.createElement('div');
-    const torque = document.createElement('label');
-    torque.className = 'evd-v3-limit';
-    const torqueName = document.createElement('span'); torqueName.className = 'evd-v3-label'; torqueName.textContent = 'Max Torque';
-    const pct = document.createElement('input');
-    pct.type = 'number'; pct.min = '1'; pct.max = '100'; pct.step = '1';
-    pct.className = 'form-input'; pct.value = String(level.maxTorquePct);
-    pct.setAttribute('aria-label', `Max Torque w procentach, poziom ${index + 1}`);
-    pct.addEventListener('change', () => {
-        level.maxTorquePct = Math.round(Number(pct.value));
-        refreshWarnings(index); markEdited(index); refreshCharts();
-    });
-    const pctUnit = document.createElement('span'); pctUnit.textContent = `% dozwolonego Iq (nie Nm; domyślnie ${mode.torquePct} %)`;
-    torque.append(torqueName, pct, pctUnit);
-    torqueBox.append(torque, hint('Sufit momentu silnika: ułamek dozwolonego prądu Iq. Obcina mapę i kop Start; najbardziej czuć go pod górę i przy ruszaniu.'));
-    wrap.append(powerBox, torqueBox);
-    return wrap;
+function node(tag, className, text) {
+    const n = document.createElement(tag);
+    if (className) n.className = className;
+    if (text !== undefined) n.textContent = text;
+    return n;
 }
 
 function button(text, className, onClick, { id, disabled = false, title = '' } = {}) {
@@ -270,123 +180,402 @@ function button(text, className, onClick, { id, disabled = false, title = '' } =
     return b;
 }
 
-function levelCard(index) {
-    const level = model.levels[index];
-    const card = document.createElement('section');
-    card.className = 'ebics-card evd-v3-card';
-    card.id = `evdV3Card-${index}`;
-    card.style.borderTop = `4px solid ${LEVEL_COLORS[index]}`;
-    const head = document.createElement('div');
-    head.className = 'evd-v3-head';
-    const title = document.createElement('div');
-    title.className = 'ebics-card-title';
-    title.textContent = `Poziom ${index + 1} (przycisk HMI)`;
-    const modeSelect = document.createElement('select');
-    modeSelect.className = 'form-select';
-    modeSelect.setAttribute('aria-label', `Tryb dla poziomu ${index + 1}`);
-    P.MODES.forEach((mode) => modeSelect.add(new Option(mode.name, String(mode.id))));
-    modeSelect.value = String(level.mode);
-    modeSelect.addEventListener('change', () => {
-        level.mode = Number(modeSelect.value);
-        // A new mode brings its own default limits; the corrections stay where the rider put them.
-        const mode = P.MODES[level.mode];
-        level.maxPowerW = mode.powerW; level.maxTorquePct = mode.torquePct;
-        markEdited(index);
-        renderPanel();
+/** Collapsible section; its open state survives re-renders. */
+function section(key, title, { id, className = '', help } = {}) {
+    const box = document.createElement('details');
+    box.className = `ebics-card evd-v3-sec ${className}`.trim();
+    if (id) box.id = id;
+    box.open = !!model.open[key];
+    const summary = node('summary', 'ebics-card-title evd-v3-sec-title');
+    summary.append(node('span', '', title));
+    if (help) summary.appendChild(helpBadge(help));
+    box.appendChild(summary);
+    box.addEventListener('toggle', () => {
+        model.open[key] = box.open;
+        if (key === 'charts' && box.open) refreshCharts();
     });
-    head.append(title, modeSelect);
-    card.appendChild(head);
-    card.appendChild(hint('Tryb wybiera charakter (ECO spokojny … BOOST pełna moc przy krótkim zakresie nacisku, AUTO = punkt TRAIL). Zmiana trybu ustawia jego domyślne Max Power i Max Torque.'));
-    const sharedWith = model.levels.map((l, i) => (i !== index && l.mode === level.mode ? i + 1 : null)).filter(Boolean);
-    if (sharedWith.length) {
-        const note = document.createElement('div');
-        note.className = 'form-hint';
-        note.textContent = `Ten sam tryb mają też poziomy: ${sharedWith.join(', ')}. Korekty są jednak osobne dla każdego poziomu.`;
-        card.appendChild(note);
+    return box;
+}
+
+/**
+ * A big slider: label, value badge (or a number field in the advanced view), a small ↺ reset
+ * icon and a thick range input. `get()` returns the slider position after the model changed.
+ */
+function bigSlider(o) {
+    const row = node('div', 'evd-sl');
+    const head = node('div', 'evd-sl-head');
+    const label = node('label', 'evd-sl-label', o.label);
+    label.htmlFor = o.id;
+    const input = document.createElement('input');
+    input.type = 'range'; input.className = 'evd-range'; input.id = o.id;
+    input.min = String(o.min); input.max = String(o.max); input.step = String(o.step);
+    let badge;
+    if (o.numberAria) {
+        badge = document.createElement('input');
+        badge.type = 'number'; badge.className = 'evd-sl-badge evd-sl-number';
+        badge.min = String(o.min); badge.max = String(o.max); badge.step = String(o.step);
+        badge.setAttribute('aria-label', o.numberAria);
+    } else {
+        badge = node('span', 'evd-sl-badge');
+        badge.setAttribute('aria-hidden', 'true');
     }
-    SLIDERS.forEach((spec) => card.appendChild(sliderRow(index, spec)));
-    card.appendChild(limitsRow(index));
-    const warn = document.createElement('div');
-    warn.id = `evdV3Warn-${index}`;
-    card.appendChild(warn);
-    const actions = document.createElement('div');
-    actions.className = 'evd-v3-actions';
-    const writable = v3ModelCanWrite();
-    const blockedTitle = 'Zablokowane: firmware nie zgłasza zapisu modelu (bit 8 i 10).';
-    actions.append(
-        button('Fabryczne na ekranie', 'btn btn-secondary btn-sm', () => {
-            model.levels[index] = P.factoryLevels()[index];
+    const sub = o.sub ? node('span', 'evd-sl-sub') : null;
+    const reset = o.reset ? button('↺', 'evd-sl-reset', () => { o.onInput(o.reset.value()); show(); }, { title: o.reset.title }) : null;
+    if (reset) reset.setAttribute('aria-label', `${o.label}: ${o.reset.title}`);
+    head.append(label, ...(sub ? [sub] : []), ...(reset ? [reset] : []), badge);
+    row.append(head, input);
+    function show() {
+        const pos = o.get();
+        input.value = String(pos);
+        input.style.setProperty('--fill', `${((clamp(pos, o.min, o.max) - o.min) / (o.max - o.min)) * 100}%`);
+        if (o.numberAria) badge.value = String(pos); else badge.textContent = o.badge(pos);
+        input.setAttribute('aria-valuetext', o.badge(pos));
+        if (sub) sub.textContent = o.sub(pos);
+        row.classList.toggle('is-default', !!o.isDefault?.(pos));
+    }
+    input.addEventListener('input', () => { o.onInput(Number(input.value)); show(); });
+    if (o.numberAria) {
+        badge.addEventListener('change', () => {
+            const v = Number(badge.value);
+            if (Number.isFinite(v)) o.onInput(clamp(v, o.min, o.max));
+            show();
+        });
+    }
+    if (o.disabled) [input, badge, reset].forEach((x) => { if (x) x.disabled = true; });
+    show();
+    return { row, show };
+}
+
+// ---- level cards --------------------------------------------------------------------------
+
+function afterLevelEdit(index) {
+    refreshWarnings(index);
+    refreshMini(index);
+    markEdited(index);
+    refreshCharts();
+}
+
+function correctionSlider(index, spec) {
+    const level = model.levels[index];
+    const advanced = isAdvanced();
+    const disabled = spec.key === 'range' && !model.rangeKnown;
+    let caption = null;
+    const s = bigSlider({
+        id: `evdV3-${index}-${spec.key}`, label: spec.label, min: 0, max: 100, step: 1,
+        get: () => level[spec.key],
+        badge: (v) => (spec.off && v === 0 ? 'wył.' : String(v)),
+        sub: (v) => multiplierText(v),
+        isDefault: (v) => v === 50,
+        numberAria: advanced ? `${spec.label}, poziom ${index + 1}` : null,
+        reset: { title: 'wartość fabryczna (50)', value: () => 50 },
+        disabled,
+        onInput: (raw) => {
+            const next = clamp(Math.round(Number(raw)), 0, 100);
+            if (!Number.isFinite(next)) return;
+            level[spec.key] = next;
+            if (caption) caption.textContent = describeEffective(level, spec.key);
+            afterLevelEdit(index);
+        },
+    });
+    if (advanced) {
+        caption = node('div', 'evd-v3-effective', disabled
+            ? 'Obiekt w wersji 1 (bez pola Zakres): sterownik używa e_full trybu.'
+            : describeEffective(level, spec.key));
+        s.row.appendChild(caption);
+    }
+    return s.row;
+}
+
+// Simple-view power slider: 100..1500 W in 50 W steps, the last stop = no mode limit (65000).
+const POWER_MIN = 100;
+const POWER_MAX = 1500;
+const POWER_HW_POS = POWER_MAX + 50;
+const powerPos = (w) => (w === P.HW_POWER_W ? POWER_HW_POS : clamp(w, POWER_MIN, POWER_MAX));
+
+function powerSlider(index) {
+    const level = model.levels[index];
+    return bigSlider({
+        id: `evdV3-${index}-power`, label: 'Moc maks.', min: POWER_MIN, max: POWER_HW_POS, step: 50,
+        get: () => powerPos(level.maxPowerW),
+        badge: () => (level.maxPowerW === P.HW_POWER_W ? 'bez limitu' : `${level.maxPowerW} W`),
+        isDefault: () => level.maxPowerW === P.MODES[level.mode].powerW,
+        reset: { title: 'domyślna moc trybu', value: () => powerPos(P.MODES[level.mode].powerW) },
+        onInput: (pos) => {
+            level.maxPowerW = pos >= POWER_HW_POS ? P.HW_POWER_W : clamp(Math.round(pos), POWER_MIN, POWER_MAX);
+            afterLevelEdit(index);
+        },
+    }).row;
+}
+
+function refreshWarnings(index) {
+    const box = el(`evdV3Warn-${index}`);
+    if (!box) return;
+    const lines = levelWarning(model.levels[index]);
+    if (!lines.length) { box.replaceChildren(); return; }
+    const badge = helpBadge(lines.join(' '));
+    badge.classList.add('evd-warn-badge');
+    badge.setAttribute('aria-label', `Uwagi do poziomu ${index + 1}: ${lines.length}`);
+    box.replaceChildren(badge);
+}
+
+function markEdited(index) {
+    el(`evdV3Card-${index}`)?.classList.add('is-edited');
+    markUnsavedInRam();
+}
+
+function limitsRow(index) {
+    const level = model.levels[index];
+    const wrap = node('div', 'evd-v3-limits');
+    const mode = P.MODES[level.mode];
+
+    const power = node('label', 'evd-v3-limit');
+    const hw = level.maxPowerW === P.HW_POWER_W;
+    const hwBox = document.createElement('input');
+    hwBox.type = 'checkbox'; hwBox.checked = hw;
+    hwBox.setAttribute('aria-label', `Moc maks.: limit sprzętu, poziom ${index + 1}`);
+    const watts = document.createElement('input');
+    watts.type = 'number'; watts.min = '50'; watts.max = '64999'; watts.step = '10';
+    watts.className = 'form-input'; watts.disabled = hw;
+    watts.value = hw ? '' : String(level.maxPowerW);
+    watts.setAttribute('aria-label', `Max Power w watach, poziom ${index + 1}`);
+    const onPower = () => {
+        if (hwBox.checked) { level.maxPowerW = P.HW_POWER_W; watts.disabled = true; watts.value = ''; }
+        else {
+            watts.disabled = false;
+            if (!watts.value) watts.value = String(mode.powerW === P.HW_POWER_W ? 750 : mode.powerW);
+            level.maxPowerW = Math.round(Number(watts.value));
+        }
+        afterLevelEdit(index);
+    };
+    hwBox.addEventListener('change', onPower);
+    watts.addEventListener('change', onPower);
+    power.append(node('span', 'evd-v3-label', 'Moc maks.'), watts, node('span', 'evd-v3-unit', 'W'), hwBox, node('span', 'evd-v3-unit', 'limit sprzętu'));
+    power.title = `Domyślnie ${mode.powerW === P.HW_POWER_W ? 'limit sprzętu' : `${mode.powerW} W`}`;
+
+    const torque = node('label', 'evd-v3-limit');
+    const pct = document.createElement('input');
+    pct.type = 'number'; pct.min = '1'; pct.max = '100'; pct.step = '1';
+    pct.className = 'form-input'; pct.value = String(level.maxTorquePct);
+    pct.setAttribute('aria-label', `Max Torque w procentach, poziom ${index + 1}`);
+    pct.addEventListener('change', () => {
+        level.maxTorquePct = Math.round(Number(pct.value));
+        afterLevelEdit(index);
+    });
+    torque.append(node('span', 'evd-v3-label', 'Max Torque'), pct, node('span', 'evd-v3-unit', `% (dom. ${mode.torquePct})`));
+    wrap.append(power, torque);
+    return wrap;
+}
+
+/** Tiny SVG of the effort map for one level: solid = now, dashed = same mode at 50. */
+function miniChart(index) {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('class', 'evd-v3-mini');
+    svg.setAttribute('viewBox', '0 0 200 56');
+    svg.setAttribute('preserveAspectRatio', 'none');
+    svg.setAttribute('role', 'img');
+    svg.id = `evdV3Mini-${index}`;
+    drawMini(svg, index);
+    return svg;
+}
+
+function drawMini(svg, index) {
+    const level = model.levels[index];
+    const t0 = model.rider.riderStrengthX10kg / 10;
+    const cadence = 60;
+    const tMax = P.tMaxKg(cadence, t0);
+    const xMax = Math.max(10, tMax * 1.2);
+    const factory = { ...level, assist: 50, range: 50, maxTorquePct: P.MODES[level.mode].torquePct };
+    const now = sample((f) => P.effortOutput(f, cadence, level, t0).output, xMax, 40);
+    const base = sample((f) => P.effortOutput(f, cadence, factory, t0).output, xMax, 40);
+    // Common scale (100 % of the full output) so the cards compare at a glance.
+    const yMax = Math.max(1, ...now.map((p) => p[1]), ...base.map((p) => p[1])) * 1.04;
+    const X = (x) => (x / xMax) * 200;
+    const Y = (y) => 54 - (y / yMax) * 50;
+    const path = (pts) => pts.map(([x, y], i) => `${i ? 'L' : 'M'}${X(x).toFixed(1)},${Y(y).toFixed(1)}`).join(' ');
+    const color = modeColor(level.mode);
+    const mk = (tag, attrs) => {
+        const n = document.createElementNS('http://www.w3.org/2000/svg', tag);
+        Object.entries(attrs).forEach(([k, v]) => n.setAttribute(k, String(v)));
+        return n;
+    };
+    const peak = Math.round(100 * Math.max(...now.map((p) => p[1])));
+    svg.setAttribute('aria-label', `Miniwykres wsparcia poziomu ${index + 1}: szczyt ${peak} % skali`);
+    svg.replaceChildren(
+        mk('path', { d: `${path(now)} L200,54 L0,54 Z`, fill: color, 'fill-opacity': 0.14, stroke: 'none' }),
+        mk('path', { d: path(base), fill: 'none', stroke: '#94a3b8', 'stroke-width': 1.5, 'stroke-dasharray': '4 3', 'vector-effect': 'non-scaling-stroke' }),
+        mk('path', { d: path(now), fill: 'none', stroke: color, 'stroke-width': 2.5, 'vector-effect': 'non-scaling-stroke', 'stroke-linejoin': 'round' }),
+    );
+}
+
+function refreshMini(index) {
+    const svg = el(`evdV3Mini-${index}`);
+    if (svg) drawMini(svg, index);
+}
+
+function modePicker(index) {
+    const level = model.levels[index];
+    const seg = node('div', 'evd-mode-seg');
+    seg.setAttribute('role', 'group');
+    seg.setAttribute('aria-label', `Tryb dla poziomu ${index + 1}`);
+    P.MODES.forEach((mode) => {
+        const b = button(mode.name, 'evd-mode-btn', () => {
+            if (level.mode === mode.id) return;
+            level.mode = mode.id;
+            // A new mode brings its own default limits; the corrections stay where the rider put them.
+            level.maxPowerW = mode.powerW; level.maxTorquePct = mode.torquePct;
             markEdited(index);
             renderPanel();
-        }, { title: 'Ustawia fabryczny poziom tylko na ekranie. Nic nie wysyła.' }),
-        button('Fabryczne w sterowniku', 'btn btn-secondary btn-sm', () => { void restoreLevel(index + 1); },
-            { disabled: !writable, title: writable ? 'Sterownik ustawia fabryczny preset tego poziomu w RAM (op 6), potem odczyt.' : blockedTitle }),
-        button('Zapisz ten poziom (RAM)', 'btn btn-blue btn-sm', () => { void writeLevels(index + 1, 1); },
-            { id: `evdV3WriteOne-${index}`, disabled: !writable, title: writable ? 'Zapis jednego poziomu do RAM sterownika, potem odczyt kontrolny.' : blockedTitle }),
-    );
+        }, { title: MODE_STYLE[mode.id]?.line ?? '' });
+        b.style.setProperty('--mode-color', modeColor(mode.id));
+        b.setAttribute('aria-pressed', String(level.mode === mode.id));
+        seg.appendChild(b);
+    });
+    return seg;
+}
+
+function levelCard(index) {
+    const level = model.levels[index];
+    const advanced = isAdvanced();
+    const card = node('section', 'ebics-card evd-v3-card');
+    card.id = `evdV3Card-${index}`;
+    card.style.setProperty('--evd-accent', modeColor(level.mode));
+    if (!model.baseline) card.classList.add('is-preview');
+
+    const head = node('div', 'evd-v3-head');
+    const title = node('div', 'evd-v3-level');
+    title.append(node('span', 'evd-v3-level-no', String(index + 1)), node('span', 'evd-v3-level-name', `Poziom ${index + 1}`));
+    const tags = node('div', 'evd-v3-tags');
+    if (!model.baseline) {
+        const factory = P.levelsEqual([level], [P.factoryLevels()[index]]);
+        tags.appendChild(node('span', 'evd-v3-tag', factory ? 'podgląd fabryczny' : 'nie odczytano'));
+    }
+    const warn = node('span', 'evd-v3-warn');
+    warn.id = `evdV3Warn-${index}`;
+    tags.appendChild(warn);
+    head.append(title, tags);
+
+    const body = node('div', 'evd-v3-body');
+    body.append(modePicker(index), miniChart(index));
+    SLIDERS.filter((spec) => advanced || spec.simple).forEach((spec) => {
+        body.appendChild(correctionSlider(index, spec));
+        if (!advanced && spec.key === 'assist') body.appendChild(powerSlider(index));
+    });
+    if (advanced) body.appendChild(limitsRow(index));
+    card.append(head, body);
+
+    const actions = node('div', 'evd-v3-actions');
+    const writable = v3ModelCanWrite();
+    const blockedTitle = 'Zablokowane: firmware nie zgłasza zapisu modelu (bit 8 i 10).';
+    if (advanced) {
+        actions.append(
+            button('Fabryczne na ekranie', 'btn btn-secondary btn-sm', () => {
+                model.levels[index] = P.factoryLevels()[index];
+                markEdited(index);
+                renderPanel();
+            }, { title: 'Ustawia fabryczny poziom tylko na ekranie. Nic nie wysyła.' }),
+            button('Fabryczne w sterowniku', 'btn btn-secondary btn-sm', () => { void restoreLevel(index + 1); },
+                { disabled: !writable, title: writable ? 'Sterownik ustawia fabryczny preset tego poziomu w RAM (op 6), potem odczyt.' : blockedTitle }),
+        );
+    }
+    actions.appendChild(button('Zapisz ten poziom (RAM)', 'btn btn-blue btn-sm', () => { void writeLevels(index + 1, 1); },
+        { id: `evdV3WriteOne-${index}`, disabled: !writable, title: writable ? 'Zapis jednego poziomu do RAM sterownika, potem odczyt kontrolny.' : blockedTitle }));
     card.appendChild(actions);
     return card;
 }
 
-// ---- rider and hardware (object 5) --------------------------------------------------------
+// ---- legend: every setting explained once ------------------------------------------------
+
+function legendSection() {
+    const box = section('legend', 'Co oznaczają ustawienia', { id: 'evdV3Legend', className: 'evd-v3-legend' });
+    const modes = node('div', 'evd-v3-legend-modes');
+    P.MODES.forEach((mode) => {
+        const item = node('div', 'evd-v3-legend-mode');
+        const chip = node('span', 'evd-v3-chip', mode.name);
+        chip.style.setProperty('--mode-color', modeColor(mode.id));
+        item.append(chip, node('span', '', MODE_STYLE[mode.id]?.line ?? ''));
+        modes.appendChild(item);
+    });
+    const list = node('dl', 'evd-v3-legend-list');
+    LEGEND.filter((item) => isAdvanced() || !item.adv).forEach((item) => {
+        const dt = node('dt', '', item.name);
+        dt.appendChild(helpBadge(item.full));
+        list.append(dt, node('dd', '', item.short));
+    });
+    box.append(modes, list);
+    return box;
+}
+
+// ---- rider and hardware (object 5), advanced view only -----------------------------------
+
+function checkRow(id, label, checked, help, onChange) {
+    const row = node('div', 'evd-v3-row');
+    const line = node('label', 'evd-v3-limit');
+    const box = document.createElement('input');
+    box.type = 'checkbox'; box.checked = checked; box.id = id;
+    box.addEventListener('change', () => onChange(box.checked));
+    line.append(box, node('span', 'evd-v3-label', label));
+    row.append(line, helpBadge(help));
+    return row;
+}
+
+function numberRow({ label, unit, min, max, step, value, onChange, help, aria }) {
+    const row = node('div', 'evd-v3-row');
+    const line = node('label', 'evd-v3-limit');
+    const input = document.createElement('input');
+    input.type = 'number'; input.className = 'form-input';
+    input.min = String(min); input.max = String(max); input.step = String(step); input.value = String(value);
+    if (aria) input.setAttribute('aria-label', aria);
+    input.addEventListener('change', () => { const v = Number(input.value); if (Number.isFinite(v)) onChange(v); });
+    line.append(node('span', 'evd-v3-label', label), input, node('span', 'evd-v3-unit', unit));
+    row.appendChild(line);
+    if (help) row.appendChild(helpBadge(help));
+    return row;
+}
 
 function riderSection() {
-    const box = document.createElement('section');
-    box.className = 'ebics-card evd-v3-rider';
-    box.id = 'evdV3Rider';
-    const title = document.createElement('div');
-    title.className = 'ebics-card-title';
-    title.textContent = 'Rowerzysta i sprzęt';
-    box.append(title, hint('Ustawienia wspólne dla wszystkich poziomów: dotyczą Ciebie i silnika, nie trybu.'));
+    const box = section('rider', 'Rowerzysta i model podtrzymania', {
+        id: 'evdV3Rider', className: 'evd-v3-rider',
+        help: 'Ustawienia wspólne dla wszystkich poziomów: dotyczą Ciebie i silnika, nie trybu.',
+    });
     const r = model.rider;
-
-    // Effort map switch.
-    const mapRow = document.createElement('div'); mapRow.className = 'evd-v3-row';
-    const mapLabel = document.createElement('label'); mapLabel.className = 'evd-v3-limit';
-    const mapBox = document.createElement('input'); mapBox.type = 'checkbox'; mapBox.checked = r.effortMap; mapBox.id = 'evdV3EffortMap';
-    const mapText = document.createElement('span'); mapText.className = 'evd-v3-label'; mapText.textContent = 'Mapa wysiłku';
-    mapLabel.append(mapBox, mapText);
-    mapBox.addEventListener('change', () => { r.effortMap = mapBox.checked; riderEdited(); model.levels.forEach((_, i) => refreshWarnings(i)); });
-    mapRow.append(mapLabel, hint('Włączona (domyślnie): wsparcie zależy od tego, jaką część swoich możliwości przy danej kadencji dajesz — liniowo do 60 % wysiłku (80 % wyjścia), dalej łagodnie. Mocniejszy tryb ma krótszy zakres. Wyłączona: stara mapa (nacisk × kadencja, tabela współczynników), jak przed zmianą; Zakres i Siła rowerzysty wtedy nie działają.'));
-
-    // Rider strength.
+    const mapRow = checkRow('evdV3EffortMap', 'Mapa wysiłku', r.effortMap,
+        'Włączona (domyślnie): wsparcie zależy od tego, jaką część swoich możliwości przy danej kadencji dajesz — liniowo do 60 % wysiłku (80 % wyjścia), dalej łagodnie. Mocniejszy tryb ma krótszy zakres. Wyłączona: stara mapa (nacisk × kadencja, tabela współczynników), jak przed zmianą; Zakres i Siła rowerzysty wtedy nie działają.',
+        (v) => { r.effortMap = v; riderEdited(); model.levels.forEach((_, i) => refreshWarnings(i)); });
     const strength = numberRow({
         label: 'Siła rowerzysty T0', unit: 'kg', min: 10, max: 60, step: 0.5,
         value: r.riderStrengthX10kg / 10,
         onChange: (v) => { r.riderStrengthX10kg = Math.round(v * 10); riderEdited(); },
         help: 'Nacisk (kg) przy pełnym wysiłku na małej kadencji. Możliwości przy kadencji liczone są jako T0·(1 − kad/190). Więcej kg = na to samo wsparcie trzeba mocniej naciskać (silny rowerzysta), mniej = pełne wsparcie przy lżejszym nacisku. Domyślnie 30 kg (z logów jazd).',
     });
+    const grid = node('div', 'evd-v3-rider-grid');
 
     // Hold model (OWNER-DEC-20261115-PRESSURE-HOLD, replaces C1). Older firmware (no capability
     // bit 12): the C1 fields are shown read-only with a note to update the firmware.
     if (r.legacy) {
-        const note = document.createElement('div'); note.className = 'form-hint ebics-stale-warning';
-        note.textContent = 'Firmware bez modelu podtrzymania (stary obiekt 5 z C1). Minimum Iq i czas bez nacisku są dostępne po wgraniu nowego firmware. Poniżej wartości C1 tylko do odczytu; siłę i mapę wysiłku można zapisać.';
-        const c1 = document.createElement('div'); c1.className = 'evd-v3-help';
-        c1.textContent = `C1 (stare firmware): Iq_off ${r.lowAssistOffIq}, Iq_on ${r.lowAssistOnIq} — tylko do odczytu.`;
-        const errorsLegacy = document.createElement('div'); errorsLegacy.id = 'evdV3RiderErrors'; errorsLegacy.className = 'form-hint';
+        const note = node('div', 'form-hint ebics-stale-warning', 'Firmware bez modelu podtrzymania (stary obiekt 5 z C1). Minimum Iq i czas bez nacisku po wgraniu nowego firmware; poniżej C1 tylko do odczytu.');
+        const c1 = node('div', 'evd-v3-effective', `C1 (stare firmware): Iq_off ${r.lowAssistOffIq}, Iq_on ${r.lowAssistOnIq} — tylko do odczytu.`);
+        const errorsLegacy = node('div', 'form-hint'); errorsLegacy.id = 'evdV3RiderErrors';
         const writableLegacy = v3RiderCanWrite();
-        const actionsLegacy = document.createElement('div'); actionsLegacy.className = 'evd-v3-actions';
+        const actionsLegacy = node('div', 'evd-v3-actions');
         actionsLegacy.append(button('Zapisz rowerzystę i sprzęt (RAM)', 'btn btn-blue btn-sm', () => { void writeRider(); },
             { id: 'evdV3WriteRider', disabled: !writableLegacy, title: writableLegacy ? 'Zapis siły i mapy wysiłku; C1 bez zmian.' : 'Zablokowane: firmware nie zgłasza obiektu 5 (bit 11).' }));
-        box.append(mapRow, strength, note, c1, errorsLegacy, actionsLegacy);
+        grid.append(mapRow, strength);
+        box.append(grid, note, c1, errorsLegacy, actionsLegacy);
         return box;
     }
     const pct = (iq) => `${String(P.iqPercent(iq)).replace('.', ',')} % z ${P.PHASE_CURRENT_MAX_IQ}`;
-    const holdRow = document.createElement('div'); holdRow.className = 'evd-v3-row';
-    const holdLabel = document.createElement('label'); holdLabel.className = 'evd-v3-limit';
-    const holdBox = document.createElement('input'); holdBox.type = 'checkbox'; holdBox.checked = r.holdModel; holdBox.id = 'evdV3HoldModel';
-    const holdText = document.createElement('span'); holdText.className = 'evd-v3-label'; holdText.textContent = 'Model podtrzymania';
-    holdLabel.append(holdBox, holdText);
-    holdBox.addEventListener('change', () => { r.holdModel = holdBox.checked; riderEdited(); });
-    holdRow.append(holdLabel, hint('Włączony (domyślnie): wspomaganie startuje po przekroczeniu progu startu, w czasie jazdy trzyma co najmniej minimum Iq poniżej i gaśnie szybko (w tempie BDE8), gdy przez pełny obrót korby albo przez „Czas bez nacisku” nacisk ani razu nie przekroczy progu „Start w czasie jazdy”. Gaśnie też przy zatrzymaniu korby, cofaniu, hamulcu i poziomie 0. Wyłączony: bez minimum i bez tych warunków końca.'));
+    const holdRow = checkRow('evdV3HoldModel', 'Model podtrzymania', r.holdModel,
+        'Włączony (domyślnie): wspomaganie startuje po przekroczeniu progu startu, w czasie jazdy trzyma co najmniej minimum Iq poniżej i gaśnie szybko (w tempie BDE8), gdy przez pełny obrót korby albo przez „Czas bez nacisku” nacisk ani razu nie przekroczy progu „Start w czasie jazdy”. Gaśnie też przy zatrzymaniu korby, cofaniu, hamulcu i poziomie 0. Wyłączony: bez minimum i bez tych warunków końca.',
+        (v) => { r.holdModel = v; riderEdited(); });
     const minLow = numberRow({
-        label: 'Minimum Iq przy ≤30 obr/min', unit: 'Iq', min: 0, max: P.RIDER_LIMITS.iqMinMax, step: 1, value: r.iqMinLow,
+        label: 'Minimum Iq ≤30 obr/min', unit: 'Iq', min: 0, max: P.RIDER_LIMITS.iqMinMax, step: 1, value: r.iqMinLow,
+        aria: 'Minimum Iq przy ≤30 obr/min',
         onChange: (v) => { r.iqMinLow = Math.round(v); riderEdited(); },
-        help: `Najmniejszy prąd silnika w czasie jazdy z naciskiem przy kadencji do 30 obr/min (między 30 a 60 obr/min liniowo do wartości poniżej). Trzyma silnik nad pasmem terkotu wolnobiegu; limity mocy, baterii, prędkości i Max Torque i tak go obcinają. 0 = brak minimum. Domyślnie 28 Iq (4 % z ${P.PHASE_CURRENT_MAX_IQ}); teraz ${pct(r.iqMinLow)}. Nie więcej niż przy ≥60 obr/min.`,
+        help: `Najmniejszy prąd silnika w czasie jazdy z naciskiem przy kadencji do 30 obr/min (między 30 a 60 obr/min liniowo do wartości ≥60). Trzyma silnik nad pasmem terkotu wolnobiegu; limity mocy, baterii, prędkości i Max Torque i tak go obcinają. 0 = brak minimum. Domyślnie 28 Iq (4 % z ${P.PHASE_CURRENT_MAX_IQ}); teraz ${pct(r.iqMinLow)}. Nie więcej niż przy ≥60 obr/min.`,
     });
     const minHigh = numberRow({
-        label: 'Minimum Iq przy ≥60 obr/min', unit: 'Iq', min: 0, max: P.RIDER_LIMITS.iqMinMax, step: 1, value: r.iqMinHigh,
+        label: 'Minimum Iq ≥60 obr/min', unit: 'Iq', min: 0, max: P.RIDER_LIMITS.iqMinMax, step: 1, value: r.iqMinHigh,
+        aria: 'Minimum Iq przy ≥60 obr/min',
         onChange: (v) => { r.iqMinHigh = Math.round(v); riderEdited(); },
         help: `Najmniejszy prąd silnika w czasie jazdy z naciskiem przy kadencji od 60 obr/min. Do minimum prąd dochodzi płynnie (tempo BDE8, bez skoku). 0 = brak minimum (oba punkty). Maks. 120. Domyślnie 42 Iq (6 % z ${P.PHASE_CURRENT_MAX_IQ}); teraz ${pct(r.iqMinHigh)}.`,
     });
@@ -395,17 +584,18 @@ function riderSection() {
         onChange: (v) => { r.tHold100ms = Math.round(v * 10); riderEdited(); },
         help: 'Jak długo wspomaganie czeka na kolejne „trafienie” (nacisk ≥ próg „Start w czasie jazdy”), zanim zgaśnie. Liczy się dłuższy z: ten czas albo czas jednego obrotu korby, najwyżej 4 s (przy bardzo wolnym kręceniu). Niezależnie od czasu wspomaganie gaśnie po pełnym obrocie korby bez nacisku. Zakres 0,5–4,0 s, domyślnie 2,0 s.',
     });
+    grid.append(mapRow, strength, holdRow, minLow, minHigh, tHold);
 
-    const errors = document.createElement('div'); errors.id = 'evdV3RiderErrors'; errors.className = 'form-hint';
+    const errors = node('div', 'form-hint'); errors.id = 'evdV3RiderErrors';
     const writable = v3RiderCanWrite();
-    const actions = document.createElement('div'); actions.className = 'evd-v3-actions';
+    const actions = node('div', 'evd-v3-actions');
     actions.append(
         button('Fabryczne na ekranie', 'btn btn-secondary btn-sm', () => { model.rider = P.factoryRider(); riderEdited(); renderPanel(); },
             { title: 'Siła 30 kg, minimum 28 / 42 Iq, czas bez nacisku 2,0 s, mapa wysiłku i model podtrzymania włączone. Nic nie wysyła.' }),
         button('Zapisz rowerzystę i sprzęt (RAM)', 'btn btn-blue btn-sm', () => { void writeRider(); },
             { id: 'evdV3WriteRider', disabled: !writable, title: writable ? 'Zapis obiektu 5 do RAM sterownika, potem odczyt kontrolny.' : 'Zablokowane: firmware nie zgłasza obiektu 5 (bit 11).' }),
     );
-    box.append(mapRow, strength, holdRow, minLow, minHigh, tHold, errors, actions);
+    box.append(grid, errors, actions);
     return box;
 }
 
@@ -417,82 +607,126 @@ function riderSection() {
 // 2250 CLU is approximately 14.17 kg; round down to the UI step.
 const PRESSURE_LIMITS = { min: 0, max: 14.1, step: 0.1 };
 function activeBankIndex() { return state.lastBanks?.[0]?.active_bank ?? state.lastBanks?.[1]?.active_bank ?? 0; }
+const clampKg = (v) => clamp(Math.round(v * 10) / 10, PRESSURE_LIMITS.min, PRESSURE_LIMITS.max);
+
+function pressureWriteButton(index) {
+    return button('Zapisz progi (RAM)', 'btn btn-blue btn-sm', async () => {
+        const r = await writeBankAndWait(state.lastBanks[index]);
+        addLog(r.ok ? 'ACK' : 'ERROR', r.ok ? `Progi nacisku zapisane w banku ${index + 1} (RAM). Zapis we flash: przycisk globalny.` : `Progi nacisku nie zapisane (${r.reason}).`);
+    }, { id: 'evdV3WritePressure', title: 'Zapis aktywnego banku do RAM sterownika (WRITE_BANK). Trwały zapis: globalny „Save”.' });
+}
+
+function toAdvancedLink(text) {
+    const b = button(text, 'evd-v3-link', () => setProfilesView('advanced'));
+    b.id = 'evdV3PressureToAdvanced';
+    return b;
+}
+
+function pressureSimple(bank, index) {
+    const levels = bank.levels || [];
+    const starts = levels.map((lv) => lv.minimum_pedal_load_kg ?? 0);
+    const rides = levels.map((lv) => lv.riding_minimum_pedal_load_kg ?? 0);
+    const same = (arr) => arr.every((v) => v === arr[0]);
+    const wrap = node('div', 'evd-v3-pressure-simple');
+    if (!levels.length || !same(starts) || !same(rides)) {
+        const line = node('div', 'evd-v3-oneline');
+        line.append(node('span', '', 'Poziomy mają różne progi — '), toAdvancedLink('edytuj w trybie zaawansowanym'));
+        wrap.appendChild(line);
+        return wrap;
+    }
+    const kgText = (v) => `${fmtNum(v, 1)} kg`;
+    let rideSlider = null;
+    const startSlider = bigSlider({
+        id: 'evdV3PressStart', label: 'Start z miejsca', ...PRESSURE_LIMITS,
+        get: () => levels[0].minimum_pedal_load_kg ?? 0, badge: kgText,
+        onInput: (v) => {
+            const kg = clampKg(v);
+            levels.forEach((lv) => {
+                lv.minimum_pedal_load_kg = kg;
+                if ((lv.riding_minimum_pedal_load_kg ?? 0) > kg) lv.riding_minimum_pedal_load_kg = kg;
+            });
+            rideSlider?.show();
+            markUnsavedInRam();
+        },
+    });
+    rideSlider = bigSlider({
+        id: 'evdV3PressRide', label: 'Start w jeździe', ...PRESSURE_LIMITS,
+        get: () => levels[0].riding_minimum_pedal_load_kg ?? 0, badge: kgText,
+        onInput: (v) => {
+            levels.forEach((lv) => { lv.riding_minimum_pedal_load_kg = Math.min(clampKg(v), lv.minimum_pedal_load_kg ?? 0); });
+            markUnsavedInRam();
+        },
+    });
+    const pair = node('div', 'evd-v3-pressure-pair');
+    pair.append(startSlider.row, rideSlider.row);
+    const foot = node('div', 'evd-v3-actions evd-v3-pressure-foot');
+    foot.append(node('span', 'evd-v3-muted', 'Dla wszystkich poziomów ·'), toAdvancedLink('inne dla poziomów → Zaawansowany'), pressureWriteButton(index));
+    wrap.append(pair, foot);
+    return wrap;
+}
+
+function pressureAdvanced(bank, index) {
+    const wrap = node('div');
+    const table = node('div', 'evd-v3-pressure-grid');
+    table.append(node('span', 'evd-v3-pg-head', 'Poziom'), node('span', 'evd-v3-pg-head', 'Start z miejsca'), node('span', 'evd-v3-pg-head', 'Start w jeździe'));
+    const kgInput = (aria, value, onChange) => {
+        const box = node('label', 'evd-v3-limit');
+        const input = document.createElement('input');
+        input.type = 'number'; input.className = 'form-input';
+        input.min = String(PRESSURE_LIMITS.min); input.max = String(PRESSURE_LIMITS.max); input.step = String(PRESSURE_LIMITS.step);
+        input.value = String(value); input.setAttribute('aria-label', aria);
+        input.addEventListener('change', () => { const v = Number(input.value); if (Number.isFinite(v)) onChange(v); });
+        box.append(input, node('span', 'evd-v3-unit', 'kg'));
+        return box;
+    };
+    (bank.levels || []).forEach((lv, i) => {
+        const name = v3ModeNameForLevel(i + 1) ?? `Poziom ${i + 1}`;
+        const label = node('span', 'evd-v3-pg-name', `${i + 1} · ${name}`);
+        const lm = model.levels[i];
+        if (lm) label.style.setProperty('--mode-color', modeColor(lm.mode));
+        table.append(label,
+            kgInput(`${name}: start z miejsca`, lv.minimum_pedal_load_kg ?? 0, (v) => {
+                lv.minimum_pedal_load_kg = clampKg(v);
+                if ((lv.riding_minimum_pedal_load_kg ?? 0) > lv.minimum_pedal_load_kg) lv.riding_minimum_pedal_load_kg = lv.minimum_pedal_load_kg;
+                markUnsavedInRam(); renderPanel();
+            }),
+            kgInput(`${name}: start w czasie jazdy`, lv.riding_minimum_pedal_load_kg ?? 0, (v) => {
+                lv.riding_minimum_pedal_load_kg = Math.min(clampKg(v), lv.minimum_pedal_load_kg ?? 0);
+                markUnsavedInRam(); renderPanel();
+            }));
+    });
+    const actions = node('div', 'evd-v3-actions');
+    actions.appendChild(pressureWriteButton(index));
+    wrap.append(table, actions);
+    return wrap;
+}
+
 function pressureSection() {
-    const box = document.createElement('section');
-    box.className = 'ebics-card evd-v3-pressure';
-    box.id = 'evdV3Pressure';
-    const title = document.createElement('div');
-    title.className = 'ebics-card-title';
-    title.textContent = 'Progi nacisku (kg)';
     const index = activeBankIndex();
     const read = !!(state.lastBanks && state.ebicsReceivedBanks?.[index]);
-    const pressureHint = hint('Start z miejsca: najmniejszy nacisk, przy którym wspomaganie rusza, gdy koło stoi (wymaga też obrotu korby). '
-        + 'Start w czasie jazdy: próg, gdy koło się toczy (powyżej 3 km/h); ten sam próg jest „trafieniem” podtrzymania — jadące wspomaganie gaśnie, gdy przez pełny obrót korby albo „Czas bez nacisku” nacisk ani razu go nie przekroczy. Nie może być większy niż start z miejsca. '
-        + 'Wartości są faktycznym progiem zadziałania V3 (dokładność czujnika ok. ±0,3 kg); dolna granica obu progów to ok. 1,5 kg (szum czujnika 10 mV) — niższa wartość działa jak 1,5 kg.');
-    box.append(title);
     if (!read) {
-        const warn = document.createElement('div'); warn.className = 'form-hint ebics-stale-warning';
-        warn.textContent = 'Bank nie został jeszcze odczytany ze sterownika — naciśnij „Read from bike”. Bez odczytu zapis jest zablokowany.';
-        box.appendChild(warn);
-        return box;
+        // Nothing to show before the bank is read: one line, no empty card.
+        const line = node('div', 'evd-v3-oneline evd-v3-pressure is-collapsed');
+        line.id = 'evdV3Pressure';
+        line.append(node('b', '', 'Progi nacisku'), node('span', 'evd-v3-muted', '— pojawią się po odczycie z roweru („Read from bike”).'));
+        return line;
     }
     const bank = state.lastBanks[index];
     const legacy = bank.bank_schema_version === 9 || bank.bank_schema_version === 10;
+    const box = section('pressure', legacy ? 'Progi nacisku (jednostka wewnętrzna)' : 'Progi nacisku', {
+        id: 'evdV3Pressure', className: 'evd-v3-pressure', help: legacy ? undefined : PRESSURE_HELP,
+    });
     if (legacy) {
-        title.textContent = 'Progi nacisku (jednostka wewnętrzna)';
-        const warning = document.createElement('div'); warning.className = 'form-hint ebics-stale-warning';
-        warning.textContent = 'Stary firmware: wartości są w jednostkach wewnętrznych, nie w kg.';
-        box.appendChild(warning);
-    }
-    if (!legacy) box.appendChild(pressureHint);
-    const table = document.createElement('div'); table.className = 'evd-v3-pressure-grid';
-    if (legacy) {
+        box.appendChild(node('div', 'form-hint ebics-stale-warning', 'Stary firmware: wartości są w jednostkach wewnętrznych, nie w kg.'));
+        const table = node('div', 'evd-v3-pressure-legacy');
         (bank.levels || []).forEach((lv, i) => {
-            const row = document.createElement('div');
-            row.textContent = `Poziom ${i + 1}: start z miejsca ${lv.minimum_pedal_load_clu}, start w czasie jazdy ${lv.riding_minimum_pedal_load_clu} (jednostka wewnętrzna)`;
-            table.appendChild(row);
+            table.appendChild(node('div', '', `Poziom ${i + 1}: start z miejsca ${lv.minimum_pedal_load_clu}, start w czasie jazdy ${lv.riding_minimum_pedal_load_clu}`));
         });
         box.appendChild(table);
         return box;
     }
-    (bank.levels || []).forEach((lv, i) => {
-        const name = v3ModeNameForLevel(i + 1) ?? `Poziom ${i + 1}`;
-        const start = numberRow({
-            label: `${name}: start z miejsca`, unit: 'kg', ...PRESSURE_LIMITS, value: lv.minimum_pedal_load_kg ?? 0,
-            onChange: (v) => { lv.minimum_pedal_load_kg = Math.min(PRESSURE_LIMITS.max, Math.max(PRESSURE_LIMITS.min, Math.round(v * 10) / 10));
-                if ((lv.riding_minimum_pedal_load_kg ?? 0) > lv.minimum_pedal_load_kg) lv.riding_minimum_pedal_load_kg = lv.minimum_pedal_load_kg;
-                markUnsavedInRam(); renderPanel(); },
-            help: `Poziom ${i + 1}: próg startu, gdy koło stoi.`,
-        });
-        const hold = numberRow({
-            label: `${name}: start w czasie jazdy`, unit: 'kg', ...PRESSURE_LIMITS, value: lv.riding_minimum_pedal_load_kg ?? 0,
-            onChange: (v) => { lv.riding_minimum_pedal_load_kg = Math.min(PRESSURE_LIMITS.max, Math.max(PRESSURE_LIMITS.min, Math.round(v * 10) / 10), lv.minimum_pedal_load_kg ?? 0);
-                markUnsavedInRam(); renderPanel(); },
-            help: `Poziom ${i + 1}: próg startu, gdy koło się toczy, i próg trafienia podtrzymania (≤ start z miejsca).`,
-        });
-        table.append(start, hold);
-    });
-    const actions = document.createElement('div'); actions.className = 'evd-v3-actions';
-    actions.append(button('Zapisz progi (RAM)', 'btn btn-blue btn-sm', async () => {
-        const r = await writeBankAndWait(state.lastBanks[index]);
-        addLog(r.ok ? 'ACK' : 'ERROR', r.ok ? `Progi nacisku zapisane w banku ${index + 1} (RAM). Zapis we flash: przycisk globalny.` : `Progi nacisku nie zapisane (${r.reason}).`);
-    }, { id: 'evdV3WritePressure', title: 'Zapis aktywnego banku do RAM sterownika (WRITE_BANK). Trwały zapis: globalny „Save”.' }));
-    box.append(table, actions);
+    box.appendChild(isAdvanced() ? pressureAdvanced(bank, index) : pressureSimple(bank, index));
     return box;
-}
-
-function numberRow({ label, unit, min, max, step, value, onChange, help }) {
-    const row = document.createElement('div'); row.className = 'evd-v3-row';
-    const line = document.createElement('label'); line.className = 'evd-v3-limit';
-    const name = document.createElement('span'); name.className = 'evd-v3-label'; name.textContent = label;
-    const input = document.createElement('input');
-    input.type = 'number'; input.className = 'form-input';
-    input.min = String(min); input.max = String(max); input.step = String(step); input.value = String(value);
-    const u = document.createElement('span'); u.textContent = unit;
-    input.addEventListener('change', () => { const v = Number(input.value); if (Number.isFinite(v)) onChange(v); });
-    line.append(name, input, u);
-    row.append(line, hint(help));
-    return row;
 }
 
 function refreshRiderState() {
@@ -502,6 +736,7 @@ function refreshRiderState() {
     el('evdV3Rider')?.classList.toggle('is-edited', !!model.riderBaseline && riderDirty());
     const write = el('evdV3WriteRider');
     if (write) write.disabled = !v3RiderCanWrite() || errors.length > 0;
+    model.levels.forEach((_, i) => refreshMini(i));
     refreshCharts();
 }
 
@@ -510,45 +745,46 @@ function riderEdited() {
     refreshRiderState();
 }
 
-// ---- charts ---------------------------------------------------------------------------------
+// ---- charts (advanced view) ---------------------------------------------------------------
 
 function chartsSection() {
-    const box = document.createElement('section');
-    box.className = 'ebics-card evd-v3-charts';
-    const title = document.createElement('div');
-    title.className = 'ebics-card-title';
-    title.textContent = 'Co robią te ustawienia (wykresy na żywo)';
-    box.append(title, hint('Wykresy liczą wzory z planu wdrożenia z wartości na ekranie, nie z pomiaru. Odświeżają się przy każdym ruchu suwaka.'));
-
-    const controls = document.createElement('div'); controls.className = 'evd-v3-chart-controls';
-    const levelSel = document.createElement('select'); levelSel.className = 'form-select'; levelSel.id = 'evdV3ChartLevel';
+    const box = section('charts', 'Wykresy na żywo', {
+        className: 'evd-v3-charts',
+        help: 'Wykresy liczą wzory z planu wdrożenia z wartości na ekranie, nie z pomiaru. Odświeżają się przy każdym ruchu suwaka.',
+    });
+    const controls = node('div', 'evd-v3-chart-controls');
+    const levelSel = node('select', 'form-select'); levelSel.id = 'evdV3ChartLevel';
+    levelSel.setAttribute('aria-label', 'Poziom na wykresach Start');
     model.levels.forEach((l, i) => levelSel.add(new Option(`Poziom ${i + 1} (${P.MODES[l.mode].name})`, String(i))));
     levelSel.value = String(model.chartLevel);
     levelSel.addEventListener('change', () => { model.chartLevel = Number(levelSel.value); refreshCharts(); });
     const cad = document.createElement('input'); cad.type = 'range'; cad.min = '0'; cad.max = '120'; cad.step = '5'; cad.value = String(model.chartCadence);
-    const cadText = document.createElement('span'); cadText.id = 'evdV3ChartCadenceText';
+    cad.id = 'evdV3ChartCadence'; cad.setAttribute('aria-label', 'Kadencja na wykresie mapy wysiłku');
+    const cadText = node('span'); cadText.id = 'evdV3ChartCadenceText';
     cad.addEventListener('input', () => { model.chartCadence = Number(cad.value); refreshCharts(); });
     const force = document.createElement('input'); force.type = 'range'; force.min = '2'; force.max = '50'; force.step = '1'; force.value = String(model.chartForce);
-    const forceText = document.createElement('span'); forceText.id = 'evdV3ChartForceText';
+    force.id = 'evdV3ChartForce'; force.setAttribute('aria-label', 'Nacisk na wykresie wygaszania Start');
+    const forceText = node('span'); forceText.id = 'evdV3ChartForceText';
     force.addEventListener('input', () => { model.chartForce = Number(force.value); refreshCharts(); });
-    const lab = (text, ...nodes) => { const l = document.createElement('label'); l.className = 'evd-v3-limit'; const s = document.createElement('span'); s.textContent = text; l.append(s, ...nodes); return l; };
-    controls.append(lab('Poziom (Start):', levelSel), lab('Kadencja:', cad, cadText), lab('Nacisk (Start vs kadencja):', force, forceText));
+    const lab = (text, ...nodes) => { const l = node('label', 'evd-v3-limit'); l.append(node('span', '', text), ...nodes); return l; };
+    controls.append(lab('Poziom (Start):', levelSel), lab('Kadencja:', cad, cadText), lab('Nacisk:', force, forceText));
 
-    const grid = document.createElement('div'); grid.className = 'evd-v3-chart-grid';
+    const grid = node('div', 'evd-v3-chart-grid');
     const chart = (id, heading, text) => {
-        const fig = document.createElement('figure'); fig.className = 'evd-v3-chart';
-        const cap = document.createElement('figcaption'); cap.textContent = heading;
+        const fig = node('figure', 'evd-v3-chart');
+        const cap = node('figcaption', '', heading);
+        cap.appendChild(helpBadge(text));
         const canvas = document.createElement('canvas'); canvas.id = id;
-        const note = document.createElement('div'); note.className = 'evd-v3-help'; note.id = `${id}Note`; note.textContent = text;
+        const note = node('div', 'evd-v3-effective'); note.id = `${id}Note`;
         fig.append(cap, canvas, note);
         return fig;
     };
     grid.append(
-        chart('evdV3ChartEffort', 'Mapa wysiłku: wsparcie od nacisku przy wybranej kadencji',
-            'Oś X: nacisk w kg (szczyt suwu). Oś Y: wyjście mapy w % pełnej skali po korekcie Assist, obcięte przez Max Torque. Kolano: 60 % wysiłku daje 80 % wyjścia trybu.'),
-        chart('evdV3ChartStart', 'Start: cel momentu przy ruszaniu od nacisku',
+        chart('evdV3ChartEffort', 'Mapa wysiłku: wsparcie od nacisku',
+            'Oś X: nacisk w kg (szczyt suwu) przy wybranej kadencji. Oś Y: wyjście mapy w % pełnej skali po korekcie Wsparcia, obcięte przez Max Torque. Kolano: 60 % wysiłku daje 80 % wyjścia trybu.'),
+        chart('evdV3ChartStart', 'Kop na starcie: cel momentu od nacisku',
             'Iq_start = Max Torque · min(1, F / F_full). Korekta Start skaluje F_full (więcej = pełny kop przy lżejszym nacisku), 0 = wyłączony.'),
-        chart('evdV3ChartFade', 'Start: wygaszanie z kadencją',
+        chart('evdV3ChartFade', 'Kop na starcie: wygaszanie z kadencją',
             'Kop pełny do 25 obr/min, zero przy 50 obr/min (gaśnie też przy 12 km/h i po 4 s). Linia: cel przy wybranym nacisku.'),
         chart('evdV3ChartC1', 'Model podtrzymania: minimum Iq od kadencji',
             'Oś X: kadencja. Oś Y: najmniejszy prąd silnika w czasie jazdy z naciskiem (przed limitami mocy, baterii, prędkości i Max Torque). Szare pole: pasmo terkotu wolnobiegu z logów. Linia przerywana: czas bez nacisku do zgaśnięcia (prawa skala w s × 10).'),
@@ -558,6 +794,7 @@ function chartsSection() {
 }
 
 export function refreshCharts() {
+    if (!el('evdV3ChartEffort')) return; // simple view: no detailed charts
     const r = model.rider;
     const t0 = r.riderStrengthX10kg / 10;
     const cadence = model.chartCadence;
@@ -592,9 +829,8 @@ export function refreshCharts() {
     });
     const effortNote = el('evdV3ChartEffortNote');
     if (effortNote) {
-        effortNote.textContent = `${r.effortMap ? '' : 'MAPA WYŁĄCZONA — sterownik używa starej mapy; wykres pokazuje, co dałaby mapa po włączeniu. '}`
-            + `Poziom ${model.chartLevel + 1}: pełne wyjście trybu przy ${fmtNum(selOut.eFull * tMax, 1)} kg, kolano przy ${fmtNum(0.6 * selOut.eFull * tMax, 1)} kg. `
-            + 'Max Power (W) dodatkowo ogranicza przy dużej kadencji i prędkości — nie jest tu rysowany, bo zależy od napięcia baterii.';
+        effortNote.textContent = `${r.effortMap ? '' : 'MAPA WYŁĄCZONA — wykres pokazuje, co dałaby mapa po włączeniu. '}`
+            + `Poziom ${model.chartLevel + 1}: pełne wyjście przy ${fmtNum(selOut.eFull * tMax, 1)} kg, kolano przy ${fmtNum(0.6 * selOut.eFull * tMax, 1)} kg. Moc maks. nie jest rysowana (zależy od napięcia).`;
     }
 
     // (b) Start target vs force, selected level
@@ -610,7 +846,7 @@ export function refreshCharts() {
     });
     const startNote = el('evdV3ChartStartNote');
     if (startNote) startNote.textContent = sel.start === 0 ? 'Start = 0: stan Start wyłączony, przy ruszaniu działa tylko zwykła mapa.'
-        : `F_full trybu ${P.MODES[sel.mode].fFullKg} kg, po korekcie Start ${fmtNum(fFull, 1)} kg. Start nigdy nie obniża zwykłej mapy, tylko dokłada.`;
+        : `F_full trybu ${P.MODES[sel.mode].fFullKg} kg, po korekcie ${fmtNum(fFull, 1)} kg. Start tylko dokłada do zwykłej mapy.`;
 
     // (c) fade vs cadence
     const atForce = P.startTarget(model.chartForce, sel);
@@ -642,29 +878,23 @@ const HARDWARE = [
     { name: 'Kalibracja czujnika nacisku', where: 'ebics-torque', tab: 'Torque', detail: 'Zero i zakres czujnika. Jeden właściciel przeliczenia nacisku.' },
     { name: 'Bateria i SOC', where: 'ebics-limits', tab: 'Limits', detail: 'Napięcie systemu, prąd baterii, odcięcia napięcia, pojemność, tryb awaryjny (limp) wg SOC.' },
     { name: 'Limit prędkości i koło', where: 'ebics-limits', tab: 'Limits', detail: 'Flaga limitu prawnego, limit prędkości, obwód koła, impulsy czujnika prędkości.' },
-    { name: 'Prąd fazy', where: null, tab: '', detail: 'Brak ustawienia w CANable: stały limit w firmware (etap 1). Ograniczenie momentu trybu to Max Torque powyżej, nie ten limit.' },
+    { name: 'Prąd fazy', where: null, tab: '', detail: 'Brak ustawienia w CANable: stały limit w firmware (etap 1). Ograniczenie momentu trybu to Max Torque, nie ten limit.' },
     { name: 'PAS (czujnik pedałowania)', where: 'ebics-system', tab: 'System', detail: 'PAS timeout, progi gazu i dane silnika.' },
     { name: 'Walk Assist', where: 'ebics-walk', tab: 'Walk', detail: 'Prąd, prędkość łańcucha, odcięcie i zatrzask Walk. Osobny tryb funkcjonalny, niezależny od trybów jazdy.' },
 ];
 
 function hardwareSection() {
-    const box = document.createElement('section');
-    box.className = 'ebics-card evd-v3-hardware mt-4';
-    box.id = 'evdV3Hardware';
-    const title = document.createElement('div');
-    title.className = 'ebics-card-title';
-    title.textContent = 'Inne ustawienia sprzętu (w innych zakładkach)';
-    const note = document.createElement('p');
-    note.className = 'form-hint';
-    note.textContent = 'Te ustawienia nie należą do żadnego trybu ani poziomu. Edytujesz je w istniejących zakładkach; limity trybu (Max Power, Max Torque) są powyżej i działają niezależnie.';
-    box.append(title, note);
-    const list = document.createElement('ul');
-    list.className = 'evd-v3-hw-list';
+    const box = section('hardware', 'Inne ustawienia sprzętu (w innych zakładkach)', {
+        id: 'evdV3Hardware', className: 'evd-v3-hardware',
+        help: 'Te ustawienia nie należą do żadnego trybu ani poziomu. Edytujesz je w istniejących zakładkach; limity trybu (Moc maks., Max Torque) działają niezależnie.',
+    });
+    const list = node('ul', 'evd-v3-hw-list');
     HARDWARE.forEach((item) => {
-        const li = document.createElement('li');
-        const name = document.createElement('b'); name.textContent = item.name;
-        const detail = document.createElement('span'); detail.textContent = ` — ${item.detail}`;
-        li.append(name, detail);
+        const li = node('li');
+        const text = node('div');
+        text.append(node('b', '', item.name));
+        if (item.detail) text.appendChild(helpBadge(item.detail));
+        li.appendChild(text);
         if (item.where) {
             li.appendChild(button(`Otwórz: ${item.tab}`, 'btn btn-secondary btn-sm', () => document.querySelector(`.tab-button[data-tab="${item.where}"]`)?.click()));
         }
@@ -674,29 +904,62 @@ function hardwareSection() {
     return box;
 }
 
+// ---- banner and view switch ----------------------------------------------------------------
+
+function connectBanner() {
+    const connected = !!state.isCanConnected;
+    if (connected && readDone()) return null;
+    const banner = node('div', 'evd-v3-banner');
+    banner.id = 'evdV3Banner';
+    banner.setAttribute('role', 'status');
+    if (connected && model.discovered && !model.caps?.model && !model.caps?.rider) {
+        banner.classList.add('is-warn');
+        banner.append(node('span', 'evd-v3-banner-icon', '!'), node('span', '', 'Sterownik nie obsługuje profili V3 — podgląd fabryczny, zapis zablokowany.'));
+        return banner;
+    }
+    banner.append(node('span', 'evd-v3-banner-icon', 'i'), node('span', '', 'Połącz się i naciśnij ‘Read from bike’'));
+    if (connected) {
+        banner.appendChild(button('Read from bike', 'btn btn-blue btn-sm', () => el('evdReadAllButton')?.click(), { title: 'Odczyt wszystkiego z roweru (przycisk na górnym pasku).' }));
+    }
+    return banner;
+}
+
+/** Switch between the simple and the advanced view; the choice is remembered. */
+export function setProfilesView(view) {
+    model.view = view === 'advanced' ? 'advanced' : 'simple';
+    saveView(model.view);
+    renderPanel();
+}
+
+function syncViewToggle() {
+    document.querySelectorAll?.('#evdV3ViewToggle [data-view]')?.forEach((b) => {
+        b.setAttribute('aria-pressed', String(b.dataset.view === model.view));
+    });
+    const tab = el('tab-ebics-profiles');
+    if (tab) tab.dataset.evdView = model.view;
+}
+
 // ---- panel -----------------------------------------------------------------------------
 
 export function renderPanel() {
     const root = el('evdV3Panel');
     if (!root) return;
-    const scrollTop = root.scrollTop;
-    const ticks = document.createElement('datalist');
-    ticks.id = 'evdV3Ticks';
-    [0, 25, 50, 75, 100].forEach((v) => { const o = document.createElement('option'); o.value = String(v); ticks.appendChild(o); });
+    const advanced = isAdvanced();
+    syncViewToggle();
+    root.dataset.view = model.view;
     const status = el('evdV3Status');
     if (status) status.textContent = `${statusText()}${model.note ? ` ${model.note}` : ''}`;
     const stale = !model.baseline && model.caps?.model;
     markReadNeeded('profiles', !!stale);
-    const top = document.createElement('div');
-    top.className = 'evd-v3-top';
-    top.append(riderSection(), pressureSection(), chartsSection());
-    const grid = document.createElement('div');
-    grid.className = 'evd-v3-grid mt-4';
+
+    const grid = node('div', 'evd-v3-grid');
     model.levels.forEach((_, index) => grid.appendChild(levelCard(index)));
-    root.replaceChildren(ticks, top, grid, hardwareSection());
+    const parts = [connectBanner(), grid, pressureSection()];
+    if (advanced) parts.push(riderSection(), chartsSection(), hardwareSection());
+    parts.push(legendSection());
+    root.replaceChildren(...parts.filter(Boolean));
     model.levels.forEach((_, index) => refreshWarnings(index));
     refreshRiderState();
-    root.scrollTop = scrollTop;
     const writeAll = el('evdV3WriteAll');
     if (writeAll) {
         writeAll.disabled = !v3ModelCanWrite();
@@ -851,7 +1114,7 @@ export function restoreModelFromRead() {
     model.levels = model.baseline ? P.cloneLevels(model.baseline) : P.factoryLevels();
     model.rider = model.riderBaseline ? { ...model.riderBaseline } : P.factoryRider();
     renderPanel();
-    return model.baseline ? 'tryby V3 (jak odczytano)' : 'tryby V3 (preset fabryczny)';
+    return model.baseline ? 'eVistDrive Profiles (jak odczytano)' : 'eVistDrive Profiles (preset fabryczny)';
 }
 
 /** What the top bar's Save… may send for the model and the rider object. */
@@ -870,7 +1133,7 @@ function bindPresetButtons() {
         const blob = new Blob([JSON.stringify(preset, null, 2)], { type: 'application/json' });
         const link = document.createElement('a');
         link.href = URL.createObjectURL(blob);
-        link.download = `${(preset.name || 'tryby-v3').replace(/[^\w.-]+/g, '_')}.json`;
+        link.download = `${(preset.name || 'evistdrive-profiles').replace(/[^\w.-]+/g, '_')}.json`;
         link.click();
         URL.revokeObjectURL(link.href);
     });
@@ -898,6 +1161,9 @@ export function bindModelPanel() {
     el('evdV3Persist')?.addEventListener('click', () => { void persistModel(); });
     el('evdV3Factory')?.addEventListener('click', () => { void restoreFactory(); });
     el('evdV3Discover')?.addEventListener('click', async () => { await discoverModel(); renderPanel(); });
+    document.querySelectorAll('#evdV3ViewToggle [data-view]').forEach((b) => {
+        b.addEventListener('click', () => setProfilesView(b.dataset.view));
+    });
     bindPresetButtons();
     // The panel owns no CAN event: it redraws when the model is read, edited or the tab opens.
     window.addEventListener('app-tab-changed', (event) => {
@@ -909,3 +1175,4 @@ export function bindModelPanel() {
 
 // Exposed for the browser render check and for debugging in the console.
 export const _modelForTests = model;
+export const _loadViewForTests = loadView;

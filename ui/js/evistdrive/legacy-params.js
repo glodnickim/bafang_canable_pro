@@ -599,7 +599,7 @@ function renderLimitsFields() {
         { key: 'system_voltage', label: 'System voltage', options: voltageOptions,
             help: 'Nominal battery voltage. Used by the controller for voltage-based calculations — set it to match your actual pack, not just a round number.' },
         { key: 'current_limit', label: 'Maximum battery current', unit: 'A', min: 1, max: 60, step: 1,
-            help: 'Hard ceiling on current drawn from the battery, across all assist levels and Walk Assist. Protects the battery/BMS — separate from, and on top of, the Max Power and Max Torque limits of each mode in the Tryby V3 tab.' },
+            help: 'Hard ceiling on current drawn from the battery, across all assist levels and Walk Assist. Protects the battery/BMS — separate from, and on top of, the Max Power and Max Torque limits of each mode in the eVistDrive Profiles tab.' },
         { key: 'overvoltage', label: 'Overvoltage cutoff', unit: 'V', min: 0, max: 100, step: 1,
             help: 'Controller cuts off if pack voltage rises above this (e.g. during strong regen/braking on a full battery). Set above your pack\'s true full-charge voltage, not at or below it.' },
         {

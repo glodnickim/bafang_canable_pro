@@ -1,4 +1,4 @@
-// evistdrive/v3-model-charts.js — plain-canvas line charts for the "Tryby V3" panel.
+// evistdrive/v3-model-charts.js — plain-canvas line charts for the "eVistDrive Profiles" panel.
 // No library and no network: the panel redraws on every slider move, so the charts stay cheap.
 
 const PALETTE = {

@@ -83,10 +83,10 @@
             <button class="tab-button" data-tab="battery" data-factory-tab="true">Battery</button>
             <button class="tab-button" data-tab="gears" data-factory-tab="true">Assist (Full)</button>
             <button class="tab-button ebics-tab-button" data-tab="ebics-live" data-ebics-only="true" style="display:none">eVistDrive Live</button>
-            <button class="tab-button ebics-tab-button" data-tab="ebics-profiles" data-ebics-only="true" style="display:none">Tryby V3</button>
+            <button class="tab-button ebics-tab-button" data-tab="ebics-profiles" data-ebics-only="true" style="display:none">eVistDrive Profiles</button>
             <button class="tab-button ebics-tab-button" data-tab="ebics-torque" data-ebics-only="true" style="display:none">eVistDrive Torque</button>
 <!-- FW-070: "eVistDrive Dynamics" tab removed; its settings live in the "Global — whole bike"
-     band at the bottom of the former Profiles tab (now "Tryby V3"). -->
+     band at the bottom of the former Profiles tab (now "eVistDrive Profiles"). -->
             <button class="tab-button ebics-tab-button" data-tab="ebics-limits" data-ebics-only="true" style="display:none">eVistDrive Limits</button>
             <button class="tab-button ebics-tab-button" data-tab="ebics-walk" data-ebics-only="true" style="display:none">eVistDrive Walk</button>
 <!-- FW-030: "eVistDrive Legacy" tab removed (single ride-core engine) -->
@@ -875,7 +875,7 @@
             </div>
 
             <!-- FW-055: #tab-banks removed — Profile Banks + Global Ride-Feel Tuning are fully
-                 covered by #tab-ebics-profiles. Since the V3 cleanup that tab is "Tryby V3" (per-level model);
+                 covered by #tab-ebics-profiles. Since the V3 cleanup that tab is "eVistDrive Profiles" (per-level model);
                  the bank level editor is gone, banks remain only for Walk Assist. See documentation/FW-055_REMOVE_BANKS_TAB.md. -->
 
             <!-- #tab-ebics-live =========================================== -->
@@ -889,7 +889,7 @@
                 </div>
                 <div class="ebics-metric-grid">
                     <div class="ebics-metric"><span>Assist level</span><b id="ebicsLiveLevel">N/A</b></div>
-                    <div class="ebics-metric"><span>Tryb V3 (poziom HMI)</span><b id="ebicsLiveMode">N/A</b></div>
+                    <div class="ebics-metric"><span>Profile mode (HMI level)</span><b id="ebicsLiveMode">N/A</b></div>
                     <div class="ebics-metric"><span>Pedal load</span><b><span id="ebicsLiveTorqueKg">N/A</span> kg</b></div>
                     <div class="ebics-metric"><span>Cadence</span><b><span id="ebicsLiveCadence">N/A</span> rpm</b></div>
                     <div class="ebics-metric"><span>Speed</span><b><span id="ebicsLiveSpeed">N/A</span> km/h</b></div>
@@ -912,19 +912,37 @@
             </div>
 
             <!-- #tab-ebics-profiles ======================================= -->
-            <!-- "Tryby V3": per HMI level one mode and six corrections (one model, one source), plus the rider/hardware object and live charts.
+            <!-- "eVistDrive Profiles": per HMI level one mode and six corrections (one model, one source), plus the rider/hardware object and live charts.
+                 Two views (owner 2026-11-16): Prosty (default) and Zaawansowany, remembered in localStorage.
+                 Order: header + view switch, connect banner, level cards, pressure thresholds; advanced only: rider, charts,
+                 hardware, then the "Narzędzia" section (file, factory, persist) and the bike-wide input band.
                  The old AP2 bank editor (support curves, ramps, boosts, power filters, eMTB, Power
                  Curve, ride latch) was removed on purpose; see
                  integration/roadmap/V3_JEDEN_MODEL_PROJEKT_PL.md and the V3 model CAN protocol. -->
-            <div class="tab-content ebics-tab" id="tab-ebics-profiles">
-                <div class="ebics-heading">
+            <div class="tab-content ebics-tab" id="tab-ebics-profiles" data-evd-view="simple">
+                <div class="ebics-heading evd-v3-heading">
                     <div>
                         <div class="ebics-kicker">eVistDrive Ride Core</div>
-                        <h2 class="section-title text-lg">Tryby V3</h2>
+                        <h2 class="section-title text-lg">eVistDrive Profiles</h2>
+                    </div>
+                    <div id="evdV3ViewToggle" class="evd-seg" role="group" aria-label="Widok panelu">
+                        <button type="button" data-view="simple" aria-pressed="true">Prosty</button>
+                        <button type="button" data-view="advanced" aria-pressed="false">Zaawansowany</button>
                     </div>
                 </div>
-                <p class="form-hint">Dla każdego z pięciu poziomów HMI wybierasz tryb (ECO, TRAIL, SPORT, SPORT+, BOOST, AUTO) i sześć korekt 0..100, gdzie <b>50 = ustawienie fabryczne trybu</b>; obok suwaka widać mnożnik (×0,5 przy 0 … ×2 przy 100) i wynik. Assist, Attack, Release, Start, Carry i Zakres to korekty wokół domyślnych; Attack i Release w prawo działają szybciej, Zakres w prawo daje pełne wsparcie przy lżejszym nacisku, Start i Carry równe 0 wyłączają funkcję. Max Power (W albo limit sprzętu) i Max Torque (% dozwolonego Iq) to osobne limity poziomu. „Rowerzysta i sprzęt” (siła rowerzysty, mapa wysiłku, progi C1) są wspólne dla wszystkich poziomów. Hamulec, błędy, stop i jazda wstecz mają zawsze pierwszeństwo.</p>
-                <section class="ebics-preset-strip mt-4">
+                <div id="evdV3Panel" class="evd-v3-panel"></div>
+
+                <details id="evdV3Tools" class="ebics-card evd-v3-sec evd-v3-tools evd-adv-only mt-4">
+                    <summary class="ebics-card-title evd-v3-sec-title"><span>Narzędzia: plik, preset fabryczny, zapis na stałe</span></summary>
+                <div class="ebics-toolbar">
+                    <button id="evdV3Read" class="btn btn-blue" data-requires-link title="Odczytuje poziomy (obiekt 4) i rowerzystę/sprzęt (obiekt 5) ze sterownika (RAM).">Odczytaj tryby ze sterownika</button>
+                    <button id="evdV3WriteAll" class="btn btn-blue" data-requires-link disabled title="Zapis pięciu poziomów do RAM sterownika, potem odczyt kontrolny. Zablokowane, dopóki firmware nie zgłosi obsługi modelu.">Zapisz wszystkie poziomy (RAM)</button>
+                    <button id="evdV3Persist" class="btn btn-orange" data-requires-link disabled title="Sterownik zapisze model i ustawienia rowerzysty we flash na postoju (0x6037 op 1).">Zapisz na stałe</button>
+                    <button id="evdV3Factory" class="btn btn-secondary" title="Fabryczny preset: poziom 1..5 = ECO, TRAIL, SPORT, SPORT+, BOOST, wszystkie korekty 50. Na ekranie zawsze; w sterowniku (op 5) tylko gdy firmware obsługuje model.">Preset fabryczny (wszystkie poziomy)</button>
+                    <button id="evdV3Discover" class="btn btn-secondary" data-requires-link title="Sprawdza, czy firmware obsługuje model V3 (zapytanie 0x6035).">Sprawdź obsługę w firmware</button>
+                    <span id="evdV3Status" class="ebics-source-note">Nie sprawdzono obsługi modelu V3.</span>
+                </div>
+                <section class="ebics-preset-strip">
                     <div class="ebics-preset-controls">
                         <label>Nazwa presetu
                             <input id="evdV3PresetName" class="form-input" type="text" maxlength="60" placeholder="np. góry, łagodny start">
@@ -938,22 +956,14 @@
                     </div>
                     <small class="form-hint">Preset zawiera tylko tryby i korekty (pięć poziomów). Kalibracja, bateria, prędkość, PAS i Walk to sprzęt jednego roweru i nigdy nie są w pliku.</small>
                 </section>
-                <div class="ebics-toolbar">
-                    <button id="evdV3Read" class="btn btn-blue" data-requires-link title="Odczytuje poziomy (obiekt 4) i rowerzystę/sprzęt (obiekt 5) ze sterownika (RAM).">Odczytaj tryby ze sterownika</button>
-                    <button id="evdV3WriteAll" class="btn btn-blue" data-requires-link disabled title="Zapis pięciu poziomów do RAM sterownika, potem odczyt kontrolny. Zablokowane, dopóki firmware nie zgłosi obsługi modelu.">Zapisz wszystkie poziomy (RAM)</button>
-                    <button id="evdV3Persist" class="btn btn-orange" data-requires-link disabled title="Sterownik zapisze model i ustawienia rowerzysty we flash na postoju (0x6037 op 1).">Zapisz na stałe</button>
-                    <button id="evdV3Factory" class="btn btn-secondary" title="Fabryczny preset: poziom 1..5 = ECO, TRAIL, SPORT, SPORT+, BOOST, wszystkie korekty 50. Na ekranie zawsze; w sterowniku (op 5) tylko gdy firmware obsługuje model.">Preset fabryczny (wszystkie poziomy)</button>
-                    <button id="evdV3Discover" class="btn btn-secondary" data-requires-link title="Sprawdza, czy firmware obsługuje model V3 (zapytanie 0x6035).">Sprawdź obsługę w firmware</button>
-                    <span id="evdV3Status" class="ebics-source-note">Nie sprawdzono obsługi modelu V3.</span>
-                </div>
-                <div id="evdV3Panel" class="evd-v3-panel mt-4"></div>
+                </details>
 
                 <!-- Whole-bike input settings that are NOT per level (block 0x6023). Kept: the crank
                      movement needed to start and the RUN torque smoothing, both pedal-input gates
                      whose consumer in V3 is still to be confirmed. Everything else of the old
                      "Ride core tuning" band (startup boost fade, ride latch, torque axis, crank
                      length) was removed. -->
-                <div class="ebics-global-band mt-5">
+                <div class="ebics-global-band evd-adv-only mt-5">
                     <div class="ebics-global-band-head">
                         <div>
                             <div class="ebics-kicker">Cały rower</div>
