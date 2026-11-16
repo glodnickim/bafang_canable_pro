@@ -116,7 +116,7 @@ export function bindSystemControls() {
     el('ebicsDiagAuto')?.addEventListener('change', (e) => {
         if (diagTimer) { clearInterval(diagTimer); diagTimer = null; }
         if (e.target.checked && socketReady()) {
-            diagTimer = setInterval(() => { requestDiag(); else stopDiagPoll(); }, DIAG_POLL_INTERVAL_MS);
+            diagTimer = setInterval(() => { if (socketReady()) requestDiag(); else stopDiagPoll(); }, DIAG_POLL_INTERVAL_MS);
         }
     });
 }
