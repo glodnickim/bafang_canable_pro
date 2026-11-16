@@ -230,7 +230,11 @@ function bigSlider(o) {
         input.style.setProperty('--fill', `${((clamp(pos, o.min, o.max) - o.min) / (o.max - o.min)) * 100}%`);
         if (o.numberAria) badge.value = String(pos); else badge.textContent = o.badge(pos);
         input.setAttribute('aria-valuetext', o.badge(pos));
-        if (sub) sub.textContent = o.sub(pos);
+        if (sub) {
+            sub.textContent = o.sub(pos);
+            if (o.subTitle) sub.title = o.subTitle();
+            sub.classList.toggle('is-fallback', !!o.subFlag?.());
+        }
         row.classList.toggle('is-default', !!o.isDefault?.(pos));
     }
     input.addEventListener('input', () => { o.onInput(Number(input.value)); show(); });
@@ -286,22 +290,68 @@ function correctionSlider(index, spec) {
     return s.row;
 }
 
-// Simple-view power slider: 100..1500 W in 50 W steps, the last stop = no mode limit (65000).
+// ---- battery power source: configured battery current x selected system voltage (P1) ------
+// The firmware derives every mode's default Max Power from it (share x battery power). Until P1
+// is read the panel uses the firmware fallback 15 A x 48 V and says so next to the slider.
+const powerSource = { currentA: P.POWER_SOURCE_DEFAULT.currentMa / 1000, voltageV: P.POWER_SOURCE_DEFAULT.voltageV, known: false };
+
+/** P1 values the panel follows: the Limits tab draft once P1 was read (edits included), else the last read. */
+function p1Source() {
+    const received = state.ebicsCompatibilityReceived?.p1 ? state.ebicsCompatibilityDraft?.p1 : null;
+    const p1 = received || state.lastControllerP1 || state.controllerParams1;
+    const currentA = Number(p1?.current_limit);
+    const voltageV = Number(p1?.system_voltage);
+    return currentA > 0 && voltageV > 0 ? { currentA, voltageV, known: true }
+        : { currentA: P.POWER_SOURCE_DEFAULT.currentMa / 1000, voltageV: P.POWER_SOURCE_DEFAULT.voltageV, known: false };
+}
+
+/**
+ * Take the battery power from P1 (P.setPowerSource) and return true when it changed. Levels not
+ * read from the bike that still sit on the old mode default follow the new default.
+ */
+export function syncV3PowerSource() {
+    const next = p1Source();
+    if (next.currentA === powerSource.currentA && next.voltageV === powerSource.voltageV && next.known === powerSource.known) return false;
+    const before = P.MODES.map((m) => P.modeDefaultPowerW(m.id));
+    P.setPowerSource(Math.round(next.currentA * 1000), next.voltageV);
+    Object.assign(powerSource, next);
+    if (!model.baseline) {
+        model.levels.forEach((level) => {
+            if (level.maxPowerW === before[level.mode]) level.maxPowerW = P.modeDefaultPowerW(level.mode);
+        });
+    }
+    return true;
+}
+/** Called on a fresh P1 frame (index.js) and when the Limits tab edits it: redraw if it changed. */
+export function onPowerSourceChanged() {
+    if (syncV3PowerSource()) renderPanel();
+}
+const fmtSource = () => `${String(powerSource.currentA).replace('.', ',')} A × ${powerSource.voltageV} V`;
+export const v3PowerSourceKnown = () => powerSource.known;
+
+// Simple-view power slider: POWER_MIN .. battery power in 10 W steps; one stop past it = no mode
+// limit (65000), where only the battery and phase current limit.
 const POWER_MIN = 100;
-const POWER_MAX = 1500;
-const POWER_HW_POS = POWER_MAX + 50;
-const powerPos = (w) => (w === P.HW_POWER_W ? POWER_HW_POS : clamp(w, POWER_MIN, POWER_MAX));
+const POWER_STEP = 10;
+const powerMax = () => Math.max(POWER_MIN + POWER_STEP, Math.floor(batteryPowerW() / POWER_STEP) * POWER_STEP);
+const powerHwPos = () => powerMax() + POWER_STEP;
+const powerPos = (w) => (w === P.HW_POWER_W ? powerHwPos() : clamp(w, POWER_MIN, powerMax()));
 
 function powerSlider(index) {
     const level = model.levels[index];
     return bigSlider({
-        id: `evdV3-${index}-power`, label: 'Moc maks.', min: POWER_MIN, max: POWER_HW_POS, step: 50,
+        id: `evdV3-${index}-power`, label: 'Moc maks.', min: POWER_MIN, max: powerHwPos(), step: POWER_STEP,
         get: () => powerPos(level.maxPowerW),
         badge: () => (level.maxPowerW === P.HW_POWER_W ? 'bez limitu' : `${level.maxPowerW} W`),
+        sub: () => (powerSource.known ? `z ${fmtSource()}` : `przyjęto ${fmtSource()}`),
+        subTitle: () => (powerSource.known
+            ? `Moc baterii ${batteryPowerW()} W = prąd baterii × napięcie systemu (zakładka Limits).`
+            : `Przyjęto ${fmtSource()} (wartość zastępcza firmware) — odczytaj z roweru, żeby suwak i domyślne moce liczyły się z Twojej baterii.`),
+        subFlag: () => !powerSource.known,
         isDefault: () => level.maxPowerW === P.modeDefaultPowerW(level.mode),
         reset: { title: 'domyślna moc trybu', value: () => powerPos(P.modeDefaultPowerW(level.mode)) },
         onInput: (pos) => {
-            level.maxPowerW = pos >= POWER_HW_POS ? P.HW_POWER_W : clamp(Math.round(pos), POWER_MIN, POWER_MAX);
+            level.maxPowerW = pos >= powerHwPos() ? P.HW_POWER_W : clamp(Math.round(pos), POWER_MIN, powerMax());
             afterLevelEdit(index);
         },
     }).row;
@@ -350,7 +400,7 @@ function limitsRow(index) {
     hwBox.addEventListener('change', onPower);
     watts.addEventListener('change', onPower);
     power.append(node('span', 'evd-v3-label', 'Moc maks.'), watts, node('span', 'evd-v3-unit', 'W'), hwBox, node('span', 'evd-v3-unit', 'limit sprzętu'));
-    power.title = `Domyślnie ${P.modeDefaultPowerW(mode.id)} W (z baterii)`;
+    power.title = `Domyślnie ${P.modeDefaultPowerW(mode.id)} W (${powerSource.known ? 'z' : 'przyjęto'} ${fmtSource()}, bateria ${batteryPowerW()} W)`;
 
     const torque = node('label', 'evd-v3-limit');
     const pct = document.createElement('input');
@@ -1012,6 +1062,7 @@ export function renderPanel() {
     const root = el('evdV3Panel');
     if (!root) return;
     const advanced = isAdvanced();
+    syncV3PowerSource();
     syncViewToggle();
     root.dataset.view = model.view;
     const status = el('evdV3Status');

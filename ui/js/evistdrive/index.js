@@ -13,7 +13,7 @@ import { updateLiveSummary } from './live.js';
 import { updateTorqueSummary, bindTorqueControls } from './torque.js';
 import { bindLimitsControls } from './limits.js';
 import { updateWalkAndLegacy } from './walk.js';
-import { bindModelPanel } from './v3-model-panel.js';
+import { bindModelPanel, onPowerSourceChanged } from './v3-model-panel.js';
 import { renderDynamics, bindDynamicsControls } from './dynamics.js';
 import { bindSystemControls, stopDiagPoll } from './system.js';
 import { updateDeviceInfoUI, bindDeviceInfoControls } from './device-info.js';
@@ -41,6 +41,8 @@ export function updateEbicsUI(eventType = '') {
         updateTorqueSummary();
     }
     if (fullUpdate || ['controller_params_0', 'controller_params_1', 'controller_params_2'].includes(eventType)) updateWalkAndLegacy();
+    // Battery power (P1 current x voltage) drives the Moc maks. slider and the mode defaults.
+    if (fullUpdate || eventType === 'controller_params_1') onPowerSourceChanged();
     if (fullUpdate || eventType === 'controller_tuning') renderDynamics();
     // Identification arrives one field per frame across four devices, so refresh on any of
     // them rather than trying to name every sub-code here.

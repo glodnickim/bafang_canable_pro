@@ -136,6 +136,29 @@ mod.registerHooks({
     const pressureEmpty = byId('evdV3Pressure');
     check('pressure collapsed to one line, no fields', pressureEmpty.classList.contains('is-collapsed') && pressureEmpty.all((n) => n.tagName === 'INPUT').length === 0);
 
+    // ---- Moc maks. follows the battery power (P1 current x system voltage) ----
+    const powerInput = () => byId('evdV3-0-power');
+    const powerSub = () => powerInput().parent.children[0].children.find((n) => n.classList.contains('evd-sl-sub'));
+    check('before P1: fallback 15 A × 48 V flagged', !panel.v3PowerSourceKnown() && powerSub().classList.contains('is-fallback')
+        && /przyjęto 15 A × 48 V/.test(powerSub().textContent) && /odczytaj z roweru/.test(powerSub().title));
+    check('before P1: slider max = 720 W + "bez limitu" stop', Number(powerInput().max) === 730 && panel.batteryPowerW() === 720);
+    global.__evdTestState.lastControllerP1 = { current_limit: 20, system_voltage: 52 };
+    panel.onPowerSourceChanged();
+    check('after P1: battery power 20 A × 52 V = 1040 W', panel.batteryPowerW() === 1040 && panel.v3PowerSourceKnown());
+    check('after P1: slider max follows (1040 W + "bez limitu" stop)', Number(powerInput().max) === 1050);
+    check('after P1: note shows the source, not flagged', /z 20 A × 52 V/.test(powerSub().textContent) && !powerSub().classList.contains('is-fallback'));
+    check('after P1: factory levels take the new mode defaults', panel._modelForTests.levels.every((l) => l.maxPowerW === P.modeDefaultPowerW(l.mode))
+        && panel._modelForTests.levels[0].maxPowerW === Math.round(1040 * P.MODES[0].powerPct / 100));
+    // Limits tab edit (draft after P1 was read) wins over the last read
+    global.__evdTestState.ebicsCompatibilityReceived = { p1: true };
+    global.__evdTestState.ebicsCompatibilityDraft = { p1: { current_limit: 25, system_voltage: 48 } };
+    panel.onPowerSourceChanged();
+    check('Limits tab edit (25 A × 48 V) drives the slider', panel.batteryPowerW() === 1200 && Number(powerInput().max) === 1210);
+    const hwPos = powerInput(); hwPos.value = hwPos.max; hwPos.dispatch('input');
+    check('last slider stop = no mode limit', panel._modelForTests.levels[0].maxPowerW === P.HW_POWER_W);
+    panel._modelForTests.levels[0].maxPowerW = P.modeDefaultPowerW(panel._modelForTests.levels[0].mode);
+    panel.renderPanel();
+
     // ---- with a read: baseline and a bank with equal thresholds ----
     const S = global.__evdTestState;
     S.isCanConnected = true;
