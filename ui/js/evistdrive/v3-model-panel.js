@@ -40,13 +40,13 @@ const SLIDERS = [
 
 // The ONE place every setting is explained. `adv` = only relevant in the advanced view.
 const LEGEND = [
-    { name: 'Wsparcie (Assist)', short: 'Ile silnik dokłada do Twojego nacisku.', full: 'Siła wspomagania: mnoży to, co daje mapa. W prawo więcej wsparcia przy tym samym nacisku, w lewo mniej (×0,5…×2).' },
+    { name: 'Wsparcie (Assist)', short: 'Ile silnik dokłada do Twojego nacisku.', full: 'Przełożenie wspomagania w % (ta sama liczba co na HMI): mnoży to, co daje mapa. W prawo więcej wsparcia przy tym samym nacisku. Tryb pozwala na ×0,5…×2 swojej wartości domyślnej.' },
     { name: 'Moc maks. (Max Power)', short: 'Sufit mocy z baterii na tym poziomie.', full: 'Sufit mocy pobieranej z baterii na tym poziomie. Limit baterii i prądu fazy zostają nadrzędne. Skrajnie w prawo albo „limit sprzętu” (65000) = bez limitu trybu. Mniej W = spokojniej przy wysokiej kadencji i prędkości. Zmiana trybu ustawia jego domyślną moc.' },
-    { name: 'Kop na starcie (Start)', short: 'Dodatkowa siła przy ruszaniu z miejsca. 0 = wyłączony.', full: 'Kop przy ruszaniu (stan Start: tylko z postoju, poniżej 6 km/h, gaśnie do 50 obr/min). W prawo pełny kop przy lżejszym nacisku, w lewo potrzeba mocniejszego. 0 = Start wyłączony.' },
-    { name: 'Narastanie (Attack)', adv: true, short: 'Jak szybko silnik dochodzi do mocy.', full: 'Jak szybko silnik dochodzi do mocy po naciśnięciu pedału. W prawo szybciej (krótszy czas narastania), w lewo łagodniej.' },
-    { name: 'Opadanie (Release)', adv: true, short: 'Jak szybko wsparcie gaśnie, gdy odpuszczasz.', full: 'Jak szybko wspomaganie opada, gdy odpuszczasz nacisk. W prawo szybsze opadanie, w lewo silnik dłużej trzyma moc.' },
-    { name: 'Podtrzymanie (Carry)', adv: true, short: 'Wsparcie w krótkiej przerwie pedałowania. 0 = wył.', full: 'Podtrzymanie wspomagania po chwilowym przerwaniu pedałowania (np. zmiana biegu, przeszkoda). W prawo mocniej, w lewo słabiej. 0 = wyłączone.' },
-    { name: 'Zakres (Range)', adv: true, short: 'Przy jakim nacisku wsparcie dochodzi do 100 %.', full: 'Jaki wysiłek daje pełne wyjście mapy wysiłku. W prawo krótszy zakres: 100 % przy lżejszym nacisku. W lewo dłuższy: trzeba mocniej nacisnąć. Działa tylko z włączoną mapą wysiłku.' },
+    { name: 'Kop na starcie (Start)', short: 'Dodatkowa siła przy ruszaniu z miejsca. 0 = wyłączony.', full: 'Kop przy ruszaniu (stan Start: tylko z postoju, poniżej 6 km/h, gaśnie do 50 obr/min). Liczba = nacisk, przy którym kop jest pełny: w lewo (mniej kg) mocniejszy kop, w prawo słabszy. Skrajnie w prawo = Start wyłączony.' },
+    { name: 'Narastanie (Attack)', adv: true, short: 'Jak szybko silnik dochodzi do mocy.', full: 'Jak szybko silnik dochodzi do mocy po naciśnięciu pedału. Liczba = czas od zera do pełnej mocy: w lewo szybciej, w prawo łagodniej.' },
+    { name: 'Opadanie (Release)', adv: true, short: 'Jak szybko wsparcie gaśnie, gdy odpuszczasz.', full: 'Jak szybko wspomaganie opada, gdy odpuszczasz nacisk. Liczba = czas opadania: w lewo szybciej gaśnie, w prawo silnik dłużej trzyma moc.' },
+    { name: 'Podtrzymanie (Carry)', adv: true, short: 'Wsparcie w krótkiej przerwie pedałowania. 0 = wył.', full: 'Podtrzymanie wspomagania po chwilowym przerwaniu pedałowania (np. zmiana biegu, przeszkoda). Siła % · czas · droga podtrzymania: w prawo mocniej i dłużej. Skrajnie w lewo (0) = wyłączone.' },
+    { name: 'Zakres (Range)', adv: true, short: 'Przy jakim nacisku wsparcie dochodzi do 100 %.', full: 'Jaki wysiłek daje pełne wyjście mapy wysiłku. Liczba = nacisk (przy 60 obr/min), przy którym wsparcie dochodzi do 100 %: w lewo pełne wsparcie przy lżejszym nacisku, w prawo trzeba mocniej nacisnąć. Działa tylko z włączoną mapą wysiłku.' },
     { name: 'Max Torque', adv: true, short: 'Sufit momentu silnika (% dozwolonego Iq, nie Nm).', full: 'Sufit momentu silnika: ułamek dozwolonego prądu Iq. Obcina mapę i kop Start; najbardziej czuć go pod górę i przy ruszaniu. Zmiana trybu ustawia jego domyślny Max Torque.' },
     { name: 'Miniwykres', short: 'Wsparcie, Kop i pasek Mocy w jednym polu (ilustracja).', full: 'Jeden wykres w karcie, poglądowy (serie nie mają wspólnej osi). Wsparcie (kolor trybu): wyjście mapy wysiłku od nacisku przy 60 obr/min, po korekcie Wsparcia i Zakresu, obcięte przez Max Torque. Kop (żółta przerywana linia z polem): dodatkowy prąd przy przykładowym ruszaniu z miejsca w czasie 0–4 s — nacisk 12 kg, kadencja rośnie o 15 obr/min na sekundę; narasta w ok. 0,3 s, gaśnie z kadencją między 25 a 50 obr/min (w firmware także przy 12 km/h) i kończy się najpóźniej po 4 s; wysokość zależy od Max Torque i korekty Kopu. Moc (szary pasek „W” na dole): ustawiona Moc maks. na tle mocy baterii (skonfigurowany prąd × napięcie; przed odczytem 15 A × 48 V); pionowa kreska = domyślna moc trybu; „bez limitu” = pełny, jaśniejszy pasek. Liczone z wartości na ekranie, nie z pomiaru.' },
     { name: 'Pierwszeństwo', short: 'Hamulec, błędy, stop i jazda wstecz zawsze wygrywają.', full: 'Hamulec, błędy, stop i jazda wstecz mają zawsze pierwszeństwo przed każdym ustawieniem trybu. Korekty są osobne dla każdego poziomu, także gdy kilka poziomów ma ten sam tryb.' },
@@ -237,7 +237,7 @@ function bigSlider(o) {
         badge.setAttribute('aria-hidden', 'true');
     }
     const sub = o.sub ? node('span', 'evd-sl-sub') : null;
-    const reset = o.reset ? button('↺', 'evd-sl-reset', () => { o.onInput(o.reset.value()); show(); }, { title: o.reset.title }) : null;
+    const reset = o.reset ? button('↺', 'evd-sl-reset', () => { if (o.onReset) o.onReset(); else o.onInput(o.reset.value()); show(); }, { title: o.reset.title }) : null;
     if (reset) reset.setAttribute('aria-label', `${o.label}: ${o.reset.title}`);
     head.append(label, ...(sub ? [sub] : []), ...(reset ? [reset] : []), badge);
     row.append(head, input);
@@ -245,6 +245,7 @@ function bigSlider(o) {
         const pos = o.get();
         input.value = String(pos);
         input.style.setProperty('--fill', `${((clamp(pos, o.min, o.max) - o.min) / (o.max - o.min)) * 100}%`);
+        if (o.band) { const [lo, hi] = o.band(); input.style.setProperty('--band-lo', `${lo}%`); input.style.setProperty('--band-hi', `${hi}%`); input.classList.add('has-band'); }
         if (o.numberAria) badge.value = String(o.numberValue ? o.numberValue(pos) : pos); else badge.textContent = o.badge(pos);
         input.setAttribute('aria-valuetext', o.badge(pos));
         if (sub) {
@@ -276,26 +277,70 @@ function afterLevelEdit(index) {
     refreshCharts();
 }
 
+/** Slider step in native units per setting. */
+const NATIVE_STEP = { assist: 1, attack: 0.01, release: 0.01, start: 0.1, carry: 1, range: 0.1 };
+/** Room past the strongest/weakest value where the slider means "off" (Start: right end, Carry: 0). */
+const START_OFF_ROOM_KG = 6;
+
+/**
+ * One axis per setting, the same for every level and mode (owner 2026-11-17: the same slider
+ * position must mean the same value on every level). It spans every value any mode can reach
+ * (x0.5..x2 of each mode default); the band a level's mode can reach is drawn on the track.
+ */
+export function nativeAxis(key, t0 = 30) {
+    const first = key === 'start' || key === 'carry' ? 1 : 0;
+    const values = P.MODES.flatMap((mode) => [first, 100].map((c) => nativeValue({ ...P.factoryLevels()[0], mode: mode.id, [key]: c }, key, t0)));
+    const step = NATIVE_STEP[key];
+    let min = Math.floor(Math.min(...values) / step) * step;
+    let max = Math.ceil(Math.max(...values) / step) * step;
+    if (key === 'carry') min = 0;
+    if (key === 'start') max = Math.ceil(max + START_OFF_ROOM_KG);
+    return { min, max, step };
+}
+
+/** Slider position (native) -> correction for this level; snaps to the mode's band, handles "off". */
+export function axisToCorrection(level, key, value, t0 = 30) {
+    const first = key === 'start' || key === 'carry' ? 1 : 0;
+    const ends = [first, 100].map((c) => nativeValue({ ...level, [key]: c }, key, t0));
+    const lo = Math.min(...ends), hi = Math.max(...ends);
+    if (key === 'carry' && value < lo / 2) return 0;
+    if (key === 'start' && value > hi + START_OFF_ROOM_KG / 2) return 0;
+    return nativeToCorrection(level, key, clamp(value, lo, hi), t0).correction;
+}
+
 function correctionSlider(index, spec) {
     const level = model.levels[index];
     const t0 = model.riderBaseline ? model.rider.riderStrengthX10kg / 10 : 30;
     const disabled = spec.key === 'range' && !model.rangeKnown;
     const at = (v) => ({ ...level, [spec.key]: v });
-    const endpoint = (v) => nativeText(at(v), spec.key, t0);
     const first = spec.off ? 1 : 0;
-    const values = [nativeValue(at(first), spec.key, t0), nativeValue(at(100), spec.key, t0)];
-    const lower = Math.min(...values); const upper = Math.max(...values);
+    const axis = nativeAxis(spec.key, t0);
+    const pos = () => {
+        if (spec.off && level[spec.key] === 0) return spec.key === 'start' ? axis.max : 0;
+        return nativeValue(level, spec.key, t0);
+    };
+    const pct = (v) => ((clamp(v, axis.min, axis.max) - axis.min) / (axis.max - axis.min)) * 100;
+    const band = () => {
+        const ends = [first, 100].map((c) => nativeValue(at(c), spec.key, t0));
+        return [pct(Math.min(...ends)), pct(Math.max(...ends))];
+    };
+    const endpoint = (v) => nativeText(at(v), spec.key, t0);
     let caption;
     const s = bigSlider({
-        id: `evdV3-${index}-${spec.key}`, label: spec.label, min: 0, max: 100, step: 1,
-        get: () => level[spec.key], badge: (v) => endpoint(v),
+        id: `evdV3-${index}-${spec.key}`, label: spec.label, min: axis.min, max: axis.max, step: axis.step,
+        get: pos, badge: () => nativeText(level, spec.key, t0), band,
         numberAria: isAdvanced() ? `${spec.label}, poziom ${index + 1}` : null,
-        numberMin: spec.off ? 0 : lower, numberMax: upper, numberStep: 'any',
-        numberValue: (v) => Number(nativeValue(at(v), spec.key, t0).toFixed(nativeDigits(spec.key))),
-        onNumber: (v) => { level[spec.key] = nativeToCorrection(level, spec.key, v, t0).correction; update(); },
-        reset: { title: 'domyślna wartość trybu', value: () => 50 },
+        numberStep: 'any',
+        numberValue: () => (spec.off && level[spec.key] === 0 ? 0 : Number(nativeValue(level, spec.key, t0).toFixed(nativeDigits(spec.key)))),
+        onNumber: (v) => {
+            level[spec.key] = spec.off && v === 0 ? 0 : nativeToCorrection(level, spec.key, v, t0).correction;
+            update();
+        },
+        isDefault: () => level[spec.key] === 50,
+        reset: { title: 'domyślna wartość trybu', value: () => null },
+        onReset: () => { level[spec.key] = 50; update(); },
         disabled,
-        onInput: (raw) => { level[spec.key] = clamp(Math.round(raw), 0, 100); update(); },
+        onInput: (raw) => { level[spec.key] = axisToCorrection(level, spec.key, Number(raw), t0); update(); },
     });
     function update() {
         if (caption) caption.textContent = details();
@@ -304,9 +349,10 @@ function correctionSlider(index, spec) {
     function details() {
         const label = spec.key === 'start' ? 'pełny kop przy ' : spec.key === 'range' ? 'pełne wsparcie przy ' : '';
         const span = (v) => spec.key === 'carry' ? `${Number(nativeValue(at(v), 'carry', t0).toFixed(0))} %` : endpoint(v);
+        const ends = [first, 100].sort((a, b) => nativeValue(at(a), spec.key, t0) - nativeValue(at(b), spec.key, t0));
         const preview = spec.key === 'range' && !model.riderBaseline ? ' · podgląd 30 kg' : '';
         const warning = spec.key === 'assist' && nativeValue(level, 'assist', t0) > 1000 ? ' · HMI: maks. 1000%' : '';
-        return `${label}${nativeText(level, spec.key, t0)}${spec.key === 'range' ? ' @60' : ''} · ${span(first)}–${span(100)}${preview}${warning}`;
+        return `${label}${nativeText(level, spec.key, t0)}${spec.key === 'range' ? ' @60' : ''} · tryb: ${span(ends[0])}–${span(ends[1])}${preview}${warning}`;
     }
     if (isAdvanced()) {
         caption = node('div', 'evd-v3-effective', details());
@@ -640,7 +686,7 @@ function legendSection() {
         item.append(chip, node('span', '', MODE_STYLE[mode.id]?.line ?? ''));
         modes.appendChild(item);
     });
-    box.appendChild(node('p', '', 'Wartości rzeczywiste. Przełożenie % = ta sama liczba co na HMI. ↺ przywraca wartość domyślną trybu.'));
+    box.appendChild(node('p', '', 'Wartości rzeczywiste na wspólnej skali: to samo miejsce suwaka = ta sama wartość na każdym poziomie. Ciemniejszy pas = zakres trybu. ↺ = domyślne dla trybu.'));
     const list = node('dl', 'evd-v3-legend-list');
     LEGEND.filter((item) => isAdvanced() || !item.adv).forEach((item) => {
         const dt = node('dt', '', item.name);

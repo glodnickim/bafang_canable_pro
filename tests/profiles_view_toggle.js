@@ -127,6 +127,16 @@ mod.registerHooks({
         const level = { ...P.factoryLevels()[0], mode: mode.id };
         check(`native clipping ${mode.name} ${key}`, panel.nativeToCorrection(level, key, 1e6).clipped && panel.nativeToCorrection(level, key, -1).clipped);
     }
+    for (const key of ['assist', 'attack', 'release', 'start', 'carry', 'range']) {
+        const ax = panel.nativeAxis(key);
+        const eco = { ...P.factoryLevels()[0], mode: 0 }, sport = { ...P.factoryLevels()[0], mode: 2 };
+        const v = key === 'start' ? 24 : panel.nativeValue({ ...eco, [key]: 100 }, key);
+        const a = panel.nativeValue({ ...eco, [key]: panel.axisToCorrection(eco, key, v) }, key);
+        const b = panel.nativeValue({ ...sport, [key]: panel.axisToCorrection(sport, key, v) }, key);
+        const stepTol = (x) => Math.abs(x - v) / v < 0.02;
+        check(`shared axis ${key}: one axis for all modes, same position = same value where both modes reach it`,
+            ax.min < ax.max && (!stepTol(a) || !stepTol(b) || Math.abs(a - b) / v < 0.03));
+    }
     const switched = panel.changeModeNative(P.factoryLevels()[0], 2);
     check('ECO 95 to SPORT clamps to 155 percent', switched.clipped && switched.level.assist === 0 && panel.nativeValue(switched.level, 'assist') === 155);
 
@@ -240,14 +250,15 @@ mod.registerHooks({
     check('Kop: more Kop = higher curve', share(100, 1) > share(50, 1) && share(0, 1) === 0);
     const kopYs = () => part('kop').getAttribute('d').split(/[ML]/).filter((pt) => pt.trim()).map((pt) => Number(pt.split(',')[1]));
     const st = byId('evdV3-0-start');
-    st.value = '50'; st.dispatch('input');
+    // Shared native axis (kg): the default ECO Kop is 35 kg, 17.5 kg is the strongest ECO Kop.
+    st.value = '35'; st.dispatch('input');
     const ys = kopYs();
     const top = Math.min(...ys);
     const topAt = ys.indexOf(top);
     check('Kop curve in the chart goes up and then down', top < ys[0] && top < ys[ys.length - 1] && topAt > 0 && topAt < ys.length - 1);
-    st.value = '100'; st.dispatch('input');
+    st.value = '17.5'; st.dispatch('input');
     check('Kop curve higher with the slider', Math.min(...kopYs()) < top);
-    st.value = '0'; st.dispatch('input');
+    st.value = '200'; st.dispatch('input'); // past the strongest-to-weakest band: Kop off
     check('Kop = 0: flat curve', new Set(kopYs()).size === 1);
     st.value = '50'; st.dispatch('input');
 

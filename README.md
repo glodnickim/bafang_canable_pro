@@ -163,3 +163,7 @@ Wartości rzeczywiste zaokrąglone czytelnie (% bez miejsc po przecinku, s do 0,
 ### 1.0.20
 
 Po publikacji strona od razu pobiera nowe pliki (service worker sprawdza zmiany na serwerze zamiast brać kopię przeglądarki sprzed do 10 min).
+
+### 1.0.21 — wspólna skala suwaków
+
+To samo miejsce suwaka oznacza tę samą wartość na każdym poziomie (oś w %, s albo kg wspólna dla wszystkich trybów). Ciemniejszy pas na torze pokazuje zakres osiągalny w trybie poziomu; poza nim suwak dociąga do granicy. Kop: skrajnie w prawo = wyłączony; Podtrzymanie: 0 = wyłączone.

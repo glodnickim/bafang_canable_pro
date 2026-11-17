@@ -1504,6 +1504,15 @@ input.evd-sl-number:focus { outline: 2px solid var(--evd-accent, #2563eb); outli
     background: linear-gradient(to right, var(--evd-accent, #2563eb) var(--fill), #e2e8f0 var(--fill));
 }
 .evd-range::-moz-range-track { height: 10px; border-radius: 999px; background: #e2e8f0; }
+/* Shared axis: the band the level's mode can reach is darker, the rest of the axis is pale. */
+.evd-range.has-band::-webkit-slider-runnable-track {
+    background:
+        linear-gradient(to right, var(--evd-accent, #2563eb) var(--fill), transparent var(--fill)),
+        linear-gradient(to right, #f1f5f9 var(--band-lo), #cbd5e1 var(--band-lo), #cbd5e1 var(--band-hi), #f1f5f9 var(--band-hi));
+}
+.evd-range.has-band::-moz-range-track {
+    background: linear-gradient(to right, #f1f5f9 var(--band-lo), #cbd5e1 var(--band-lo), #cbd5e1 var(--band-hi), #f1f5f9 var(--band-hi));
+}
 .evd-range::-moz-range-progress { height: 10px; border-radius: 999px; background: var(--evd-accent, #2563eb); }
 .evd-range::-webkit-slider-thumb {
     -webkit-appearance: none; appearance: none;
