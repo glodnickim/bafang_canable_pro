@@ -159,3 +159,7 @@ Ustawienia poziomów pokazują rzeczywiste wartości w %, sekundach i kg. Zmiana
 ### 1.0.19
 
 Wartości rzeczywiste zaokrąglone czytelnie (% bez miejsc po przecinku, s do 0,01, kg do 0,1).
+
+### 1.0.20
+
+Po publikacji strona od razu pobiera nowe pliki (service worker sprawdza zmiany na serwerze zamiast brać kopię przeglądarki sprzed do 10 min).

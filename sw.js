@@ -62,7 +62,11 @@ async function networkFirst(request) {
     const cache = await caches.open(CACHE);
     // The app fetches its modules with cache: 'no-store'; the kept copy is keyed by URL.
     const key = new Request(request.url);
-    const network = fetch(request).then((response) => {
+    // 'no-cache' revalidates with the server (ETag) instead of taking the browser's HTTP copy:
+    // GitHub Pages serves max-age=600, so right after a deploy plain fetch() could return the
+    // previous module for ~10 min while version.json already showed the new version.
+    // A navigation request cannot be re-created with a new init, so it goes as it is.
+    const network = fetch(request.mode === 'navigate' ? request : new Request(request, { cache: 'no-cache' })).then((response) => {
         if (response.ok) cache.put(key, response.clone());
         return response;
     });
