@@ -117,6 +117,19 @@ mod.registerHooks({
     body.appendChild(tab);
 
     const panel = await import(pathToFileURL(path.join(dir, 'v3-model-panel.js')).href);
+    for (const mode of P.MODES) for (const key of ['assist', 'attack', 'release', 'start', 'carry', 'range']) {
+        for (const correction of [0, 50, 100]) {
+            const level = { ...P.factoryLevels()[0], mode: mode.id, [key]: correction };
+            const native = panel.nativeValue(level, key);
+            const back = panel.nativeToCorrection(level, key, native);
+            check(`native roundtrip ${mode.name} ${key} ${correction}`, back.correction === correction && !back.clipped);
+        }
+        const level = { ...P.factoryLevels()[0], mode: mode.id };
+        check(`native clipping ${mode.name} ${key}`, panel.nativeToCorrection(level, key, 1e6).clipped && panel.nativeToCorrection(level, key, -1).clipped);
+    }
+    const switched = panel.changeModeNative(P.factoryLevels()[0], 2);
+    check('ECO 95 to SPORT clamps to 155 percent', switched.clipped && switched.level.assist === 0 && panel.nativeValue(switched.level, 'assist') === 155);
+
     panel.bindModelPanel();
 
     // ---- view choice and storage ----
@@ -188,6 +201,7 @@ mod.registerHooks({
     check('simple: shared pressure sliders', simple.has('INPUT:evdV3PressStart') && simple.has('INPUT:evdV3PressRide'));
     check('simple: link to advanced thresholds', simple.has('BUTTON:evdV3PressureToAdvanced'));
     check('simple: no attack/release/carry/range', ![0, 1, 2, 3, 4].some((i) => ['attack', 'release', 'carry', 'range'].some((k) => byId(`evdV3-${i}-${k}`))));
+    check('simple support displays native percent', byId('evdV3-0-assist').getAttribute('aria-valuetext') === '95 %');
     check('simple: no rider, charts, hardware', !byId('evdV3Rider') && !byId('evdV3ChartEffort') && !byId('evdV3Hardware'));
     for (let i = 0; i < 5; i++) {
         check(`simple level ${i + 1}: mode buttons, 3 big sliders, write`, P.MODES.every((m) => simple.has(`BUTTON:${m.name}@evdV3Card-${i}`))

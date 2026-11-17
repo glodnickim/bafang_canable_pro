@@ -151,3 +151,7 @@ Pola „Start z miejsca” i „Start w jeździe” są widoczne zawsze: przed o
 
 ### 1.0.17 — zrozumiałe ustawienia rowerzysty
 Sekcja „Rowerzysta i model podtrzymania”: nazwy opisują odczucie (Wsparcie wg wysiłku, Twoja siła, Bez terkotu, Minimalne wsparcie przy wolnym/szybkim kręceniu w %, Wyłącz po … s bez nacisku), przy każdym mały wykres na żywo, opis w jednej linii, szczegóły pod „?”. Przed odczytem widoczne wyszarzone z wartościami fabrycznymi.
+
+### 1.0.18
+
+Ustawienia poziomów pokazują rzeczywiste wartości w %, sekundach i kg. Zmiana trybu zachowuje je w dostępnym zakresie.

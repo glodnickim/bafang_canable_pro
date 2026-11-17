@@ -40,17 +40,15 @@ const SLIDERS = [
 
 // The ONE place every setting is explained. `adv` = only relevant in the advanced view.
 const LEGEND = [
-    { name: 'Wsparcie (Assist)', short: 'Ile silnik dokłada do Twojego nacisku.', full: 'Siła wspomagania: mnoży to, co daje mapa. 50 = fabrycznie dla trybu. W prawo więcej wsparcia przy tym samym nacisku, w lewo mniej (×0,5…×2).' },
+    { name: 'Wsparcie (Assist)', short: 'Ile silnik dokłada do Twojego nacisku.', full: 'Siła wspomagania: mnoży to, co daje mapa. W prawo więcej wsparcia przy tym samym nacisku, w lewo mniej (×0,5…×2).' },
     { name: 'Moc maks. (Max Power)', short: 'Sufit mocy z baterii na tym poziomie.', full: 'Sufit mocy pobieranej z baterii na tym poziomie. Limit baterii i prądu fazy zostają nadrzędne. Skrajnie w prawo albo „limit sprzętu” (65000) = bez limitu trybu. Mniej W = spokojniej przy wysokiej kadencji i prędkości. Zmiana trybu ustawia jego domyślną moc.' },
-    { name: 'Kop na starcie (Start)', short: 'Dodatkowa siła przy ruszaniu z miejsca. 0 = wyłączony.', full: 'Kop przy ruszaniu (stan Start: tylko z postoju, poniżej 6 km/h, gaśnie do 50 obr/min). 50 = fabrycznie. W prawo pełny kop przy lżejszym nacisku, w lewo potrzeba mocniejszego. 0 = Start wyłączony.' },
-    { name: 'Narastanie (Attack)', adv: true, short: 'Jak szybko silnik dochodzi do mocy.', full: 'Jak szybko silnik dochodzi do mocy po naciśnięciu pedału. 50 = fabrycznie. W prawo szybciej (krótszy czas narastania), w lewo łagodniej.' },
-    { name: 'Opadanie (Release)', adv: true, short: 'Jak szybko wsparcie gaśnie, gdy odpuszczasz.', full: 'Jak szybko wspomaganie opada, gdy odpuszczasz nacisk. 50 = fabrycznie. W prawo szybsze opadanie, w lewo silnik dłużej trzyma moc.' },
-    { name: 'Podtrzymanie (Carry)', adv: true, short: 'Wsparcie w krótkiej przerwie pedałowania. 0 = wył.', full: 'Podtrzymanie wspomagania po chwilowym przerwaniu pedałowania (np. zmiana biegu, przeszkoda). 50 = fabrycznie. W prawo mocniej, w lewo słabiej. 0 = wyłączone.' },
-    { name: 'Zakres (Range)', adv: true, short: 'Przy jakim nacisku wsparcie dochodzi do 100 %.', full: 'Jaki wysiłek daje pełne wyjście mapy wysiłku. 50 = fabrycznie (e_full trybu). W prawo krótszy zakres: 100 % przy lżejszym nacisku. W lewo dłuższy: trzeba mocniej nacisnąć. Działa tylko z włączoną mapą wysiłku.' },
+    { name: 'Kop na starcie (Start)', short: 'Dodatkowa siła przy ruszaniu z miejsca. 0 = wyłączony.', full: 'Kop przy ruszaniu (stan Start: tylko z postoju, poniżej 6 km/h, gaśnie do 50 obr/min). W prawo pełny kop przy lżejszym nacisku, w lewo potrzeba mocniejszego. 0 = Start wyłączony.' },
+    { name: 'Narastanie (Attack)', adv: true, short: 'Jak szybko silnik dochodzi do mocy.', full: 'Jak szybko silnik dochodzi do mocy po naciśnięciu pedału. W prawo szybciej (krótszy czas narastania), w lewo łagodniej.' },
+    { name: 'Opadanie (Release)', adv: true, short: 'Jak szybko wsparcie gaśnie, gdy odpuszczasz.', full: 'Jak szybko wspomaganie opada, gdy odpuszczasz nacisk. W prawo szybsze opadanie, w lewo silnik dłużej trzyma moc.' },
+    { name: 'Podtrzymanie (Carry)', adv: true, short: 'Wsparcie w krótkiej przerwie pedałowania. 0 = wył.', full: 'Podtrzymanie wspomagania po chwilowym przerwaniu pedałowania (np. zmiana biegu, przeszkoda). W prawo mocniej, w lewo słabiej. 0 = wyłączone.' },
+    { name: 'Zakres (Range)', adv: true, short: 'Przy jakim nacisku wsparcie dochodzi do 100 %.', full: 'Jaki wysiłek daje pełne wyjście mapy wysiłku. W prawo krótszy zakres: 100 % przy lżejszym nacisku. W lewo dłuższy: trzeba mocniej nacisnąć. Działa tylko z włączoną mapą wysiłku.' },
     { name: 'Max Torque', adv: true, short: 'Sufit momentu silnika (% dozwolonego Iq, nie Nm).', full: 'Sufit momentu silnika: ułamek dozwolonego prądu Iq. Obcina mapę i kop Start; najbardziej czuć go pod górę i przy ruszaniu. Zmiana trybu ustawia jego domyślny Max Torque.' },
-    { name: '50 i ↺', short: '50 = ustawienie fabryczne trybu; ↺ wraca do niego.', full: 'Każda korekta 0..100 działa wokół wartości fabrycznej trybu: 50 = fabrycznie, mnożnik ×0,5 przy 0 … ×2 przy 100. Ikona ↺ przy suwaku przywraca wartość fabryczną (dla mocy: domyślną moc trybu).' },
     { name: 'Miniwykres', short: 'Wsparcie, Kop i pasek Mocy w jednym polu (ilustracja).', full: 'Jeden wykres w karcie, poglądowy (serie nie mają wspólnej osi). Wsparcie (kolor trybu): wyjście mapy wysiłku od nacisku przy 60 obr/min, po korekcie Wsparcia i Zakresu, obcięte przez Max Torque. Kop (żółta przerywana linia z polem): dodatkowy prąd przy przykładowym ruszaniu z miejsca w czasie 0–4 s — nacisk 12 kg, kadencja rośnie o 15 obr/min na sekundę; narasta w ok. 0,3 s, gaśnie z kadencją między 25 a 50 obr/min (w firmware także przy 12 km/h) i kończy się najpóźniej po 4 s; wysokość zależy od Max Torque i korekty Kopu. Moc (szary pasek „W” na dole): ustawiona Moc maks. na tle mocy baterii (skonfigurowany prąd × napięcie; przed odczytem 15 A × 48 V); pionowa kreska = domyślna moc trybu; „bez limitu” = pełny, jaśniejszy pasek. Liczone z wartości na ekranie, nie z pomiaru.' },
-    { name: 'Wartości efektywne', adv: true, short: 'Wynik korekty w jednostkach (s, kg, %).', full: 'Pod suwakiem w widoku zaawansowanym: co dana korekta daje w liczbach, obok wartości domyślnej trybu. Mnożnik (×) obok wartości: 0 → ×0,5, 50 → ×1, 100 → ×2.' },
     { name: 'Pierwszeństwo', short: 'Hamulec, błędy, stop i jazda wstecz zawsze wygrywają.', full: 'Hamulec, błędy, stop i jazda wstecz mają zawsze pierwszeństwo przed każdym ustawieniem trybu. Korekty są osobne dla każdego poziomu, także gdy kilka poziomów ma ten sam tryb.' },
 ];
 
@@ -106,32 +104,51 @@ const riderDirty = () => !model.riderBaseline || !P.ridersEqual(model.rider, mod
 const readDone = () => !!(model.baseline || model.riderBaseline);
 const isAdvanced = () => model.view === 'advanced';
 
-/** Multiplier shown next to a slider (×0,50 … ×2,00). */
-const multiplierText = (x) => `×${fmtNum(P.multiplier(x))}`;
-
-/** What an effective-value caption says for one slider, next to the mode default. */
-export function describeEffective(level, key) {
-    const mode = P.MODES[level.mode];
+// Native values are derived from the same model helpers used by the charts.
+export function nativeValue(level, key, t0 = 30) {
     const eff = P.effectiveValues(level);
-    if (!mode || !eff) return '';
-    if (key === 'assist') {
-        const base = `${fmtPercent(eff.ratioPct)} (domyślnie ${fmtPercent(mode.ratio)})`;
-        return mode.progressive
-            ? `szczyt ${base}, nachylenie ${eff.slope.toFixed(2).replace('.', ',')}`
-            : `współczynnik ${base}`;
-    }
-    if (key === 'attack') return `pełna skala w ${seconds(eff.attackMs)} (domyślnie ${seconds(mode.attackMs)})`;
-    if (key === 'release') return `czas opadania ${seconds(eff.releaseMs)} (domyślnie ${seconds(mode.releaseMs)})`;
-    if (key === 'range') {
-        const over = eff.eFull > 1 ? ' — powyżej 100 %: pełne wyjście tylko przy wysiłku ponad możliwości z T0' : '';
-        return `100 % mapy przy ${fmtPercent(eff.eFull * 100)} wysiłku (domyślnie ${fmtPercent(mode.eFull * 100)})${over}`;
-    }
-    if (key === 'start') {
-        if (eff.start === 0) return 'wyłączone';
-        return `pełny kop przy ${fmtNum(P.startFullForceKg(level), 1)} kg nacisku (domyślnie ${mode.fFullKg} kg); profil ${eff.start} (domyślnie ${mode.start})`;
-    }
-    return eff.carry === 0 ? 'wyłączone' : `profil ${eff.carry} (domyślnie ${mode.carry})`;
+    if (key === 'assist') return eff.ratioPct;
+    if (key === 'attack') return eff.attackMs / 1000;
+    if (key === 'release') return eff.releaseMs / 1000;
+    if (key === 'start') return P.startFullForceKg(level) ?? 0;
+    if (key === 'carry') return level.carry === 0 ? 0 : P.MODES[level.mode].carry * P.multiplier(level.carry);
+    return P.tMaxKg(60, t0) * P.effortFull(level);
 }
+
+export function nativeToCorrection(level, key, value, t0 = 30) {
+    const off = key === 'start' || key === 'carry';
+    if (off && value === 0) return { correction: 0, clipped: false };
+    const first = off ? 1 : 0;
+    const values = Array.from({ length: 101 - first }, (_, i) => {
+        const correction = i + first;
+        return { correction, value: nativeValue({ ...level, [key]: correction }, key, t0) };
+    });
+    const min = Math.min(...values.map((v) => v.value));
+    const max = Math.max(...values.map((v) => v.value));
+    const closest = values.reduce((a, b) => Math.abs(b.value - value) < Math.abs(a.value - value) ? b : a);
+    return { correction: closest.correction, clipped: value < min - 1e-9 || value > max + 1e-9 };
+}
+
+export function changeModeNative(level, mode, t0 = 30) {
+    const next = { ...level, mode };
+    let clipped = false;
+    for (const { key } of SLIDERS) {
+        const result = nativeToCorrection(next, key, nativeValue(level, key, t0), t0);
+        next[key] = result.correction;
+        clipped ||= result.clipped;
+    }
+    return { level: next, clipped };
+}
+
+const nativeDigits = (key) => key === 'assist' || key === 'carry' ? 1 : 2;
+const nativeText = (level, key, t0 = 30) => {
+    const value = nativeValue(level, key, t0);
+    if ((key === 'start' || key === 'carry') && value === 0) return 'wył.';
+    const n = (v, digits = nativeDigits(key)) => String(Number(v.toFixed(digits))).replace('.', ',');
+    if (key === 'carry') return `${n(value)} % · ${n(1.2 * P.multiplier(level.carry), 2)} s · ${n(1.5 * P.multiplier(level.carry), 2)} m`;
+    return `${n(value)} ${key === 'assist' ? '%' : key === 'attack' || key === 'release' ? 's' : 'kg'}`;
+};
+export function describeEffective(level, key) { return nativeText(level, key); }
 
 function capsSummary(caps) {
     const yes = (b, text) => `${text}: ${b ? 'tak' : 'nie'}`;
@@ -158,7 +175,7 @@ function levelWarning(level) {
         out.push(`Moc maks. poniżej domyślnej dla ${mode.name} (${P.modeDefaultPowerW(mode.id)} W): moc obcięta wcześniej niż fabrycznie.`);
     }
     if (level.maxTorquePct < mode.torquePct) out.push(`Max Torque poniżej domyślnego (${mode.torquePct} %): obcina też kop na starcie.`);
-    if (!model.rider.effortMap && level.range !== 50) out.push('Zakres ≠ 50, ale mapa wysiłku jest wyłączona: korekta nie działa.');
+    if (!model.rider.effortMap && level.range !== 50) out.push('Mapa wysiłku jest wyłączona: ustawienie zakresu nie działa.');
     return out;
 }
 
@@ -213,7 +230,7 @@ function bigSlider(o) {
     if (o.numberAria) {
         badge = document.createElement('input');
         badge.type = 'number'; badge.className = 'evd-sl-badge evd-sl-number';
-        badge.min = String(o.min); badge.max = String(o.max); badge.step = String(o.step);
+        badge.min = String(o.numberMin ?? o.min); badge.max = String(o.numberMax ?? o.max); badge.step = String(o.numberStep ?? o.step);
         badge.setAttribute('aria-label', o.numberAria);
     } else {
         badge = node('span', 'evd-sl-badge');
@@ -228,7 +245,7 @@ function bigSlider(o) {
         const pos = o.get();
         input.value = String(pos);
         input.style.setProperty('--fill', `${((clamp(pos, o.min, o.max) - o.min) / (o.max - o.min)) * 100}%`);
-        if (o.numberAria) badge.value = String(pos); else badge.textContent = o.badge(pos);
+        if (o.numberAria) badge.value = String(o.numberValue ? o.numberValue(pos) : pos); else badge.textContent = o.badge(pos);
         input.setAttribute('aria-valuetext', o.badge(pos));
         if (sub) {
             sub.textContent = o.sub(pos);
@@ -241,7 +258,7 @@ function bigSlider(o) {
     if (o.numberAria) {
         badge.addEventListener('change', () => {
             const v = Number(badge.value);
-            if (Number.isFinite(v)) o.onInput(clamp(v, o.min, o.max));
+            if (badge.value !== '' && Number.isFinite(v)) { if (o.onNumber) o.onNumber(v); else o.onInput(clamp(v, o.min, o.max)); }
             show();
         });
     }
@@ -261,30 +278,38 @@ function afterLevelEdit(index) {
 
 function correctionSlider(index, spec) {
     const level = model.levels[index];
-    const advanced = isAdvanced();
+    const t0 = model.riderBaseline ? model.rider.riderStrengthX10kg / 10 : 30;
     const disabled = spec.key === 'range' && !model.rangeKnown;
-    let caption = null;
+    const at = (v) => ({ ...level, [spec.key]: v });
+    const endpoint = (v) => nativeText(at(v), spec.key, t0);
+    const first = spec.off ? 1 : 0;
+    const values = [nativeValue(at(first), spec.key, t0), nativeValue(at(100), spec.key, t0)];
+    const lower = Math.min(...values); const upper = Math.max(...values);
+    let caption;
     const s = bigSlider({
         id: `evdV3-${index}-${spec.key}`, label: spec.label, min: 0, max: 100, step: 1,
-        get: () => level[spec.key],
-        badge: (v) => (spec.off && v === 0 ? 'wył.' : String(v)),
-        sub: (v) => multiplierText(v),
-        isDefault: (v) => v === 50,
-        numberAria: advanced ? `${spec.label}, poziom ${index + 1}` : null,
-        reset: { title: 'wartość fabryczna (50)', value: () => 50 },
+        get: () => level[spec.key], badge: (v) => endpoint(v),
+        numberAria: isAdvanced() ? `${spec.label}, poziom ${index + 1}` : null,
+        numberMin: spec.off ? 0 : lower, numberMax: upper, numberStep: 'any',
+        numberValue: (v) => Number(nativeValue(at(v), spec.key, t0).toFixed(3)),
+        onNumber: (v) => { level[spec.key] = nativeToCorrection(level, spec.key, v, t0).correction; update(); },
+        reset: { title: 'domyślna wartość trybu', value: () => 50 },
         disabled,
-        onInput: (raw) => {
-            const next = clamp(Math.round(Number(raw)), 0, 100);
-            if (!Number.isFinite(next)) return;
-            level[spec.key] = next;
-            if (caption) caption.textContent = describeEffective(level, spec.key);
-            afterLevelEdit(index);
-        },
+        onInput: (raw) => { level[spec.key] = clamp(Math.round(raw), 0, 100); update(); },
     });
-    if (advanced) {
-        caption = node('div', 'evd-v3-effective', disabled
-            ? 'Obiekt w wersji 1 (bez pola Zakres): sterownik używa e_full trybu.'
-            : describeEffective(level, spec.key));
+    function update() {
+        if (caption) caption.textContent = details();
+        afterLevelEdit(index);
+    }
+    function details() {
+        const label = spec.key === 'start' ? 'pełny kop przy ' : spec.key === 'range' ? 'pełne wsparcie przy ' : '';
+        const span = (v) => spec.key === 'carry' ? `${Number(nativeValue(at(v), 'carry', t0).toFixed(0))} %` : endpoint(v);
+        const preview = spec.key === 'range' && !model.riderBaseline ? ' · podgląd 30 kg' : '';
+        const warning = spec.key === 'assist' && nativeValue(level, 'assist', t0) > 1000 ? ' · HMI: maks. 1000%' : '';
+        return `${label}${nativeText(level, spec.key, t0)}${spec.key === 'range' ? ' @60' : ''} · ${span(first)}–${span(100)}${preview}${warning}`;
+    }
+    if (isAdvanced()) {
+        caption = node('div', 'evd-v3-effective', details());
         s.row.appendChild(caption);
     }
     return s.row;
@@ -537,8 +562,10 @@ function modePicker(index) {
     P.MODES.forEach((mode) => {
         const b = button(mode.name, 'evd-mode-btn', () => {
             if (level.mode === mode.id) return;
-            level.mode = mode.id;
-            // A new mode brings its own default limits; the corrections stay where the rider put them.
+            const changed = changeModeNative(level, mode.id, model.riderBaseline ? model.rider.riderStrengthX10kg / 10 : 30);
+            Object.assign(level, changed.level);
+            model.clipIndex = changed.clipped ? index : null;
+            // A new mode brings its own default limits.
             level.maxPowerW = P.modeDefaultPowerW(mode.id); level.maxTorquePct = mode.torquePct;
             markEdited(index);
             renderPanel();
@@ -573,6 +600,7 @@ function levelCard(index) {
 
     const body = node('div', 'evd-v3-body');
     body.append(modePicker(index), miniChart(index));
+    if (model.clipIndex === index) body.appendChild(node('div', 'evd-v3-effective', 'przycięto do zakresu trybu'));
     SLIDERS.filter((spec) => advanced || spec.simple).forEach((spec) => {
         body.appendChild(correctionSlider(index, spec));
         if (!advanced && spec.key === 'assist') body.appendChild(powerSlider(index));
@@ -612,6 +640,7 @@ function legendSection() {
         item.append(chip, node('span', '', MODE_STYLE[mode.id]?.line ?? ''));
         modes.appendChild(item);
     });
+    box.appendChild(node('p', '', 'Wartości rzeczywiste. Przełożenie % = ta sama liczba co na HMI. ↺ przywraca wartość domyślną trybu.'));
     const list = node('dl', 'evd-v3-legend-list');
     LEGEND.filter((item) => isAdvanced() || !item.adv).forEach((item) => {
         const dt = node('dt', '', item.name);
@@ -966,7 +995,7 @@ export function refreshCharts() {
         }],
         vlines: [
             { x: 0.6 * selOut.eFull * tMax, label: 'kolano', color: '#64748b' },
-            { x: selOut.eFull * tMax, label: `e_full ${fmtNum(selOut.eFull)}`, color: LEVEL_COLORS[model.chartLevel] },
+            { x: selOut.eFull * tMax, label: `pełne wsparcie ${fmtNum(selOut.eFull * tMax, 1)} kg`, color: LEVEL_COLORS[model.chartLevel] },
             { x: tMax, label: 'T_max', color: '#94a3b8' },
         ],
         hlines: [{ y: sel.maxTorquePct, label: `Max Torque P${model.chartLevel + 1}`, color: '#dc2626' }],
@@ -983,13 +1012,13 @@ export function refreshCharts() {
         xLabel: 'nacisk [kg]', yLabel: 'Iq_start [% dozw. Iq]', yUnit: '%', xMax: 50, yMax: 100,
         series: [
             { label: `P${model.chartLevel + 1} ${P.MODES[sel.mode].name}`, color: LEVEL_COLORS[model.chartLevel], width: 3, points: sample((f) => 100 * P.startTarget(f, sel), 50) },
-            { label: 'Start = 50 (fabrycznie)', color: '#94a3b8', dash: true, points: sample((f) => 100 * P.startTarget(f, { ...sel, start: 50 }), 50) },
+            { label: 'Kop domyślny trybu', color: '#94a3b8', dash: true, points: sample((f) => 100 * P.startTarget(f, { ...sel, start: 50 }), 50) },
         ],
         vlines: fFull ? [{ x: fFull, label: `F_full ${fmtNum(fFull, 1)} kg`, color: LEVEL_COLORS[model.chartLevel] }] : [],
         hlines: [{ y: sel.maxTorquePct, label: 'Max Torque', color: '#dc2626' }],
     });
     const startNote = el('evdV3ChartStartNote');
-    if (startNote) startNote.textContent = sel.start === 0 ? 'Start = 0: stan Start wyłączony, przy ruszaniu działa tylko zwykła mapa.'
+    if (startNote) startNote.textContent = sel.start === 0 ? 'Kop wyłączony, przy ruszaniu działa tylko zwykła mapa.'
         : `F_full trybu ${P.MODES[sel.mode].fFullKg} kg, po korekcie ${fmtNum(fFull, 1)} kg. Start tylko dokłada do zwykłej mapy.`;
 
     // (c) fade vs cadence
