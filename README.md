@@ -155,3 +155,7 @@ Sekcja „Rowerzysta i model podtrzymania”: nazwy opisują odczucie (Wsparcie 
 ### 1.0.18
 
 Ustawienia poziomów pokazują rzeczywiste wartości w %, sekundach i kg. Zmiana trybu zachowuje je w dostępnym zakresie.
+
+### 1.0.19
+
+Wartości rzeczywiste zaokrąglone czytelnie (% bez miejsc po przecinku, s do 0,01, kg do 0,1).

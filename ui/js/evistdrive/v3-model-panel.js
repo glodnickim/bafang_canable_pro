@@ -140,12 +140,12 @@ export function changeModeNative(level, mode, t0 = 30) {
     return { level: next, clipped };
 }
 
-const nativeDigits = (key) => key === 'assist' || key === 'carry' ? 1 : 2;
+const nativeDigits = (key) => key === 'assist' || key === 'carry' ? 0 : key === 'start' || key === 'range' ? 1 : 2;
 const nativeText = (level, key, t0 = 30) => {
     const value = nativeValue(level, key, t0);
     if ((key === 'start' || key === 'carry') && value === 0) return 'wył.';
     const n = (v, digits = nativeDigits(key)) => String(Number(v.toFixed(digits))).replace('.', ',');
-    if (key === 'carry') return `${n(value)} % · ${n(1.2 * P.multiplier(level.carry), 2)} s · ${n(1.5 * P.multiplier(level.carry), 2)} m`;
+    if (key === 'carry') return `${n(value)} % · ${n(1.2 * P.multiplier(level.carry), 1)} s · ${n(1.5 * P.multiplier(level.carry), 1)} m`;
     return `${n(value)} ${key === 'assist' ? '%' : key === 'attack' || key === 'release' ? 's' : 'kg'}`;
 };
 export function describeEffective(level, key) { return nativeText(level, key); }
@@ -291,7 +291,7 @@ function correctionSlider(index, spec) {
         get: () => level[spec.key], badge: (v) => endpoint(v),
         numberAria: isAdvanced() ? `${spec.label}, poziom ${index + 1}` : null,
         numberMin: spec.off ? 0 : lower, numberMax: upper, numberStep: 'any',
-        numberValue: (v) => Number(nativeValue(at(v), spec.key, t0).toFixed(3)),
+        numberValue: (v) => Number(nativeValue(at(v), spec.key, t0).toFixed(nativeDigits(spec.key))),
         onNumber: (v) => { level[spec.key] = nativeToCorrection(level, spec.key, v, t0).correction; update(); },
         reset: { title: 'domyślna wartość trybu', value: () => 50 },
         disabled,
