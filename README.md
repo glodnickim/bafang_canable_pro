@@ -172,3 +172,7 @@ To samo miejsce suwaka oznacza tę samą wartość na każdym poziomie (oś w %,
 
 „Twoja siła”, „Zakres” i „Kop” pokazują teraz prawdziwe kg na pedale (tabela czujnika). Wcześniej ekran pokazywał jednostki sterowania jako kg: „Twoja siła 30” to fizycznie 16,6 kg, „60” to 26,3 kg, czyli granica czujnika. Zapis do sterownika bez zmian. Wykresy pokazują prąd w % maksimum, ze starym sufitem 65%.
 Nowy przełącznik „Nowa mapa nacisku” (firmware 0.709+, bit 13): mniej wsparcia przy lekkim nacisku, pełny nacisk daje pełny prąd silnika. Na 0.707 przełącznik jest wyszarzony.
+
+### 1.0.23 — Podtrzymanie (Carry): prawdziwe granice
+
+Czas i droga Podtrzymania są pokazywane z granicą firmware: najwyżej 1,2 s i 1,5 m. Wcześniej powyżej 50 ekran pokazywał np. 2,4 s · 3 m, choć firmware obcina do 1,2 s · 1,5 m, więc powyżej 50 rośnie już tylko siła. Opis mówi, kiedy funkcja naprawdę działa: zatrzymanie korby po mocnym pedałowaniu poniżej 10 km/h.
