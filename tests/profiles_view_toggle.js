@@ -94,8 +94,8 @@ const STUBS = {
         export function addLog() {}
         export function helpBadge(text) { const b = document.createElement('button'); b.className = 'ebics-help'; b.textContent = '?'; b.setAttribute('data-help', text); return b; }`,
     './common.js': `export const el = (id) => document.getElementById(id); export const socketReady = () => false;
-        export const markReadNeeded = () => {}; export const writeBankAndWait = async () => ({ ok: true });`,
-    './global-actions.js': 'export const markUnsavedInRam = () => {};',
+        export const markReadNeeded = () => {}; export const writeBankAndWait = async () => ({ ok: true }); export const saveToFlashAndWait = async () => ({ ok: true });`,
+    './global-actions.js': 'export const markUnsavedInRam = () => {}; export const clearUnsavedInRam = () => {};',
 };
 mod.registerHooks({
     resolve(specifier, context, next) {
@@ -217,9 +217,10 @@ mod.registerHooks({
     check('simple support displays native percent', byId('evdV3-0-assist').getAttribute('aria-valuetext') === '95 %');
     check('simple: no rider, charts, hardware', !byId('evdV3Rider') && !byId('evdV3ChartEffort') && !byId('evdV3Hardware'));
     for (let i = 0; i < 5; i++) {
-        check(`simple level ${i + 1}: mode buttons, 3 big sliders, write`, P.MODES.every((m) => simple.has(`BUTTON:${m.name}@evdV3Card-${i}`))
+        // owner 2026-11-18: one save path — the simple view has no per-level send button
+        check(`simple level ${i + 1}: mode buttons, 3 big sliders, no per-level send`, P.MODES.every((m) => simple.has(`BUTTON:${m.name}@evdV3Card-${i}`))
             && ['assist', 'power', 'start'].every((k) => simple.has(`INPUT:evdV3-${i}-${k}@evdV3Card-${i}`))
-            && simple.has(`BUTTON:evdV3WriteOne-${i}@evdV3Card-${i}`));
+            && !simple.has(`BUTTON:evdV3WriteOne-${i}@evdV3Card-${i}`));
     }
     // shared pressure slider applies to all levels and keeps riding <= start
     const ps = byId('evdV3PressStart'); ps.value = '2.5'; ps.dispatch('input');
@@ -267,7 +268,10 @@ mod.registerHooks({
 
     // order: cards first, then pressure
     const order = root.children.map((n) => n.id || n.className);
-    check('order: level cards first, then pressure', order[0] === 'evd-v3-grid' && order[1] === 'evdV3Pressure', JSON.stringify(order));
+    check('order: save bar, level cards, then pressure', order[0] === 'evdV3SaveBar' && order[1] === 'evd-v3-grid' && order[2] === 'evdV3Pressure', JSON.stringify(order));
+    // save bar (owner 2026-11-18): read -> clean; an edit -> dirty with the field named; one save button
+    const bar = () => byId('evdV3SaveBar');
+    check('save bar present with the one save button', !!bar() && !!byId('evdV3SaveToBike'));
 
     advancedBtn.click();
     check('click Zaawansowany -> stored', storage.get('evdProfilesView') === 'advanced' && root.dataset.view === 'advanced');

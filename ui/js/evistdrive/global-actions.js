@@ -42,6 +42,13 @@ let unsavedInRam = false;
 export function markUnsavedInRam() {
     unsavedInRam = true;
     refreshUnsavedBadge();
+    window.dispatchEvent?.(new Event('evd-edited'));
+}
+
+/** Everything reached flash (one save path in the Profiles panel). */
+export function clearUnsavedInRam() {
+    unsavedInRam = false;
+    refreshUnsavedBadge();
 }
 
 function refreshUnsavedBadge() {

@@ -1628,3 +1628,19 @@ input.evd-sl-number:focus { outline: 2px solid var(--evd-accent, #2563eb); outli
 .evd-rider-item .evd-sl-head { flex-wrap: wrap; }
 .evd-rider-chart { display: block; width: 100%; height: 70px; max-width: 100%; background: #f8fafc; border-radius: 6px; }
 .evd-rider-item.is-preview, .evd-rider-toggle.is-preview { filter: grayscale(.9); opacity: .62; }
+
+/* One save path (owner 2026-11-18): what the screen is versus the bike, one button. */
+.evd-save-bar { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: .6rem; flex-wrap: wrap;
+  padding: .6rem .8rem; margin-bottom: .8rem; border: 1px solid #cbd5e1; border-radius: .6rem; background: #f8fafc; color: #334155; font-size: .9rem; }
+.evd-save-bar-icon { flex: 0 0 auto; width: 1.5rem; height: 1.5rem; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center;
+  font-weight: 700; color: #fff; background: #64748b; }
+.evd-save-bar-text { flex: 1 1 14rem; }
+.evd-save-bar .btn { flex: 0 0 auto; }
+.evd-save-bar.is-dirty { border-color: #f59e0b; background: #fffbeb; color: #92400e; }
+.evd-save-bar.is-dirty .evd-save-bar-icon { background: #f59e0b; }
+.evd-save-bar.is-saved, .evd-save-bar.is-clean { border-color: #86efac; background: #f0fdf4; color: #166534; }
+.evd-save-bar.is-saved .evd-save-bar-icon, .evd-save-bar.is-clean .evd-save-bar-icon { background: #16a34a; }
+.evd-save-bar.is-error { border-color: #fca5a5; background: #fef2f2; color: #991b1b; }
+.evd-save-bar.is-error .evd-save-bar-icon { background: #dc2626; }
+.evd-save-bar.is-busy { border-color: #93c5fd; background: #eff6ff; color: #1e3a8a; }
+.evd-save-bar.is-busy .evd-save-bar-icon { background: #2563eb; }

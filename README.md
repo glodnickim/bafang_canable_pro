@@ -188,3 +188,14 @@ Skala Wsparcia w % kończy się na 800% (decyzja właściciela). Z firmware 0.70
 ### 1.0.26 — do firmware 0.709
 
 Domyślna „Twoja siła” to 60, cała skala czujnika (ok. 26 kg; decyzja właściciela, lżejszy rowerzysta ustawi mniej). Wymagane do 0.709: wersje przed 1.0.22 nie odczytają rowerzysty z 0.709 (nowy bit mapy nacisku).
+
+### 1.0.27 — jeden zapis z potwierdzeniem
+
+Na górze „eVistDrive Profiles” jest pasek, który zawsze mówi, w jakim stanie jest ekran względem roweru:
+- „Nie odczytano”;
+- „Ekran = rower (odczyt HH:MM)”;
+- „Niezapisane zmiany: …” z listą zmienionych pól, np. „Twoja siła”, „P3: Wsparcie”, „Progi nacisku”.
+
+Jeden przycisk **„Zapisz na rowerze”** wysyła tylko to, co się zmieniło, zapisuje na stałe w sterowniku, odczytuje z powrotem i porównuje. Potem pasek pokazuje na zielono „Zapisano na stałe i sprawdzono odczytem (godzina)” albo na czerwono, co się nie udało. „Cofnij zmiany” wraca do odczytu bez wysyłania. Przy zamykaniu strony z niezapisanymi zmianami przeglądarka ostrzega.
+
+Przyciski „Wyślij tylko … (do wyłączenia)” są już tylko w widoku zaawansowanym (test do wyłączenia roweru).

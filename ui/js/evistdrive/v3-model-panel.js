@@ -12,8 +12,8 @@
 import { socket, addLog, state, helpBadge } from '../shared.js';
 import * as P from './v3-model-protocol.js';
 import { drawLineChart, sample } from './v3-model-charts.js';
-import { el, socketReady, markReadNeeded, writeBankAndWait } from './common.js';
-import { markUnsavedInRam } from './global-actions.js';
+import { el, socketReady, markReadNeeded, writeBankAndWait, saveToFlashAndWait } from './common.js';
+import { markUnsavedInRam, clearUnsavedInRam } from './global-actions.js';
 
 // Chart colours per HMI level (the detailed charts draw five levels at once).
 const LEVEL_COLORS = ['#16a34a', '#0ea5e9', '#6366f1', '#f59e0b', '#dc2626'];
@@ -444,6 +444,7 @@ function refreshWarnings(index) {
 
 function markEdited(index) {
     el(`evdV3Card-${index}`)?.classList.add('is-edited');
+    model.saveResult = null;
     markUnsavedInRam();
 }
 
@@ -671,8 +672,8 @@ function levelCard(index) {
                 { disabled: !writable, title: writable ? 'Sterownik ustawia fabryczny preset tego poziomu w RAM (op 6), potem odczyt.' : blockedTitle }),
         );
     }
-    actions.appendChild(button('Zapisz ten poziom (RAM)', 'btn btn-blue btn-sm', () => { void writeLevels(index + 1, 1); },
-        { id: `evdV3WriteOne-${index}`, disabled: !writable, title: writable ? 'Zapis jednego poziomu do RAM sterownika, potem odczyt kontrolny.' : blockedTitle }));
+    if (advanced) actions.appendChild(button('Wyślij tylko ten poziom (do wyłączenia)', 'btn btn-secondary btn-sm', () => { void writeLevels(index + 1, 1); },
+        { id: `evdV3WriteOne-${index}`, disabled: !writable, title: writable ? 'Test: tylko RAM, zniknie po wyłączeniu. Na stałe: „Zapisz na rowerze” u góry.' : blockedTitle }));
     card.appendChild(actions);
     return card;
 }
@@ -804,7 +805,7 @@ function riderSection() {
     const errors = node('div', 'form-hint'); errors.id = 'evdV3RiderErrors';
     const actions = node('div', 'evd-v3-actions');
     actions.append(button('Fabryczne na ekranie', 'btn btn-secondary btn-sm', () => { model.rider = model.rider.legacy ? P.factoryLegacyRider() : P.factoryRider(); riderEdited(); renderPanel(); }, { disabled: !read || !supported }),
-        button('Zapisz rowerzystę i sprzęt (RAM)', 'btn btn-blue btn-sm', () => { void writeRider(); }, { id: 'evdV3WriteRider', disabled: !read || !supported }));
+        button('Wyślij tylko rowerzystę (do wyłączenia)', 'btn btn-secondary btn-sm', () => { void writeRider(); }, { id: 'evdV3WriteRider', disabled: !read || !supported, title: 'Test: tylko RAM, zniknie po wyłączeniu. Na stałe: „Zapisz na rowerze” u góry.' }));
     box.append(grid, errors, actions);
     if (model.caps && !supported) box.appendChild(node('div', 'evd-v3-muted', 'Ten firmware nie obsługuje ustawień rowerzysty — podgląd fabryczny.'));
     else if (!read) box.appendChild(node('div', 'evd-v3-muted', 'podgląd fabryczny — odczytaj ustawienia z roweru.'));
@@ -823,7 +824,7 @@ function activeBankIndex() { return state.lastBanks?.[0]?.active_bank ?? state.l
 const clampKg = (v) => clamp(Math.round(v * 10) / 10, PRESSURE_LIMITS.min, PRESSURE_LIMITS.max);
 
 function pressureWriteButton(index) {
-    return button('Zapisz progi (RAM)', 'btn btn-blue btn-sm', async () => {
+    return button('Wyślij tylko progi (do wyłączenia)', 'btn btn-secondary btn-sm', async () => {
         const r = await writeBankAndWait(state.lastBanks[index]);
         addLog(r.ok ? 'ACK' : 'ERROR', r.ok ? `Progi nacisku zapisane w banku ${index + 1} (RAM). Zapis we flash: przycisk globalny.` : `Progi nacisku nie zapisane (${r.reason}).`);
     }, { id: 'evdV3WritePressure', title: 'Zapis aktywnego banku do RAM sterownika (WRITE_BANK). Trwały zapis: globalny „Save”.' });
@@ -873,7 +874,7 @@ function pressureSimple(bank, index) {
     const pair = node('div', 'evd-v3-pressure-pair');
     pair.append(startSlider.row, rideSlider.row);
     const foot = node('div', 'evd-v3-actions evd-v3-pressure-foot');
-    foot.append(node('span', 'evd-v3-muted', 'Dla wszystkich poziomów ·'), toAdvancedLink('inne dla poziomów → Zaawansowany'), pressureWriteButton(index));
+    foot.append(node('span', 'evd-v3-muted', 'Dla wszystkich poziomów ·'), toAdvancedLink('inne dla poziomów → Zaawansowany'));
     wrap.append(pair, foot);
     return wrap;
 }
@@ -968,6 +969,7 @@ function refreshRiderState() {
 }
 
 function riderEdited() {
+    model.saveResult = null;
     markUnsavedInRam();
     refreshRiderState();
 }
@@ -1132,6 +1134,154 @@ function hardwareSection() {
     return box;
 }
 
+// ---- one save path (owner 2026-11-18: "nie miałem pewności, kiedy parametry są odczytane, kiedy
+// zapisane; nie wiem, który przycisk wcisnąć; nie miałem potwierdzenia") --------------------------
+// One bar on top of the panel says what the screen is versus the bike, lists every unsaved change,
+// and has ONE button that sends the changes, makes them permanent and checks them by a readback.
+const LEVEL_LABELS = Object.freeze({
+    mode: 'tryb', assist: 'Wsparcie', attack: 'Narastanie', release: 'Opadanie', start: 'Kop',
+    carry: 'Dopych', range: 'Zakres', maxPowerW: 'Moc maks.', maxTorquePct: 'Moment maks.',
+});
+const RIDER_LABELS = Object.freeze({
+    riderStrengthX10kg: 'Twoja siła', mapV2: 'Nowa mapa nacisku', effortMap: 'Wsparcie wg wysiłku',
+    holdModel: 'Bez terkotu', iqMinLow: 'Minimum przy wolnym kręceniu', iqMinHigh: 'Minimum przy szybkim kręceniu',
+    tHold100ms: 'Wyłącz po … s bez nacisku',
+});
+const SAVE_FLASH_WAIT_S = 20;
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const clockText = () => new Date().toLocaleTimeString('pl-PL');
+
+function pressureSnapshot() {
+    const i = activeBankIndex();
+    const bank = state.ebicsReceivedBanks?.[i] ? state.lastBanks?.[i] : null;
+    return bank ? JSON.stringify((bank.levels || []).map((lv) => [lv.minimum_pedal_load_kg ?? null, lv.riding_minimum_pedal_load_kg ?? null])) : null;
+}
+function restorePressureFromSnapshot() {
+    const i = activeBankIndex();
+    const bank = state.ebicsReceivedBanks?.[i] ? state.lastBanks?.[i] : null;
+    if (!bank || !model.pressureBaseline) return;
+    JSON.parse(model.pressureBaseline).forEach(([start, ride], k) => {
+        if (!bank.levels?.[k]) return;
+        bank.levels[k].minimum_pedal_load_kg = start;
+        bank.levels[k].riding_minimum_pedal_load_kg = ride;
+    });
+}
+const pressureDirty = () => { const now = pressureSnapshot(); return !!now && !!model.pressureBaseline && now !== model.pressureBaseline; };
+
+/** Every change on screen that the bike does not have yet, as short Polish labels. */
+export function pendingChanges() {
+    const out = [];
+    if (model.baseline) model.levels.forEach((level, i) => {
+        const fields = Object.keys(LEVEL_LABELS).filter((k) => level[k] !== model.baseline[i]?.[k]);
+        if (fields.length) out.push(`P${i + 1}: ${fields.map((k) => LEVEL_LABELS[k]).join(', ')}`);
+    });
+    if (model.riderBaseline) {
+        const fields = Object.keys(RIDER_LABELS).filter((k) => model.rider[k] !== model.riderBaseline[k]);
+        if (fields.length) out.push(fields.map((k) => RIDER_LABELS[k]).join(', '));
+    }
+    if (pressureDirty()) out.push('Progi nacisku');
+    return out;
+}
+
+function saveBar() {
+    const connected = !!state.isCanConnected;
+    const read = readDone();
+    const changes = pendingChanges();
+    const bar = node('div', 'evd-save-bar');
+    bar.id = 'evdV3SaveBar';
+    bar.setAttribute('role', 'status');
+    bar.setAttribute('aria-live', 'polite');
+    let kind, icon, text;
+    if (model.saving) { kind = 'is-busy'; icon = '…'; text = model.saving; }
+    else if (!read) { kind = 'is-unread'; icon = 'i'; text = 'Nie odczytano z roweru. Naciśnij „Read from bike” — dopiero wtedy zmiany można zapisać.'; }
+    else if (changes.length) { kind = 'is-dirty'; icon = '●'; text = `Niezapisane zmiany: ${changes.join(' · ')}`; }
+    else if (model.saveResult) { kind = model.saveResult.ok ? 'is-saved' : 'is-error'; icon = model.saveResult.ok ? '✓' : '✗'; text = model.saveResult.text; }
+    else { kind = 'is-clean'; icon = '✓'; text = `Ekran = rower (odczyt ${model.readAt ?? '—'}). Brak zmian.`; }
+    bar.classList.add(kind);
+    bar.append(node('span', 'evd-save-bar-icon', icon), node('span', 'evd-save-bar-text', text));
+    if (read) {
+        const can = connected && changes.length > 0 && !model.saving;
+        bar.appendChild(button('Zapisz na rowerze', 'btn btn-orange', () => { void saveToBike(); }, {
+            id: 'evdV3SaveToBike', disabled: !can,
+            title: can ? 'Wysyła zmiany, zapisuje je na stałe w sterowniku i sprawdza odczytem.' : (connected ? 'Brak zmian do zapisania.' : 'Połącz adapter CANable.'),
+        }));
+        if (changes.length && !model.saving) {
+            bar.appendChild(button('Cofnij zmiany', 'btn btn-secondary btn-sm', () => {
+                restoreModelFromRead(); restorePressureFromSnapshot(); model.saveResult = null; renderPanel();
+            }, { id: 'evdV3UndoChanges', title: 'Wraca do tego, co odczytano z roweru. Nic nie wysyła.' }));
+        }
+    }
+    return bar;
+}
+
+export function refreshSaveBar() {
+    const old = el('evdV3SaveBar');
+    if (old) old.replaceWith(saveBar());
+}
+
+/** The one save: send what changed, make it permanent, read it back, report in one line. */
+export async function saveToBike() {
+    if (!socketReady() || model.saving) return false;
+    const changes = pendingChanges();
+    if (!changes.length) return true;
+    const errors = model.riderBaseline ? P.validateRider(model.rider) : [];
+    const levelsChanged = !!model.baseline && !P.levelsEqual(model.levels, model.baseline);
+    const riderChanged = !!model.riderBaseline && riderDirty();
+    const pressureChanged = pressureDirty();
+    const step = (text) => { model.saving = text; refreshSaveBar(); };
+    const fail = (why) => {
+        model.saving = null;
+        model.saveResult = { ok: false, text: `Nie zapisano: ${why}. Zmiany są nadal na ekranie — spróbuj ponownie.` };
+        addLog('ERR', `Zapis na rowerze: ${why}.`);
+        renderPanel();
+        return false;
+    };
+    if (errors.length) return fail(`popraw ${errors.join('; ')}`);
+    try {
+        if (levelsChanged) { step('Wysyłam poziomy…'); if (!(await writeAllLevels())) return fail(model.note || 'poziomy odrzucone'); }
+        if (riderChanged) { step('Wysyłam ustawienia rowerzysty…'); if (!(await writeRider())) return fail(model.note || 'rowerzysta odrzucony'); }
+        if (pressureChanged) {
+            step('Wysyłam progi nacisku…');
+            const r = await writeBankAndWait(state.lastBanks[activeBankIndex()]);
+            if (!r.ok) return fail(`progi nacisku (${r.reason})`);
+        }
+        step('Zapisuję na stałe…');
+        if ((levelsChanged || riderChanged) && canPersist() && !(await persistModel())) return fail(model.note || 'zapis na stałe odrzucony');
+        if (pressureChanged) {
+            const s = await saveToFlashAndWait();
+            if (!s.ok) return fail(`zapis progów na stałe (${s.reason})`);
+        }
+        step('Sprawdzam odczytem z roweru…');
+        const sentLevels = P.cloneLevels(model.levels);
+        const sentRider = { ...model.rider };
+        await readModelFromBike();
+        if (levelsChanged && !P.levelsEqual(model.levels, sentLevels)) return fail('odczyt poziomów różni się od wysłanych');
+        if (riderChanged && !P.ridersEqual(model.rider, sentRider)) return fail('odczyt rowerzysty różni się od wysłanego');
+        let flash = pressureChanged && !(levelsChanged || riderChanged) ? 'ok' : 'wait';
+        if (levelsChanged || riderChanged) {
+            for (let s = 0; s < SAVE_FLASH_WAIT_S; s++) {
+                step(`Czekam na zapis we flash — zatrzymaj rower (${SAVE_FLASH_WAIT_S - s} s)…`);
+                const caps = await discoverModel();
+                if (caps?.persistState === 0) { flash = 'ok'; break; }
+                if (caps?.persistState === 3 || caps?.persistState === 4) { flash = 'error'; break; }
+                await sleep(1000);
+            }
+        }
+        model.saving = null;
+        const what = changes.join(' · ');
+        if (flash === 'error') return fail('sterownik odrzucił zapis we flash — ustawienia działają do wyłączenia');
+        model.saveResult = flash === 'ok'
+            ? { ok: true, text: `Zapisano na stałe i sprawdzono odczytem (${clockText()}): ${what}.` }
+            : { ok: true, text: `Wysłano i sprawdzono odczytem (${clockText()}): ${what}. Zapis na stałe nastąpi na postoju — zatrzymaj rower na chwilę.` };
+        if (flash === 'ok') clearUnsavedInRam();
+        addLog('SAVE_REQ', `Zapis na rowerze: ${model.saveResult.text}`);
+        renderPanel();
+        return true;
+    } catch (error) {
+        return fail(error.message);
+    }
+}
+
 // ---- banner and view switch ----------------------------------------------------------------
 
 function connectBanner() {
@@ -1183,7 +1333,7 @@ export function renderPanel() {
 
     const grid = node('div', 'evd-v3-grid');
     model.levels.forEach((_, index) => grid.appendChild(levelCard(index)));
-    const parts = [connectBanner(), grid, pressureSection()];
+    const parts = [saveBar(), connectBanner(), grid, pressureSection()];
     if (advanced) parts.push(riderSection(), chartsSection(), hardwareSection());
     parts.push(legendSection());
     root.replaceChildren(...parts.filter(Boolean));
@@ -1250,6 +1400,8 @@ export async function readModelFromBike() {
         }
     }
     model.note = notes.join(' ');
+    model.readAt = clockText();
+    model.pressureBaseline = pressureSnapshot();
     renderPanel();
     return true;
 }
@@ -1386,6 +1538,10 @@ function bindPresetButtons() {
 }
 
 export function bindModelPanel() {
+    window.addEventListener('evd-edited', () => refreshSaveBar());
+    window.addEventListener('beforeunload', (event) => {
+        if (readDone() && pendingChanges().length) { event.preventDefault(); event.returnValue = ''; }
+    });
     el('evdV3Read')?.addEventListener('click', () => { void readModelFromBike(); });
     el('evdV3WriteAll')?.addEventListener('click', () => { void writeAllLevels(); });
     el('evdV3Persist')?.addEventListener('click', () => { void persistModel(); });
