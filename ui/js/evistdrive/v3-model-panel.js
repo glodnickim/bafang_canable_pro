@@ -77,7 +77,7 @@ const model = {
     note: '',
     chartLevel: 2, // index 0..4 of the level drawn in the Start chart
     chartCadence: 60,
-    chartForce: 20,
+    chartForce: 12,
     view: loadView(),
     // open state of the collapsible sections, kept across re-renders
     open: { legend: false, pressure: true, rider: false, charts: false, hardware: false },
@@ -103,6 +103,8 @@ export const v3ModelIsDirty = () => !!model.baseline
 const riderDirty = () => !model.riderBaseline || !P.ridersEqual(model.rider, model.riderBaseline);
 const readDone = () => !!(model.baseline || model.riderBaseline);
 const isAdvanced = () => model.view === 'advanced';
+/** Effort map v2 active (firmware 0.709+ with the flag on; the factory preview shows v2). */
+const mapV2 = () => model.rider?.mapV2 === true;
 
 // Native values are derived from the same model helpers used by the charts.
 export function nativeValue(level, key, t0 = 30) {
@@ -112,7 +114,7 @@ export function nativeValue(level, key, t0 = 30) {
     if (key === 'release') return eff.releaseMs / 1000;
     if (key === 'start') return P.startFullForceKg(level) ?? 0;
     if (key === 'carry') return level.carry === 0 ? 0 : P.MODES[level.mode].carry * P.multiplier(level.carry);
-    return P.tMaxKg(60, t0) * P.effortFull(level);
+    return P.fullEffortKg(60, level, t0);
 }
 
 export function nativeToCorrection(level, key, value, t0 = 30) {
@@ -152,7 +154,7 @@ export function describeEffective(level, key) { return nativeText(level, key); }
 
 function capsSummary(caps) {
     const yes = (b, text) => `${text}: ${b ? 'tak' : 'nie'}`;
-    return [yes(caps.model, 'model (bit 8)'), yes(caps.modelWritable, 'zapis modelu (bit 10)'), yes(caps.rider, 'rowerzysta i sprzęt (bit 11)'), yes(caps.riderHold, 'model podtrzymania (bit 12)')].join(', ');
+    return [yes(caps.model, 'model (bit 8)'), yes(caps.modelWritable, 'zapis modelu (bit 10)'), yes(caps.rider, 'rowerzysta i sprzęt (bit 11)'), yes(caps.riderHold, 'model podtrzymania (bit 12)'), yes(caps.riderMapV2, 'mapa nacisku v2 (bit 13)')].join(', ');
 }
 
 function statusText() {
@@ -350,7 +352,7 @@ function correctionSlider(index, spec) {
         const label = spec.key === 'start' ? 'pełny kop przy ' : spec.key === 'range' ? 'pełne wsparcie przy ' : '';
         const span = (v) => spec.key === 'carry' ? `${Number(nativeValue(at(v), 'carry', t0).toFixed(0))} %` : endpoint(v);
         const ends = [first, 100].sort((a, b) => nativeValue(at(a), spec.key, t0) - nativeValue(at(b), spec.key, t0));
-        const preview = spec.key === 'range' && !model.riderBaseline ? ' · podgląd 30 kg' : '';
+        const preview = spec.key === 'range' && !model.riderBaseline ? ' · podgląd: siła domyślna' : '';
         const warning = spec.key === 'assist' && nativeValue(level, 'assist', t0) > 1000 ? ' · HMI: maks. 1000%' : '';
         return `${label}${nativeText(level, spec.key, t0)}${spec.key === 'range' ? ' @60' : ''} · tryb: ${span(ends[0])}–${span(ends[1])}${preview}${warning}`;
     }
@@ -567,8 +569,8 @@ function drawMini(svg, index) {
     const thin = { 'vector-effect': 'non-scaling-stroke' };
     // Wsparcie
     const t0 = model.rider.riderStrengthX10kg / 10;
-    const xMaxF = Math.max(10, P.tMaxKg(60, t0) * 1.2);
-    const support = sample((f) => P.effortOutput(f, 60, level, t0).output, xMaxF, 48);
+    const xMaxF = Math.max(10, P.effortOutput(0, 60, level, t0, mapV2()).tMax * 1.2);
+    const support = sample((f) => P.effortOutput(f, 60, level, t0, mapV2()).output, xMaxF, 48);
     const supportD = plotPath(support, xMaxF);
     // Kop (time axis 0..4.4 s)
     const xMaxT = START_DEMO.endS + 0.4;
@@ -731,9 +733,10 @@ function riderChart(kind, r) {
     }
     function update() {
         if (kind === 'strength') {
-            const pts = [0, 30, 60, 90, 120, 150].map((cad) => [cad / 150 * 192 + 4, 55 - (r.riderStrengthX10kg / 10 * (1 - Math.min(cad, 150) / 190)) / 60 * 50]);
+            const kgAt = (cad) => P.ctrlKgToKg(P.tMaxKg(cad, r.riderStrengthX10kg / 10));
+            const pts = [0, 30, 60, 90, 120, 150].map((cad) => [cad / 150 * 192 + 4, 55 - kgAt(cad) / 30 * 50]);
             path.setAttribute('d', pts.map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`).join(' '));
-            marks.forEach(([cad, dot]) => dot.setAttribute('cy', 55 - (r.riderStrengthX10kg / 10 * (1 - cad / 190)) / 60 * 50));
+            marks.forEach(([cad, dot]) => dot.setAttribute('cy', 55 - kgAt(cad) / 30 * 50));
         } else if (kind === 'minimum') {
             const y = (iq) => 55 - iq / P.RIDER_LIMITS.iqMinMax * 48;
             path.setAttribute('d', `M4,${y(r.iqMinLow)} L68,${y(r.iqMinLow)} L132,${y(r.iqMinHigh)} L196,${y(r.iqMinHigh)}`);
@@ -777,9 +780,13 @@ function riderSection() {
     grid.appendChild(toggle('evdV3EffortMap', 'Wsparcie wg wysiłku (zalecane)', 'Mapa wysiłku', r.effortMap,
         'Wsparcie zależy od nacisku względem Twojej siły i kadencji. Po wyłączeniu działa stara mapa nacisk × kadencja; siła i Zakres nie działają.',
         'wyłączone: stara mapa nacisk × kadencja', !read || !supported, (v) => { r.effortMap = v; model.levels.forEach((_, i) => refreshWarnings(i)); }));
-    grid.appendChild(slider({ id: 'evdV3RiderStrength', label: 'Twoja siła (kg)', technical: 'T0 · więcej kg = mocniejszy nacisk do pełnego wsparcia',
-        help: 'Większa wartość wymaga mocniejszego nacisku do pełnego wsparcia. Krzywa pokazuje T0 × (1 − kadencja/190), do 150 obr/min.', min: P.RIDER_LIMITS.strengthMin / 10, max: P.RIDER_LIMITS.strengthMax / 10, step: 0.5,
-        get: () => r.riderStrengthX10kg / 10, set: (v) => { r.riderStrengthX10kg = Math.round(v * 10); }, badge: (v) => `${fmtNum(v, 1)} kg`, kind: 'strength', disabled: !read || !supported }));
+    const mapV2Supported = supported && !!model.caps?.riderMapV2 && !model.rider.legacy;
+    grid.appendChild(toggle('evdV3MapV2', 'Nowa mapa nacisku (zalecane)', 'Mapa v2 · firmware 0.709+', read ? r.mapV2 === true : true,
+        'Mniej wsparcia przy lekkim nacisku, mocne szczyty dają więcej, pełny nacisk sięga pełnego prądu silnika. Wyłączona: stara krzywa (maks. 65% prądu przy Wsparciu domyślnym).',
+        'wyłączona: stara krzywa, sufit 65%', !read || !mapV2Supported, (v) => { r.mapV2 = v; model.levels.forEach((_, i) => refreshWarnings(i)); }));
+    grid.appendChild(slider({ id: 'evdV3RiderStrength', label: 'Twoja siła (kg)', technical: 'nacisk na pedał do pełnego wsparcia przy stojącej korbie',
+        help: 'Prawdziwe kg na pedale (tabela czujnika). Większa wartość wymaga mocniejszego nacisku do pełnego wsparcia; z kadencją próg maleje. Najwyżej ok. 26 kg = granica czujnika.', min: P.RIDER_LIMITS.strengthMin / 10, max: P.RIDER_LIMITS.strengthMax / 10, step: 0.5,
+        get: () => r.riderStrengthX10kg / 10, set: (v) => { r.riderStrengthX10kg = Math.round(v * 10); }, badge: (v) => `${fmtNum(P.ctrlKgToKg(v), 1)} kg`, kind: 'strength', disabled: !read || !supported }));
     grid.appendChild(toggle('evdV3HoldModel', 'Bez terkotu: stałe minimum + szybkie wyłączenie', 'Model podtrzymania', hold.holdModel,
         'Po starcie utrzymuje minimum prądu i szybko wyłącza wsparcie po braku nacisku. Limity i hamulec nadal działają.',
         'wyłączone: brak minimum i szybkiego wyłączenia', !read || !holdSupported, (v) => { hold.holdModel = v; }));
@@ -981,7 +988,7 @@ function chartsSection() {
     cad.id = 'evdV3ChartCadence'; cad.setAttribute('aria-label', 'Kadencja na wykresie mapy wysiłku');
     const cadText = node('span'); cadText.id = 'evdV3ChartCadenceText';
     cad.addEventListener('input', () => { model.chartCadence = Number(cad.value); refreshCharts(); });
-    const force = document.createElement('input'); force.type = 'range'; force.min = '2'; force.max = '50'; force.step = '1'; force.value = String(model.chartForce);
+    const force = document.createElement('input'); force.type = 'range'; force.min = '2'; force.max = '30'; force.step = '1'; force.value = String(model.chartForce);
     force.id = 'evdV3ChartForce'; force.setAttribute('aria-label', 'Nacisk na wykresie wygaszania Start');
     const forceText = node('span'); forceText.id = 'evdV3ChartForceText';
     force.addEventListener('input', () => { model.chartForce = Number(force.value); refreshCharts(); });
@@ -1021,27 +1028,28 @@ export function refreshCharts() {
     const forceText = el('evdV3ChartForceText'); if (forceText) forceText.textContent = `${model.chartForce} kg`;
 
     // (a) effort map, all five levels
-    const tMax = P.tMaxKg(cadence, t0);
+    const v2 = mapV2();
+    const tMax = P.effortOutput(0, cadence, model.levels[0], t0, v2).tMax;
     const xMax = Math.max(10, Math.ceil(tMax * 1.3 / 5) * 5);
     const effortSeries = model.levels.map((level, i) => ({
         label: `P${i + 1} ${P.MODES[level.mode].short}`,
         color: LEVEL_COLORS[i],
         width: i === model.chartLevel ? 3 : 1.5,
-        points: sample((f) => 100 * P.effortOutput(f, cadence, level, t0).output, xMax),
+        points: sample((f) => 100 * P.effortOutput(f, cadence, level, t0, v2).output, xMax),
     }));
     const sel = model.levels[model.chartLevel];
-    const selOut = P.effortOutput(tMax, cadence, sel, t0);
+    const selOut = P.effortOutput(tMax, cadence, sel, t0, v2);
     const yMaxEffort = Math.max(100, Math.ceil(Math.max(...effortSeries.flatMap((s) => s.points.map((p) => p[1]))) / 10) * 10);
     drawLineChart(el('evdV3ChartEffort'), {
-        xLabel: `nacisk [kg] przy ${cadence} obr/min (T_max = ${fmtNum(tMax, 1)} kg)`, yLabel: 'wyjście [% skali]', yUnit: '%',
+        xLabel: `nacisk [kg] przy ${cadence} obr/min (T_max = ${fmtNum(tMax, 1)} kg)`, yLabel: 'prąd [% maks.]', yUnit: '%',
         xMax, yMax: yMaxEffort,
         series: [...effortSeries, {
             label: `P${model.chartLevel + 1} bez Assist (s·u)`, color: LEVEL_COLORS[model.chartLevel], dash: true, width: 1.5,
-            points: sample((f) => 100 * P.effortOutput(f, cadence, sel, t0).base, xMax),
+            points: sample((f) => 100 * P.effortOutput(f, cadence, sel, t0, v2).base, xMax),
         }],
         vlines: [
-            { x: 0.6 * selOut.eFull * tMax, label: 'kolano', color: '#64748b' },
-            { x: selOut.eFull * tMax, label: `pełne wsparcie ${fmtNum(selOut.eFull * tMax, 1)} kg`, color: LEVEL_COLORS[model.chartLevel] },
+            { x: selOut.kneeKg, label: 'kolano', color: '#64748b' },
+            { x: selOut.fullKg, label: `pełne wsparcie ${fmtNum(selOut.fullKg, 1)} kg`, color: LEVEL_COLORS[model.chartLevel] },
             { x: tMax, label: 'T_max', color: '#94a3b8' },
         ],
         hlines: [{ y: sel.maxTorquePct, label: `Max Torque P${model.chartLevel + 1}`, color: '#dc2626' }],
@@ -1049,23 +1057,23 @@ export function refreshCharts() {
     const effortNote = el('evdV3ChartEffortNote');
     if (effortNote) {
         effortNote.textContent = `${r.effortMap ? '' : 'MAPA WYŁĄCZONA — wykres pokazuje, co dałaby mapa po włączeniu. '}`
-            + `Poziom ${model.chartLevel + 1}: pełne wyjście przy ${fmtNum(selOut.eFull * tMax, 1)} kg, kolano przy ${fmtNum(0.6 * selOut.eFull * tMax, 1)} kg. Moc maks. nie jest rysowana (zależy od napięcia).`;
+            + `Poziom ${model.chartLevel + 1}: pełne wyjście przy ${fmtNum(selOut.fullKg, 1)} kg, kolano przy ${fmtNum(selOut.kneeKg, 1)} kg (${v2 ? 'mapa v2' : 'stara mapa, sufit 65%'}). Moc maks. nie jest rysowana (zależy od napięcia).`;
     }
 
     // (b) Start target vs force, selected level
     const fFull = P.startFullForceKg(sel);
     drawLineChart(el('evdV3ChartStart'), {
-        xLabel: 'nacisk [kg]', yLabel: 'Iq_start [% dozw. Iq]', yUnit: '%', xMax: 50, yMax: 100,
+        xLabel: 'nacisk [kg]', yLabel: 'Iq_start [% maks.]', yUnit: '%', xMax: 30, yMax: 100,
         series: [
-            { label: `P${model.chartLevel + 1} ${P.MODES[sel.mode].name}`, color: LEVEL_COLORS[model.chartLevel], width: 3, points: sample((f) => 100 * P.startTarget(f, sel), 50) },
-            { label: 'Kop domyślny trybu', color: '#94a3b8', dash: true, points: sample((f) => 100 * P.startTarget(f, { ...sel, start: 50 }), 50) },
+            { label: `P${model.chartLevel + 1} ${P.MODES[sel.mode].name}`, color: LEVEL_COLORS[model.chartLevel], width: 3, points: sample((f) => 100 * P.startTarget(f, sel), 30) },
+            { label: 'Kop domyślny trybu', color: '#94a3b8', dash: true, points: sample((f) => 100 * P.startTarget(f, { ...sel, start: 50 }), 30) },
         ],
         vlines: fFull ? [{ x: fFull, label: `F_full ${fmtNum(fFull, 1)} kg`, color: LEVEL_COLORS[model.chartLevel] }] : [],
         hlines: [{ y: sel.maxTorquePct, label: 'Max Torque', color: '#dc2626' }],
     });
     const startNote = el('evdV3ChartStartNote');
     if (startNote) startNote.textContent = sel.start === 0 ? 'Kop wyłączony, przy ruszaniu działa tylko zwykła mapa.'
-        : `F_full trybu ${P.MODES[sel.mode].fFullKg} kg, po korekcie ${fmtNum(fFull, 1)} kg. Start tylko dokłada do zwykłej mapy.`;
+        : `Pełny kop trybu przy ${fmtNum(P.ctrlKgToKg(P.MODES[sel.mode].fFullKg), 1)} kg, po korekcie ${fmtNum(fFull, 1)} kg. Start tylko dokłada do zwykłej mapy.`;
 
     // (c) fade vs cadence
     const atForce = P.startTarget(model.chartForce, sel);

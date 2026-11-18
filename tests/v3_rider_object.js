@@ -22,8 +22,10 @@ const throwsMsg = (name, fn, part) => {
 
     // ---- object 5 layout ----
     const rider = P.factoryRider();
-    eq('factory rider', rider, { riderStrengthX10kg: 300, iqMinLow: 28, iqMinHigh: 42, effortMap: true, holdModel: true, tHold100ms: 20 });
-    const w = P.encodeRiderWrite(rider);
+    eq('factory rider', rider, { riderStrengthX10kg: 300, iqMinLow: 28, iqMinHigh: 42, effortMap: true, holdModel: true, tHold100ms: 20, mapV2: true });
+    // Firmware 0.707 rider (no map v2 capability): the byte vector stays identical to VEC_RIDER.
+    const rider707 = { ...rider }; delete rider707.mapV2;
+    const w = P.encodeRiderWrite(rider707);
     eq('rider object length 26', w.length, 26);
     // Byte vector: 'B','V', obj 5, ver 1, len 26, index 0, count 1, stride 8, flags 0,
     // caps = bits 11+12 (0x1800: object 5, hold layout), generation 0xFFFF, 300 / Iq_min 28 / 42 LE,
@@ -57,10 +59,10 @@ const throwsMsg = (name, fn, part) => {
     // Decode: firmware-shaped reply (view 3, generation 7, caps) round-trips; defects rejected.
     const reply = Uint8Array.from(w); reply[9] = 3; reply[14] = 7; reply[15] = 0; seal(reply);
     const dec = P.decodeRiderObject(reply);
-    eq('rider decode', [dec.view, dec.generation, dec.rider], [3, 7, rider]);
+    eq('rider decode', [dec.view, dec.generation, dec.rider], [3, 7, rider707]);
     const badCrc = Uint8Array.from(reply); badCrc[17] ^= 1;
     throwsMsg('rider bad CRC', () => P.decodeRiderObject(badCrc), 'CRC');
-    throwsMsg('rider reserved flag bit', () => P.decodeRiderObject(seal(Uint8Array.from(reply.map((v, i) => (i === 22 ? 7 : v))))), 'zarezerwowane');
+    throwsMsg('rider reserved flag bit', () => P.decodeRiderObject(seal(Uint8Array.from(reply.map((v, i) => (i === 22 ? 0x0F : v))))), 'zarezerwowane');
     throwsMsg('hold layout with t_hold byte 0 is invalid', () => P.decodeRiderObject(seal(Uint8Array.from(reply.map((v, i) => (i === 23 ? 0 : v))))), 'niepoprawny');
     // Old firmware (no capability bit 12): the C1 layout decodes as a legacy rider, nothing rejected.
     const oldBody = '42560501' + '1a00' + '00010800' + '00080000' + 'ffff' + '2c01' + '2800' + '3700' + '01' + '00';
@@ -69,6 +71,15 @@ const throwsMsg = (name, fn, part) => {
     const legacyW = P.encodeRiderWrite({ ...P.factoryLegacyRider(), riderStrengthX10kg: 350 });
     eq('legacy write keeps C1 40/55, bit 11 only, byte 23 = 0', [...legacyW.slice(10, 24)], [0x00, 0x08, 0, 0, 0xff, 0xff, 0x5e, 0x01, 40, 0, 55, 0, 1, 0]);
     eq('hold write requires bits 11+12', [...w.slice(10, 14)], [0x00, 0x18, 0, 0]);
+    // Map v2 (firmware 0.709+): capability bit 13 and flag bit 2.
+    const wV2 = P.encodeRiderWrite(rider);
+    eq('map v2 write requires bits 11+12+13, flags 7', [...wV2.slice(10, 14), wV2[22]], [0x00, 0x38, 0, 0, 7]);
+    const wV2off = P.encodeRiderWrite({ ...rider, mapV2: false });
+    eq('map v2 off still announces bit 13, flags 3', [wV2off[11], wV2off[22]], [0x38, 3]);
+    eq('map v2 decode roundtrip', P.decodeRiderObject(wV2).rider, rider);
+    eq('map v2 off decode (bit 13 present) keeps mapV2 false', P.decodeRiderObject(wV2off).rider.mapV2, false);
+    eq('0.707 reply (no bit 13) has no mapV2', 'mapV2' in P.decodeRiderObject(w).rider, false);
+    eq('riders differ only by mapV2', P.ridersEqual(rider, { ...rider, mapV2: false }), false);
     throwsMsg('rider t_hold out of range', () => P.decodeRiderObject(seal(Uint8Array.from(reply.map((v, i) => (i === 23 ? 41 : v))))), 'niepoprawny');
     throwsMsg('rider wrong version', () => P.decodeRiderObject(seal(Uint8Array.from(reply.map((v, i) => (i === 3 ? 2 : v))))), 'wersja');
     throwsMsg('rider wrong stride', () => P.decodeRiderObject(seal(Uint8Array.from(reply.map((v, i) => (i === 8 ? 6 : v))))), 'nagłówek');
@@ -185,27 +196,43 @@ const throwsMsg = (name, fn, part) => {
     eq('mode table s', P.MODES.map((m) => m.s), [0.15, 0.33, 0.47, 0.77, 1.0, 0.33]);
     eq('mode table e_full', P.MODES.map((m) => m.eFull), [1.0, 1.0, 0.9, 0.75, 0.6, 1.0]);
     eq('mode table F_full', P.MODES.map((m) => m.fFullKg), [35, 28, 24, 20, 16, 28]);
-    // BOOST, 60 rpm, T0 30: T_max = 30*(1-60/190) = 20.526 kg. At 0.6*T_max*0.6 kg -> x = 0.6, u = 0.8.
+    // Physical kg <-> control kg (CLU / 100), firmware torque_input.h tables (REVIEW-...-AGENT2-20261118).
+    near('T0 30 = 16.6 kg physical', P.ctrlKgToKg(30), 16.60, 0.01);
+    near('T0 60 = 26.3 kg physical (sensor saturation 6000 CLU)', P.ctrlKgToKg(60), 26.33, 0.01);
+    near('6 CLU/100 = 600 CLU = 146 native = 8.1 kg', P.ctrlKgToKg(6), 3 + 126 * 6.5 / 165, 1e-9);
+    near('kg -> ctrl -> kg roundtrip 5 / 12 / 20 kg', [5, 12, 20].map((k) => P.ctrlKgToKg(P.kgToCtrlKg(k))).reduce((x, y) => x + y), 37, 1e-9);
+    eq('zero and negative kg = 0', [P.ctrlKgToKg(0), P.kgToCtrlKg(-1)], [0, 0]);
+    // Map v2 curve: 0.6x to 0.5, then 0.3 + 1.4 (x - 0.5).
+    near('v2 u(0.1) = 0.06', P.effortCurve(0.1, true), 0.06);
+    near('v2 u(0.5) = 0.30', P.effortCurve(0.5, true), 0.3);
+    near('v2 u(0.7) = 0.58', P.effortCurve(0.7, true), 0.58);
+    near('v2 u(0.9) = 0.86', P.effortCurve(0.9, true), 0.86);
+    eq('v2 u(1) and above = 1', [P.effortCurve(1, true), P.effortCurve(1.5, true)], [1, 1]);
+    // BOOST, 60 rpm, T0 30: T_max = 20.526 control kg; full at e_full 0.6 -> 12.316 control kg.
     const tMax60 = P.tMaxKg(60, 30);
-    const boostKnee = P.effortOutput(0.6 * 0.6 * tMax60, 60, lv[4], 30);
-    near('BOOST knee x = 0.6', boostKnee.x, 0.6, 1e-12);
-    near('BOOST knee output = 0.8 (s 1.0)', boostKnee.output, 0.8, 1e-12);
-    const boostFull = P.effortOutput(0.6 * tMax60, 60, lv[4], 30);
-    near('BOOST full at 60 % effort', boostFull.output, 1, 1e-12);
-    const ecoFull = P.effortOutput(tMax60, 60, lv[0], 30);
-    near('ECO full effort = s 0.15 (Max Torque 80 % does not cap)', ecoFull.output, 0.15, 1e-12);
-    const sAssist = P.effortOutput(100, 60, { ...lv[3], assist: 100, maxTorquePct: 100 }, 30);
-    eq('S+ assist 100 at full effort capped at Max Torque', [sAssist.capped, sAssist.output], [true, 1]);
-    const tCap = P.effortOutput(100, 60, { ...lv[1], assist: 100, maxTorquePct: 50 }, 30);
-    near('Max Torque 50 % caps TRAIL x2 (0.66 -> 0.5)', tCap.output, 0.5, 1e-12);
+    const fullKgBoost = P.ctrlKgToKg(0.6 * tMax60);
+    const boostKnee = P.effortOutput(P.ctrlKgToKg(0.6 * 0.6 * tMax60), 60, lv[4], 30);
+    near('BOOST knee x = 0.6 (force given in physical kg)', boostKnee.x, 0.6, 1e-9);
+    near('BOOST v1 knee output = 0.65 x 0.8', boostKnee.output, 0.65 * 0.8, 1e-9);
+    const boostFull = P.effortOutput(fullKgBoost, 60, lv[4], 30);
+    near('BOOST v1 full = 0.65 of P (firmware V3_E2_FULL)', boostFull.output, 0.65, 1e-9);
+    near('BOOST v2 full = P', P.effortOutput(fullKgBoost, 60, lv[4], 30, true).output, 1, 1e-9);
+    near('fullKg = physical kg of full output', boostFull.fullKg, fullKgBoost, 1e-9);
+    near('fullEffortKg helper', P.fullEffortKg(60, lv[4], 30), fullKgBoost, 1e-9);
+    const ecoFull = P.effortOutput(P.ctrlKgToKg(tMax60), 60, lv[0], 30, true);
+    near('ECO v2 full effort = s 0.15 (Max Torque 80 % does not cap)', ecoFull.output, 0.15, 1e-9);
+    const sAssist = P.effortOutput(25, 60, { ...lv[3], assist: 100, maxTorquePct: 100 }, 30, true);
+    eq('S+ v2 assist 100 at full effort capped at Max Torque', [sAssist.capped, sAssist.output], [true, 1]);
+    const tCap = P.effortOutput(25, 60, { ...lv[1], assist: 100, maxTorquePct: 50 }, 30, true);
+    near('Max Torque 50 % caps TRAIL v2 x2 (0.66 -> 0.5)', tCap.output, 0.5, 1e-12);
 
-    // Start target: S F_full 24 kg; Start 100 halves F_full; Start 0 off; capped by Max Torque.
-    near('S start at 12 kg = 50 %', P.startTarget(12, lv[2]), 0.5, 1e-12);
-    near('S start at 30 kg = 100 %', P.startTarget(30, lv[2]), 1, 1e-12);
-    near('S start 100 at 12 kg = 100 %', P.startTarget(12, { ...lv[2], start: 100 }), 1, 1e-12);
-    near('ECO start at 35 kg = Max Torque 80 %', P.startTarget(35, lv[0]), 0.8, 1e-12);
+    // Start target: S F_full 24 control kg; Start 100 halves it; 0 off; 0.65 P x Max Torque at full.
+    near('S start at half F_full = 0.65 x 50 %', P.startTarget(P.ctrlKgToKg(12), lv[2]), 0.65 * 0.5, 1e-9);
+    near('S start at 25 kg = full (0.65 P)', P.startTarget(25, lv[2]), 0.65, 1e-12);
+    near('S start 100 at F_full/2 = full', P.startTarget(P.ctrlKgToKg(12), { ...lv[2], start: 100 }), 0.65, 1e-9);
+    near('ECO start full = 0.65 x Max Torque 80 %', P.startTarget(26, lv[0]), 0.65 * 0.8, 1e-9);
     eq('Start 0 = off', P.startTarget(30, { ...lv[2], start: 0 }), 0);
-    eq('F_full effective S start 100', P.startFullForceKg({ ...lv[2], start: 100 }), 12);
+    near('F_full effective S start 100 in physical kg', P.startFullForceKg({ ...lv[2], start: 100 }), P.ctrlKgToKg(12), 1e-9);
     eq('fade: 1 to 25 rpm, 0.5 at 37.5, 0 from 50', [P.startFade(0), P.startFade(25), P.startFade(37.5), P.startFade(50), P.startFade(80)], [1, 1, 0.5, 0, 0]);
 
     // Hold model minimum (replaces C1): firmware integer interpolation 28 -> 42 between 30 and 60 rpm.

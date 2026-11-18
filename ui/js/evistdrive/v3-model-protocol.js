@@ -43,6 +43,8 @@ export const CAP_MODEL_WRITABLE = 1 << 10;
 export const CAP_RIDER = 1 << 11;
 /** Object 5 in the hold model layout (Iq_min, t_hold). Absent: C1 layout of older firmware. */
 export const CAP_RIDER_HOLD = 1 << 12;
+/** Object 5 flag bit 2 = effort map v2 (ceiling P, progressive curve), firmware 0.709+. */
+export const CAP_RIDER_MAP_V2 = 1 << 13;
 /** Transport declaration: one length byte > 8; the firmware staging buffer holds 90 B. */
 export const MAX_OBJECT_LEN = 90;
 
@@ -111,6 +113,7 @@ export function cloneLevels(levels) {
 
 export const RIDER_FLAG_EFFORT_MAP = 0x01;
 export const RIDER_FLAG_HOLD_MODEL = 0x02;
+export const RIDER_FLAG_MAP_V2 = 0x04;
 /** Firmware PH_CURRENT_MAX: the Iq scale the minimum percentages refer to. */
 export const PHASE_CURRENT_MAX_IQ = 700;
 export const RIDER_LIMITS = Object.freeze({
@@ -122,7 +125,7 @@ export const HOLD_RPM_HIGH = 60;
 export const HOLD_T_CAP_S = 4;
 
 export function factoryRider() {
-    return { riderStrengthX10kg: 300, iqMinLow: 28, iqMinHigh: 42, effortMap: true, holdModel: true, tHold100ms: 20 };
+    return { riderStrengthX10kg: 300, iqMinLow: 28, iqMinHigh: 42, effortMap: true, holdModel: true, tHold100ms: 20, mapV2: true };
 }
 
 /** Factory object 5 of firmware before the hold model (C1 layout, no capability bit 12). */
@@ -144,13 +147,14 @@ export function validateRider(rider) {
     if (!intIn(rider?.tHold100ms, RIDER_LIMITS.tHoldMin, RIDER_LIMITS.tHoldMax)) errors.push('Czas bez nacisku: 0,5..4,0 s');
     if (typeof rider?.effortMap !== 'boolean') errors.push('Mapa wysiłku: wł./wył.');
     if (typeof rider?.holdModel !== 'boolean') errors.push('Model podtrzymania: wł./wył.');
+    if (rider?.mapV2 !== undefined && typeof rider.mapV2 !== 'boolean') errors.push('Nowa mapa nacisku: wł./wył.');
     return errors;
 }
 
 export function ridersEqual(a, b) {
     if (!a || !b || !!a.legacy !== !!b.legacy) return false;
     const keys = a.legacy ? ['riderStrengthX10kg', 'lowAssistOffIq', 'lowAssistOnIq', 'effortMap']
-        : ['riderStrengthX10kg', 'iqMinLow', 'iqMinHigh', 'effortMap', 'holdModel', 'tHold100ms'];
+        : ['riderStrengthX10kg', 'iqMinLow', 'iqMinHigh', 'effortMap', 'holdModel', 'tHold100ms', 'mapV2'];
     return keys.every((k) => a[k] === b[k]);
 }
 
@@ -198,9 +202,42 @@ export const EFFORT_KNEE_U = 0.8;
 export const EFFORT_CADENCE_CAP = 150;
 export const EFFORT_CADENCE_ZERO = 190;
 
-/** T_max(cad) = T0 * (1 - min(cad,150)/190), kg. */
+/** T_max(cad) = T0 * (1 - min(cad,150)/190), in CONTROL kg (CLU / 100, what firmware compares). */
 export function tMaxKg(cadenceRpm, t0Kg) {
     return t0Kg * (1 - Math.min(Math.max(cadenceRpm, 0), EFFORT_CADENCE_CAP) / EFFORT_CADENCE_ZERO);
+}
+
+// ---- control kg (CLU / 100) <-> physical kg ------------------------------------------------
+// The firmware never compares kilograms: "Twoja siła" (T0 x 10), the effort full scale and the Kop
+// full force are control load units (CLU) of the FROZEN control characteristic
+// (torque_input.h TORQUE_CTRL_*: 146 native -> 600 CLU, 1580 -> 8400). What the rider presses is
+// read from the measured kg table (TORQUE_CURVE_P*: 20 -> 3 kg, 185 -> 9.5 kg, 780 -> 20 kg,
+// extrapolated above). Both meet in the sensor's native delta, as torque_input_centikg_to_ctrl().
+// REVIEW-EVD-V3-PRESSURE-AGENT2-20261118: T0 30 = 16.6 kg, 60 = 26.3 kg (= sensor saturation).
+const CTRL_BREAK = [146, 600], CTRL_HIGH = [1580, 8400];
+const KG_CURVE = [[0, 0], [20, 3], [185, 9.5], [780, 20]];
+function cluToNative(clu) {
+    if (clu <= CTRL_BREAK[1]) return clu * CTRL_BREAK[0] / CTRL_BREAK[1];
+    return CTRL_BREAK[0] + (clu - CTRL_BREAK[1]) * (CTRL_HIGH[0] - CTRL_BREAK[0]) / (CTRL_HIGH[1] - CTRL_BREAK[1]);
+}
+function nativeToClu(n) {
+    if (n <= CTRL_BREAK[0]) return n * CTRL_BREAK[1] / CTRL_BREAK[0];
+    return CTRL_BREAK[1] + (n - CTRL_BREAK[0]) * (CTRL_HIGH[1] - CTRL_BREAK[1]) / (CTRL_HIGH[0] - CTRL_BREAK[0]);
+}
+function piecewise(points, v, from, to) {
+    for (let i = 1; i < points.length; i++) {
+        const a = points[i - 1], b = points[i];
+        if (v <= b[from] || i === points.length - 1) return a[to] + (v - a[from]) * (b[to] - a[to]) / (b[from] - a[from]);
+    }
+    return 0;
+}
+/** Control kg (CLU / 100) -> physical kg on the pedal. */
+export function ctrlKgToKg(ctrlKg) {
+    return ctrlKg > 0 ? piecewise(KG_CURVE, cluToNative(ctrlKg * 100), 0, 1) : 0;
+}
+/** Physical kg -> control kg (CLU / 100). */
+export function kgToCtrlKg(kg) {
+    return kg > 0 ? nativeToClu(piecewise(KG_CURVE, kg, 1, 0)) / 100 : 0;
 }
 
 /** e_full = e_full(mode) / 2^((range-50)/50): range above 50 -> full output at less effort. */
@@ -210,49 +247,66 @@ export function effortFull(level) {
     return mode ? mode.eFull / multiplier(range) : null;
 }
 
-/** u(x): linear to the knee (0.6 -> 0.8), then 0.5 slope, 1 from x >= 1. */
-export function effortCurve(x) {
+/** Firmware map v1 output full scale is V3_E2_FULL = 0.65 x P; map v2 (0.709+) reaches P. */
+export const MAP_V1_CEILING = 0.65;
+
+/** u(x). v1: linear to the knee (0.6 -> 0.8), then 0.5 slope. v2 (progressive): 0.6x to x = 0.5
+ *  (u = 0.3), then 0.3 + 1.4 (x - 0.5). Both 1 from x >= 1. */
+export function effortCurve(x, mapV2 = false) {
     if (!(x > 0)) return 0;
+    if (x >= 1) return 1;
+    if (mapV2) return x <= 0.5 ? 0.6 * x : 0.3 + 1.4 * (x - 0.5);
     if (x <= EFFORT_KNEE_X) return x * (EFFORT_KNEE_U / EFFORT_KNEE_X);
-    if (x < 1) return EFFORT_KNEE_U + (x - EFFORT_KNEE_X) * 0.5;
-    return 1;
+    return EFFORT_KNEE_U + (x - EFFORT_KNEE_X) * 0.5;
+}
+/** x where the curve changes slope. */
+export const effortKneeX = (mapV2 = false) => (mapV2 ? 0.5 : EFFORT_KNEE_X);
+
+/** Physical kg at which a level reaches full map output (x = 1) at a cadence. */
+export function fullEffortKg(cadenceRpm, level, t0Kg) {
+    return ctrlKgToKg(tMaxKg(cadenceRpm, t0Kg) * effortFull(level));
 }
 
 /**
- * Effort map output as a share of the full scale (0..1) for one level:
- *   x = (F / T_max) / e_full, base = s(mode) * u(x), then x Assist multiplier, capped by Max
- *   Torque (share of allowed Iq). Max Power also limits, but it depends on speed and battery
- *   voltage, so it is reported separately and not folded in here.
+ * Effort map output as a share of the allowed phase current P (0..1) for one level:
+ *   x = (F / T_max) / e_full in control units (F given in physical kg), base = ceiling * s(mode) * u(x)
+ *   (ceiling 0.65 for map v1, 1 for v2), then x Assist multiplier, capped by Max Torque. Max Power
+ *   also limits, but it depends on speed and battery voltage, so it is reported separately.
+ *   tMax / fullKg / kneeKg are physical kg.
  */
-export function effortOutput(forceKg, cadenceRpm, level, t0Kg) {
+export function effortOutput(forceKg, cadenceRpm, level, t0Kg, mapV2 = false) {
     const mode = MODES[level.mode];
-    const tMax = tMaxKg(cadenceRpm, t0Kg);
+    const tMaxCtrl = tMaxKg(cadenceRpm, t0Kg);
     const eFull = effortFull(level);
-    const x = tMax > 0 ? (forceKg / tMax) / eFull : 0;
-    const u = effortCurve(x);
-    const base = mode.s * u;
+    const x = tMaxCtrl > 0 ? (kgToCtrlKg(forceKg) / tMaxCtrl) / eFull : 0;
+    const u = effortCurve(x, mapV2);
+    const base = (mapV2 ? 1 : MAP_V1_CEILING) * mode.s * u;
     const assisted = base * multiplier(level.assist);
     const cap = level.maxTorquePct / 100;
-    return { tMax, eFull, x, u, base, assisted, cap, output: Math.min(assisted, cap), capped: assisted > cap };
+    return {
+        tMax: ctrlKgToKg(tMaxCtrl), fullKg: ctrlKgToKg(tMaxCtrl * eFull),
+        kneeKg: ctrlKgToKg(tMaxCtrl * eFull * effortKneeX(mapV2)),
+        eFull, x, u, base, assisted, cap, output: Math.min(assisted, cap), capped: assisted > cap,
+    };
 }
 
 /**
- * Start target (plan step 3): Iq_start = MaxTorque * min(1, F / F_full), where the Start
- * correction scales the target (F_full / multiplier), 0 switches the Start state off.
- * Returned as a share of the allowed Iq (0..1).
+ * Start target (plan step 3): Iq_start = 0.65 P x MaxTorque x min(1, F / F_full), where the Start
+ * correction scales F_full (F_full / multiplier) and 0 switches the Start state off. F_full is in
+ * control units in firmware (full_force[] CLU); forceKg here is physical. Share of P (0..1).
  */
 export function startTarget(forceKg, level) {
     const mode = MODES[level.mode];
     if (!mode || level.start === 0) return 0;
     const fFull = mode.fFullKg / multiplier(level.start);
-    return (level.maxTorquePct / 100) * Math.min(1, Math.max(0, forceKg) / fFull);
+    return MAP_V1_CEILING * (level.maxTorquePct / 100) * Math.min(1, kgToCtrlKg(Math.max(0, forceKg)) / fFull);
 }
 
+/** Physical kg for the full Kop (null when off). */
 export function startFullForceKg(level) {
     const mode = MODES[level.mode];
-    return mode && level.start !== 0 ? mode.fFullKg / multiplier(level.start) : null;
+    return mode && level.start !== 0 ? ctrlKgToKg(mode.fFullKg / multiplier(level.start)) : null;
 }
-
 /** Start fade with cadence: full up to 25 rpm, 0 at 50 rpm (speed 12 km/h and 4 s also end it). */
 export function startFade(cadenceRpm) {
     if (cadenceRpm <= 25) return 1;
@@ -381,7 +435,10 @@ export function encodeModelWrite(firstLevel, levels, {
 export function encodeRiderWrite(rider, { baseGeneration = 0xFFFF, requiredCaps } = {}) {
     const errors = validateRider(rider);
     if (errors.length) throw new Error(`Rowerzysta i sprzęt: ${errors.join('; ')}`);
-    const caps = requiredCaps ?? (rider.legacy ? CAP_RIDER : (CAP_RIDER | CAP_RIDER_HOLD));
+    // Bit 2 (map v2) only for a firmware that announced it (rider.mapV2 defined): older firmware
+    // rejects unknown flag bits and the capability, so the write stays acceptable there.
+    const caps = requiredCaps ?? (rider.legacy ? CAP_RIDER
+        : (CAP_RIDER | CAP_RIDER_HOLD | (rider.mapV2 !== undefined ? CAP_RIDER_MAP_V2 : 0)));
     const out = header(RIDER_LEN, {
         objectId: OBJECT_RIDER, schemaVersion: RIDER_SCHEMA_VERSION, index: 0, count: 1, stride: RIDER_STRIDE, flags: 0, caps, generation: baseGeneration,
     });
@@ -396,7 +453,8 @@ export function encodeRiderWrite(rider, { baseGeneration = 0xFFFF, requiredCaps 
     }
     out[o + 2] = rider.iqMinLow & 0xFF; out[o + 3] = rider.iqMinLow >> 8;
     out[o + 4] = rider.iqMinHigh & 0xFF; out[o + 5] = rider.iqMinHigh >> 8;
-    out[o + 6] = (rider.effortMap ? RIDER_FLAG_EFFORT_MAP : 0) | (rider.holdModel ? RIDER_FLAG_HOLD_MODEL : 0);
+    out[o + 6] = (rider.effortMap ? RIDER_FLAG_EFFORT_MAP : 0) | (rider.holdModel ? RIDER_FLAG_HOLD_MODEL : 0)
+        | (rider.mapV2 ? RIDER_FLAG_MAP_V2 : 0);
     out[o + 7] = rider.tHold100ms;
     return sealCrc(out);
 }
@@ -514,15 +572,18 @@ export function decodeRiderObject(bytes, { holdLayout = true } = {}) {
         if (legacyErrors.length) throw new Error(`Obiekt 5 w odpowiedzi jest niepoprawny: ${legacyErrors.join('; ')}`);
         return { view: bytes[9], rider: legacy, caps: u32(bytes, 10), generation: u16(bytes, 14) };
     }
-    if ((flags & ~(RIDER_FLAG_EFFORT_MAP | RIDER_FLAG_HOLD_MODEL)) !== 0) throw new Error('obiekt 5: ustawione zarezerwowane bity');
+    if ((flags & ~(RIDER_FLAG_EFFORT_MAP | RIDER_FLAG_HOLD_MODEL | RIDER_FLAG_MAP_V2)) !== 0) throw new Error('obiekt 5: ustawione zarezerwowane bity');
+    const caps = u32(bytes, 10);
     const rider = {
         riderStrengthX10kg: u16(bytes, o), iqMinLow: u16(bytes, o + 2), iqMinHigh: u16(bytes, o + 4),
         effortMap: (flags & RIDER_FLAG_EFFORT_MAP) !== 0, holdModel: (flags & RIDER_FLAG_HOLD_MODEL) !== 0,
         tHold100ms: bytes[o + 7],
     };
+    // Map v2 exists only on firmware announcing capability bit 13 (or reporting the bit itself).
+    if ((caps & CAP_RIDER_MAP_V2) !== 0 || (flags & RIDER_FLAG_MAP_V2) !== 0) rider.mapV2 = (flags & RIDER_FLAG_MAP_V2) !== 0;
     const errors = validateRider(rider);
     if (errors.length) throw new Error(`Obiekt 5 w odpowiedzi jest niepoprawny: ${errors.join('; ')}`);
-    return { view: bytes[9], rider, caps: u32(bytes, 10), generation: u16(bytes, 14) };
+    return { view: bytes[9], rider, caps, generation: u16(bytes, 14) };
 }
 
 /** CAPS (0x6035, 30 B format 2). Returns null for anything that is not a valid CAPS frame. */
@@ -539,6 +600,7 @@ export function parseCaps(bytes) {
         modelWritable: (caps & CAP_MODEL_WRITABLE) !== 0,
         rider: (caps & CAP_RIDER) !== 0,
         riderHold: (caps & CAP_RIDER_HOLD) !== 0,
+        riderMapV2: (caps & CAP_RIDER_MAP_V2) !== 0,
     };
 }
 

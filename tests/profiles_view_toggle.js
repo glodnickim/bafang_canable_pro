@@ -164,7 +164,7 @@ mod.registerHooks({
         && /podgląd fabryczny/.test(pressureEmpty.textContent));
     panel.setProfilesView('advanced');
     const riderPreview = byId('evdV3Rider');
-    check('rider factory preview has all disabled fields', riderPreview.all((n) => n.tagName === 'INPUT').length === 6
+    check('rider factory preview has all disabled fields', riderPreview.all((n) => n.tagName === 'INPUT').length === 7
         && riderPreview.all((n) => n.tagName === 'INPUT').every((n) => n.disabled)
         && /podgląd fabryczny/.test(riderPreview.textContent));
     panel.setProfilesView('simple');
@@ -250,13 +250,13 @@ mod.registerHooks({
     check('Kop: more Kop = higher curve', share(100, 1) > share(50, 1) && share(0, 1) === 0);
     const kopYs = () => part('kop').getAttribute('d').split(/[ML]/).filter((pt) => pt.trim()).map((pt) => Number(pt.split(',')[1]));
     const st = byId('evdV3-0-start');
-    // Shared native axis (kg): the default ECO Kop is 35 kg, 17.5 kg is the strongest ECO Kop.
-    st.value = '35'; st.dispatch('input');
+    // Shared native axis (physical kg): the default ECO Kop is 18.2 kg (35 control kg), 12.5 kg is the strongest ECO Kop.
+    st.value = '18.2'; st.dispatch('input');
     const ys = kopYs();
     const top = Math.min(...ys);
     const topAt = ys.indexOf(top);
     check('Kop curve in the chart goes up and then down', top < ys[0] && top < ys[ys.length - 1] && topAt > 0 && topAt < ys.length - 1);
-    st.value = '17.5'; st.dispatch('input');
+    st.value = '12.6'; st.dispatch('input');
     check('Kop curve higher with the slider', Math.min(...kopYs()) < top);
     st.value = '200'; st.dispatch('input'); // past the strongest-to-weakest band: Kop off
     check('Kop = 0: flat curve', new Set(kopYs()).size === 1);

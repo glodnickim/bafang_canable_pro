@@ -167,3 +167,8 @@ Po publikacji strona od razu pobiera nowe pliki (service worker sprawdza zmiany 
 ### 1.0.21 — wspólna skala suwaków
 
 To samo miejsce suwaka oznacza tę samą wartość na każdym poziomie (oś w %, s albo kg wspólna dla wszystkich trybów). Ciemniejszy pas na torze pokazuje zakres osiągalny w trybie poziomu; poza nim suwak dociąga do granicy. Kop: skrajnie w prawo = wyłączony; Podtrzymanie: 0 = wyłączone.
+
+### 1.0.22 — prawdziwe kg i nowa mapa nacisku
+
+„Twoja siła”, „Zakres” i „Kop” pokazują teraz prawdziwe kg na pedale (tabela czujnika). Wcześniej ekran pokazywał jednostki sterowania jako kg: „Twoja siła 30” to fizycznie 16,6 kg, „60” to 26,3 kg, czyli granica czujnika. Zapis do sterownika bez zmian. Wykresy pokazują prąd w % maksimum, ze starym sufitem 65%.
+Nowy przełącznik „Nowa mapa nacisku” (firmware 0.709+, bit 13): mniej wsparcia przy lekkim nacisku, pełny nacisk daje pełny prąd silnika. Na 0.707 przełącznik jest wyszarzony.
