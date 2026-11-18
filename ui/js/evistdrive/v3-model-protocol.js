@@ -45,6 +45,13 @@ export const CAP_RIDER = 1 << 11;
 export const CAP_RIDER_HOLD = 1 << 12;
 /** Object 5 flag bit 2 = effort map v2 (ceiling P, progressive curve), firmware 0.709+. */
 export const CAP_RIDER_MAP_V2 = 1 << 13;
+/** Firmware 0.709+: Wsparcie (mode ratio x Assist multiplier) capped at ASSIST_MAX_PCT
+ *  (OWNER-DEC-20261118-ASSIST-800). Without the bit the controller applies the full x2. */
+export const CAP_ASSIST_800 = 1 << 14;
+export const ASSIST_MAX_PCT = 800;
+let assistCap = true; // factory preview = newest firmware; set from CAPS after a read
+export function setAssistCap(on) { assistCap = !!on; }
+export const assistCapActive = () => assistCap;
 /** Transport declaration: one length byte > 8; the firmware staging buffer holds 90 B. */
 export const MAX_OBJECT_LEN = 90;
 
@@ -183,7 +190,7 @@ export function effectiveValues(level) {
     const q = 65536;
     const ratioQ16 = mode.ratio * m('assist');
     return {
-        ratioPct: ratioQ16 / q,
+        ratioPct: assistCap ? Math.min(ratioQ16 / q, ASSIST_MAX_PCT) : ratioQ16 / q,
         // S+: the ratio is the ceiling; the progression slope scales the same way.
         slope: mode.progressive ? (524 * m('assist') + 100) / 200 / q : null,
         attackMs: Math.floor((mode.attackMs * q + m('attack') / 2) / m('attack')),
@@ -601,6 +608,7 @@ export function parseCaps(bytes) {
         rider: (caps & CAP_RIDER) !== 0,
         riderHold: (caps & CAP_RIDER_HOLD) !== 0,
         riderMapV2: (caps & CAP_RIDER_MAP_V2) !== 0,
+        assistCap800: (caps & CAP_ASSIST_800) !== 0,
     };
 }
 

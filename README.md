@@ -180,3 +180,7 @@ Czas i droga Podtrzymania są pokazywane z granicą firmware: najwyżej 1,2 s i 
 ### 1.0.24 — osobne nazwy: Dopych i Minimum wsparcia
 
 Dwie różne funkcje miały tę samą nazwę „podtrzymanie”. Teraz ustawienie poziomu Carry (krótkie pchanie po zatrzymaniu korby pod górę) nazywa się **Dopych**. Ustawienie rowerzysty (stałe minimum prądu w jeździe i szybkie wyłączenie przy kręceniu bez nacisku) nazywa się **Minimum wsparcia**. Działanie i zapis bez zmian.
+
+### 1.0.25 — Wsparcie najwyżej 800%
+
+Skala Wsparcia w % kończy się na 800% (decyzja właściciela). Z firmware 0.709+ (bit możliwości 14) sterownik też obcina do 800%. Na 0.707 bez tego bitu strona pokazuje pełny zakres sterownika (do 1050% w SPORT+ i BOOST).

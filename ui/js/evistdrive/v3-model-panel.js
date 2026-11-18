@@ -1208,6 +1208,7 @@ export function renderPanel() {
 export async function discoverModel() {
     if (!socketReady()) return null;
     model.caps = await clientFor().discover();
+    P.setAssistCap(!!model.caps?.assistCap800);
     model.discovered = true;
     return model.caps;
 }

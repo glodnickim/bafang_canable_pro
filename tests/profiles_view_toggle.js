@@ -122,7 +122,10 @@ mod.registerHooks({
             const level = { ...P.factoryLevels()[0], mode: mode.id, [key]: correction };
             const native = panel.nativeValue(level, key);
             const back = panel.nativeToCorrection(level, key, native);
-            check(`native roundtrip ${mode.name} ${key} ${correction}`, back.correction === correction && !back.clipped);
+            // Wsparcie capped at 800 %: the roundtrip returns the lowest correction giving the same value.
+            const same = back.correction === correction || (key === 'assist' && native === P.ASSIST_MAX_PCT
+                && panel.nativeValue({ ...level, assist: back.correction }, key) === native && back.correction < correction);
+            check(`native roundtrip ${mode.name} ${key} ${correction}`, same && !back.clipped);
         }
         const level = { ...P.factoryLevels()[0], mode: mode.id };
         check(`native clipping ${mode.name} ${key}`, panel.nativeToCorrection(level, key, 1e6).clipped && panel.nativeToCorrection(level, key, -1).clipped);

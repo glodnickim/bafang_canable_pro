@@ -180,6 +180,17 @@ const throwsMsg = (name, fn, part) => {
     const v1w = await v1c.write(1, P.factoryLevels());
     check('schema 1 write is 68 B and readback ok', log.includes('write obj4 68') && v1w.ok === true, `${log.join(',')} ${JSON.stringify(v1w)}`);
 
+    // ---- Wsparcie cap 800 % (OWNER-DEC-20261118-ASSIST-800, firmware cap bit 14) ----
+    const lvB = P.factoryLevels();
+    P.setAssistCap(true);
+    eq('BOOST assist 100 capped at 800 %', P.effectiveValues({ ...lvB[4], assist: 100 }).ratioPct, 800);
+    near('BOOST assist 50 = 525 %', P.effectiveValues(lvB[4]).ratioPct, 525);
+    eq('ECO assist 100 = 190 % (below cap)', Math.round(P.effectiveValues({ ...lvB[0], assist: 100 }).ratioPct), 190);
+    P.setAssistCap(false);
+    eq('0.707 (no bit 14): BOOST assist 100 = 1050 %', P.effectiveValues({ ...lvB[4], assist: 100 }).ratioPct, 1050);
+    P.setAssistCap(true);
+    eq('CAPS bit 14 parsed', P.CAP_ASSIST_800, 1 << 14);
+
     // ---- chart math ----
     near('T_max at 0 rpm = T0', P.tMaxKg(0, 30), 30);
     near('T_max at 95 rpm', P.tMaxKg(95, 30), 15);
