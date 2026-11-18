@@ -184,3 +184,7 @@ Dwie różne funkcje miały tę samą nazwę „podtrzymanie”. Teraz ustawieni
 ### 1.0.25 — Wsparcie najwyżej 800%
 
 Skala Wsparcia w % kończy się na 800% (decyzja właściciela). Z firmware 0.709+ (bit możliwości 14) sterownik też obcina do 800%. Na 0.707 bez tego bitu strona pokazuje pełny zakres sterownika (do 1050% w SPORT+ i BOOST).
+
+### 1.0.26 — do firmware 0.709
+
+Domyślna „Twoja siła” to 60, cała skala czujnika (ok. 26 kg; decyzja właściciela, lżejszy rowerzysta ustawi mniej). Wymagane do 0.709: wersje przed 1.0.22 nie odczytają rowerzysty z 0.709 (nowy bit mapy nacisku).
