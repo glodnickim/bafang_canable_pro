@@ -313,7 +313,7 @@ export function axisToCorrection(level, key, value, t0 = 30) {
 
 function correctionSlider(index, spec) {
     const level = model.levels[index];
-    const t0 = model.riderBaseline ? model.rider.riderStrengthX10kg / 10 : 30;
+    const t0 = (model.riderBaseline ? model.rider : P.factoryRider()).riderStrengthX10kg / 10;
     const disabled = spec.key === 'range' && !model.rangeKnown;
     const at = (v) => ({ ...level, [spec.key]: v });
     const first = spec.off ? 1 : 0;
@@ -611,7 +611,7 @@ function modePicker(index) {
     P.MODES.forEach((mode) => {
         const b = button(mode.name, 'evd-mode-btn', () => {
             if (level.mode === mode.id) return;
-            const changed = changeModeNative(level, mode.id, model.riderBaseline ? model.rider.riderStrengthX10kg / 10 : 30);
+            const changed = changeModeNative(level, mode.id, (model.riderBaseline ? model.rider : P.factoryRider()).riderStrengthX10kg / 10);
             Object.assign(level, changed.level);
             model.clipIndex = changed.clipped ? index : null;
             // A new mode brings its own default limits.

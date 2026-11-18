@@ -22,9 +22,9 @@ const throwsMsg = (name, fn, part) => {
 
     // ---- object 5 layout ----
     const rider = P.factoryRider();
-    eq('factory rider', rider, { riderStrengthX10kg: 300, iqMinLow: 28, iqMinHigh: 42, effortMap: true, holdModel: true, tHold100ms: 20, mapV2: true });
+    eq('factory rider (T0 60, OWNER-DEC-20261118-T0-FULL-SCALE)', rider, { riderStrengthX10kg: 600, iqMinLow: 28, iqMinHigh: 42, effortMap: true, holdModel: true, tHold100ms: 20, mapV2: true });
     // Firmware 0.707 rider (no map v2 capability): the byte vector stays identical to VEC_RIDER.
-    const rider707 = { ...rider }; delete rider707.mapV2;
+    const rider707 = { ...rider, riderStrengthX10kg: 300 }; delete rider707.mapV2;
     const w = P.encodeRiderWrite(rider707);
     eq('rider object length 26', w.length, 26);
     // Byte vector: 'B','V', obj 5, ver 1, len 26, index 0, count 1, stride 8, flags 0,

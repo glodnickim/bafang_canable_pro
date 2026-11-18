@@ -132,7 +132,7 @@ export const HOLD_RPM_HIGH = 60;
 export const HOLD_T_CAP_S = 4;
 
 export function factoryRider() {
-    return { riderStrengthX10kg: 300, iqMinLow: 28, iqMinHigh: 42, effortMap: true, holdModel: true, tHold100ms: 20, mapV2: true };
+    return { riderStrengthX10kg: 600, iqMinLow: 28, iqMinHigh: 42, effortMap: true, holdModel: true, tHold100ms: 20, mapV2: true };
 }
 
 /** Factory object 5 of firmware before the hold model (C1 layout, no capability bit 12). */
