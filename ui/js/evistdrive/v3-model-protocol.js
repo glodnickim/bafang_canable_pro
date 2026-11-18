@@ -146,7 +146,7 @@ export function validateRider(rider) {
     if (!intIn(rider?.iqMinLow, 0, Number.isInteger(rider?.iqMinHigh) ? Math.min(rider.iqMinHigh, RIDER_LIMITS.iqMinMax) : RIDER_LIMITS.iqMinMax)) errors.push('Minimum Iq przy ≤30 obr/min: 0..120, nie więcej niż przy ≥60 obr/min');
     if (!intIn(rider?.tHold100ms, RIDER_LIMITS.tHoldMin, RIDER_LIMITS.tHoldMax)) errors.push('Czas bez nacisku: 0,5..4,0 s');
     if (typeof rider?.effortMap !== 'boolean') errors.push('Mapa wysiłku: wł./wył.');
-    if (typeof rider?.holdModel !== 'boolean') errors.push('Model podtrzymania: wł./wył.');
+    if (typeof rider?.holdModel !== 'boolean') errors.push('Minimum wsparcia: wł./wył.');
     if (rider?.mapV2 !== undefined && typeof rider.mapV2 !== 'boolean') errors.push('Nowa mapa nacisku: wł./wył.');
     return errors;
 }
@@ -710,7 +710,7 @@ export function createModelClient(transport) {
             const blocked = blockedRider();
             if (blocked) return blocked;
             if (!!rider.legacy === !!caps.riderHold) {
-                return { ok: false, reason: 4, text: caps.riderHold ? 'Firmware ma model podtrzymania (bit 12): odczytaj ustawienia ponownie.' : 'Firmware bez modelu podtrzymania (brak bitu 12): wgraj nowe firmware, aby ustawić minimum i czas bez nacisku.' };
+                return { ok: false, reason: 4, text: caps.riderHold ? 'Firmware ma minimum wsparcia (bit 12): odczytaj ustawienia ponownie.' : 'Firmware bez minimum wsparcia (brak bitu 12): wgraj nowe firmware, aby ustawić minimum i czas bez nacisku.' };
             }
             const result = await transport.write(encodeRiderWrite(rider, { baseGeneration }));
             if (!result.ok) return failure(result);

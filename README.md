@@ -176,3 +176,7 @@ Nowy przełącznik „Nowa mapa nacisku” (firmware 0.709+, bit 13): mniej wspa
 ### 1.0.23 — Podtrzymanie (Carry): prawdziwe granice
 
 Czas i droga Podtrzymania są pokazywane z granicą firmware: najwyżej 1,2 s i 1,5 m. Wcześniej powyżej 50 ekran pokazywał np. 2,4 s · 3 m, choć firmware obcina do 1,2 s · 1,5 m, więc powyżej 50 rośnie już tylko siła. Opis mówi, kiedy funkcja naprawdę działa: zatrzymanie korby po mocnym pedałowaniu poniżej 10 km/h.
+
+### 1.0.24 — osobne nazwy: Dopych i Minimum wsparcia
+
+Dwie różne funkcje miały tę samą nazwę „podtrzymanie”. Teraz ustawienie poziomu Carry (krótkie pchanie po zatrzymaniu korby pod górę) nazywa się **Dopych**. Ustawienie rowerzysty (stałe minimum prądu w jeździe i szybkie wyłączenie przy kręceniu bez nacisku) nazywa się **Minimum wsparcia**. Działanie i zapis bez zmian.

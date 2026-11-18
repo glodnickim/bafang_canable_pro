@@ -278,7 +278,7 @@ mod.registerHooks({
         const c = `@evdV3Card-${i}`;
         P.MODES.forEach((m) => required.push(`BUTTON:${m.name}${c}`));
         ['assist', 'attack', 'release', 'start', 'carry', 'range'].forEach((k) => required.push(`INPUT:evdV3-${i}-${k}${c}`));
-        ['Wsparcie', 'Narastanie', 'Opadanie', 'Kop na starcie', 'Podtrzymanie', 'Zakres'].forEach((l) => required.push(`INPUT:${l}, poziom ${i + 1}${c}`));
+        ['Wsparcie', 'Narastanie', 'Opadanie', 'Kop na starcie', 'Dopych', 'Zakres'].forEach((l) => required.push(`INPUT:${l}, poziom ${i + 1}${c}`));
         required.push(`INPUT:Max Power w watach, poziom ${i + 1}${c}`, `INPUT:Moc maks.: limit sprzętu, poziom ${i + 1}${c}`, `INPUT:Max Torque w procentach, poziom ${i + 1}${c}`,
             `BUTTON:Fabryczne na ekranie${c}`, `BUTTON:Fabryczne w sterowniku${c}`, `BUTTON:evdV3WriteOne-${i}${c}`);
         const name = P.MODES[panel._modelForTests.levels[i].mode].name;

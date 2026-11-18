@@ -34,7 +34,7 @@ const SLIDERS = [
     { key: 'attack', label: 'Narastanie' },
     { key: 'release', label: 'Opadanie' },
     { key: 'start', label: 'Kop na starcie', simple: true, off: true },
-    { key: 'carry', label: 'Podtrzymanie', off: true },
+    { key: 'carry', label: 'Dopych', off: true },
     { key: 'range', label: 'Zakres' },
 ];
 
@@ -45,7 +45,7 @@ const LEGEND = [
     { name: 'Kop na starcie (Start)', short: 'Dodatkowa siła przy ruszaniu z miejsca. 0 = wyłączony.', full: 'Kop przy ruszaniu (stan Start: tylko z postoju, poniżej 6 km/h, gaśnie do 50 obr/min). Liczba = nacisk, przy którym kop jest pełny: w lewo (mniej kg) mocniejszy kop, w prawo słabszy. Skrajnie w prawo = Start wyłączony.' },
     { name: 'Narastanie (Attack)', adv: true, short: 'Jak szybko silnik dochodzi do mocy.', full: 'Jak szybko silnik dochodzi do mocy po naciśnięciu pedału. Liczba = czas od zera do pełnej mocy: w lewo szybciej, w prawo łagodniej.' },
     { name: 'Opadanie (Release)', adv: true, short: 'Jak szybko wsparcie gaśnie, gdy odpuszczasz.', full: 'Jak szybko wspomaganie opada, gdy odpuszczasz nacisk. Liczba = czas opadania: w lewo szybciej gaśnie, w prawo silnik dłużej trzyma moc.' },
-    { name: 'Podtrzymanie (Carry)', adv: true, short: 'Dopych po zatrzymaniu korby pod górę. 0 = wył.', full: 'Gdy mocno pedałujesz poniżej 10 km/h i zatrzymasz korbę (kamień, próg, ustawienie pedału), silnik pcha jeszcze chwilę, malejąco: najwyżej 1,2 s i 1,5 m. Przerywa hamulec, ruch korby albo szarpnięcie. W prawo mocniej (czas i droga do 50, potem tylko siła). 0 = wyłączone.' },
+    { name: 'Dopych (Carry)', adv: true, short: 'Dopych po zatrzymaniu korby pod górę. 0 = wył.', full: 'Gdy mocno pedałujesz poniżej 10 km/h i zatrzymasz korbę (kamień, próg, ustawienie pedału), silnik pcha jeszcze chwilę, malejąco: najwyżej 1,2 s i 1,5 m. Przerywa hamulec, ruch korby albo szarpnięcie. W prawo mocniej (czas i droga do 50, potem tylko siła). 0 = wyłączone.' },
     { name: 'Zakres (Range)', adv: true, short: 'Przy jakim nacisku wsparcie dochodzi do 100 %.', full: 'Jaki wysiłek daje pełne wyjście mapy wysiłku. Liczba = nacisk (przy 60 obr/min), przy którym wsparcie dochodzi do 100 %: w lewo pełne wsparcie przy lżejszym nacisku, w prawo trzeba mocniej nacisnąć. Działa tylko z włączoną mapą wysiłku.' },
     { name: 'Max Torque', adv: true, short: 'Sufit momentu silnika (% dozwolonego Iq, nie Nm).', full: 'Sufit momentu silnika: ułamek dozwolonego prądu Iq. Obcina mapę i kop Start; najbardziej czuć go pod górę i przy ruszaniu. Zmiana trybu ustawia jego domyślny Max Torque.' },
     { name: 'Miniwykres', short: 'Wsparcie, Kop i pasek Mocy w jednym polu (ilustracja).', full: 'Jeden wykres w karcie, poglądowy (serie nie mają wspólnej osi). Wsparcie (kolor trybu): wyjście mapy wysiłku od nacisku przy 60 obr/min, po korekcie Wsparcia i Zakresu, obcięte przez Max Torque. Kop (żółta przerywana linia z polem): dodatkowy prąd przy przykładowym ruszaniu z miejsca w czasie 0–4 s — nacisk 12 kg, kadencja rośnie o 15 obr/min na sekundę; narasta w ok. 0,3 s, gaśnie z kadencją między 25 a 50 obr/min (w firmware także przy 12 km/h) i kończy się najpóźniej po 4 s; wysokość zależy od Max Torque i korekty Kopu. Moc (szary pasek „W” na dole): ustawiona Moc maks. na tle mocy baterii (skonfigurowany prąd × napięcie; przed odczytem 15 A × 48 V); pionowa kreska = domyślna moc trybu; „bez limitu” = pełny, jaśniejszy pasek. Liczone z wartości na ekranie, nie z pomiaru.' },
@@ -53,7 +53,7 @@ const LEGEND = [
 ];
 
 const PRESSURE_HELP = 'Start z miejsca: najmniejszy nacisk, przy którym wspomaganie rusza, gdy koło stoi (wymaga też obrotu korby). '
-    + 'Start w czasie jazdy: próg, gdy koło się toczy (powyżej 3 km/h); ten sam próg jest „trafieniem” podtrzymania — jadące wspomaganie gaśnie, gdy przez pełny obrót korby albo „Czas bez nacisku” nacisk ani razu go nie przekroczy. Nie może być większy niż start z miejsca. '
+    + 'Start w czasie jazdy: próg, gdy koło się toczy (powyżej 3 km/h); ten sam próg jest „trafieniem” dla minimum wsparcia — jadące wspomaganie gaśnie, gdy przez pełny obrót korby albo „Czas bez nacisku” nacisk ani razu go nie przekroczy. Nie może być większy niż start z miejsca. '
     + 'Wartości są faktycznym progiem zadziałania V3 (dokładność czujnika ok. ±0,3 kg); dolna granica obu progów to ok. 1,5 kg (szum czujnika 10 mV) — niższa wartość działa jak 1,5 kg.';
 
 const VIEW_KEY = 'evdProfilesView';
@@ -155,7 +155,7 @@ export function describeEffective(level, key) { return nativeText(level, key); }
 
 function capsSummary(caps) {
     const yes = (b, text) => `${text}: ${b ? 'tak' : 'nie'}`;
-    return [yes(caps.model, 'model (bit 8)'), yes(caps.modelWritable, 'zapis modelu (bit 10)'), yes(caps.rider, 'rowerzysta i sprzęt (bit 11)'), yes(caps.riderHold, 'model podtrzymania (bit 12)'), yes(caps.riderMapV2, 'mapa nacisku v2 (bit 13)')].join(', ');
+    return [yes(caps.model, 'model (bit 8)'), yes(caps.modelWritable, 'zapis modelu (bit 10)'), yes(caps.rider, 'rowerzysta i sprzęt (bit 11)'), yes(caps.riderHold, 'minimum wsparcia (bit 12)'), yes(caps.riderMapV2, 'mapa nacisku v2 (bit 13)')].join(', ');
 }
 
 function statusText() {
@@ -173,7 +173,7 @@ function levelWarning(level) {
     const mode = P.MODES[level.mode];
     const out = [];
     if (level.start === 0) out.push('Kop na starcie = 0: kop przy ruszaniu wyłączony.');
-    if (level.carry === 0) out.push('Podtrzymanie = 0: wyłączone.');
+    if (level.carry === 0) out.push('Dopych = 0: wyłączony.');
     if (level.maxPowerW !== P.HW_POWER_W && level.maxPowerW < P.modeDefaultPowerW(mode.id)) {
         out.push(`Moc maks. poniżej domyślnej dla ${mode.name} (${P.modeDefaultPowerW(mode.id)} W): moc obcięta wcześniej niż fabrycznie.`);
     }
@@ -752,7 +752,7 @@ function riderChart(kind, r) {
 }
 
 function riderSection() {
-    const box = section('rider', 'Rowerzysta i model podtrzymania', { id: 'evdV3Rider', className: 'evd-v3-rider' });
+    const box = section('rider', 'Rowerzysta i minimum wsparcia', { id: 'evdV3Rider', className: 'evd-v3-rider' });
     const read = !!model.riderBaseline;
     const supported = !!model.caps?.rider;
     const holdSupported = supported && !!model.caps?.riderHold && !model.rider.legacy;
@@ -788,7 +788,7 @@ function riderSection() {
     grid.appendChild(slider({ id: 'evdV3RiderStrength', label: 'Twoja siła (kg)', technical: 'nacisk na pedał do pełnego wsparcia przy stojącej korbie',
         help: 'Prawdziwe kg na pedale (tabela czujnika). Większa wartość wymaga mocniejszego nacisku do pełnego wsparcia; z kadencją próg maleje. Najwyżej ok. 26 kg = granica czujnika.', min: P.RIDER_LIMITS.strengthMin / 10, max: P.RIDER_LIMITS.strengthMax / 10, step: 0.5,
         get: () => r.riderStrengthX10kg / 10, set: (v) => { r.riderStrengthX10kg = Math.round(v * 10); }, badge: (v) => `${fmtNum(P.ctrlKgToKg(v), 1)} kg`, kind: 'strength', disabled: !read || !supported }));
-    grid.appendChild(toggle('evdV3HoldModel', 'Bez terkotu: stałe minimum + szybkie wyłączenie', 'Model podtrzymania', hold.holdModel,
+    grid.appendChild(toggle('evdV3HoldModel', 'Bez terkotu: stałe minimum + szybkie wyłączenie', 'Minimum wsparcia', hold.holdModel,
         'Po starcie utrzymuje minimum prądu i szybko wyłącza wsparcie po braku nacisku. Limity i hamulec nadal działają.',
         'wyłączone: brak minimum i szybkiego wyłączenia', !read || !holdSupported, (v) => { hold.holdModel = v; }));
     for (const [key, label, aria] of [['iqMinLow', 'Minimalne wsparcie przy wolnym kręceniu', 'Minimum Iq przy ≤30 obr/min'], ['iqMinHigh', 'Minimalne wsparcie przy szybkim kręceniu', 'Minimum Iq przy ≥60 obr/min']]) {
@@ -808,7 +808,7 @@ function riderSection() {
     box.append(grid, errors, actions);
     if (model.caps && !supported) box.appendChild(node('div', 'evd-v3-muted', 'Ten firmware nie obsługuje ustawień rowerzysty — podgląd fabryczny.'));
     else if (!read) box.appendChild(node('div', 'evd-v3-muted', 'podgląd fabryczny — odczytaj ustawienia z roweru.'));
-    else if (!holdSupported) box.appendChild(node('div', 'evd-v3-muted', `Ten firmware nie obsługuje modelu podtrzymania. C1: Iq_off ${r.lowAssistOffIq}, Iq_on ${r.lowAssistOnIq} — tylko do odczytu.`));
+    else if (!holdSupported) box.appendChild(node('div', 'evd-v3-muted', `Ten firmware nie obsługuje minimum wsparcia. C1: Iq_off ${r.lowAssistOffIq}, Iq_on ${r.lowAssistOnIq} — tylko do odczytu.`));
     return box;
 }
 
@@ -1013,7 +1013,7 @@ function chartsSection() {
             'Iq_start = Max Torque · min(1, F / F_full). Korekta Start skaluje F_full (więcej = pełny kop przy lżejszym nacisku), 0 = wyłączony.'),
         chart('evdV3ChartFade', 'Kop na starcie: wygaszanie z kadencją',
             'Kop pełny do 25 obr/min, zero przy 50 obr/min (gaśnie też przy 12 km/h i po 4 s). Linia: cel przy wybranym nacisku.'),
-        chart('evdV3ChartC1', 'Model podtrzymania: minimum Iq od kadencji',
+        chart('evdV3ChartC1', 'Minimum wsparcia: Iq od kadencji',
             'Oś X: kadencja. Oś Y: najmniejszy prąd silnika w czasie jazdy z naciskiem (przed limitami mocy, baterii, prędkości i Max Torque). Szare pole: pasmo terkotu wolnobiegu z logów. Linia przerywana: czas bez nacisku do zgaśnięcia (prawa skala w s × 10).'),
     );
     box.append(controls, grid);
@@ -1090,7 +1090,7 @@ export function refreshCharts() {
     // (d) hold model minimum by cadence
     const holdSeries = r.holdModel && r.iqMinHigh
         ? [{ label: 'minimum Iq', color: '#0ea5e9', width: 3, points: sample((c) => P.holdMinimumIq(c, r), 120, 240) }]
-        : [{ label: 'model podtrzymania wyłączony / minimum 0', color: '#64748b', width: 2, points: [[0, 0], [120, 0]] }];
+        : [{ label: 'minimum wsparcia wyłączone / 0', color: '#64748b', width: 2, points: [[0, 0], [120, 0]] }];
     if (r.holdModel) holdSeries.push({ label: 'czas bez nacisku [s × 10]', color: '#f59e0b', dash: true, width: 2, points: sample((c) => 10 * P.holdTimeoutS(c, r), 120, 240) });
     drawLineChart(el('evdV3ChartC1'), {
         xLabel: 'kadencja [obr/min]', yLabel: 'minimum [Iq]', xMax: 120, yMax: Math.max(80, Math.ceil((r.iqMinHigh + 20) / 20) * 20),
