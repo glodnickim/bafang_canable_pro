@@ -45,9 +45,19 @@ export const CAP_RIDER = 1 << 11;
 export const CAP_RIDER_HOLD = 1 << 12;
 /** Object 5 flag bit 2 = effort map v2 (ceiling P, progressive curve), firmware 0.709+. */
 export const CAP_RIDER_MAP_V2 = 1 << 13;
-/** Firmware 0.709+: Wsparcie (mode ratio x Assist multiplier) capped at ASSIST_MAX_PCT
+/** Firmware 0.709+: Asysta (mode ratio x Assist multiplier) capped at ASSIST_MAX_PCT
  *  (OWNER-DEC-20261118-ASSIST-800). Without the bit the controller applies the full x2. */
 export const CAP_ASSIST_800 = 1 << 14;
+export const CAP_CARRY_V2 = 1 << 16;
+/** Predicted carry strength, duration and distance for the advertised firmware. */
+export function carryLimits(level, carryV2) {
+    if (level.carry === 0) return { pct: 0, s: 0, m: 0 };
+    const factor = multiplier(level.carry);
+    const durationFactor = carryV2 ? factor * factor : factor;
+    return { pct: MODES[level.mode].carry * factor,
+        s: Math.min(carryV2 ? 3 : 1.2, 1.2 * durationFactor),
+        m: Math.min(carryV2 ? 5 : 1.5, 1.5 * durationFactor) };
+}
 export const ASSIST_MAX_PCT = 800;
 let assistCap = true; // factory preview = newest firmware; set from CAPS after a read
 export function setAssistCap(on) { assistCap = !!on; }
@@ -153,7 +163,7 @@ export function validateRider(rider) {
     if (!intIn(rider?.iqMinLow, 0, Number.isInteger(rider?.iqMinHigh) ? Math.min(rider.iqMinHigh, RIDER_LIMITS.iqMinMax) : RIDER_LIMITS.iqMinMax)) errors.push('Minimum Iq przy ≤30 obr/min: 0..120, nie więcej niż przy ≥60 obr/min');
     if (!intIn(rider?.tHold100ms, RIDER_LIMITS.tHoldMin, RIDER_LIMITS.tHoldMax)) errors.push('Czas bez nacisku: 0,5..4,0 s');
     if (typeof rider?.effortMap !== 'boolean') errors.push('Mapa wysiłku: wł./wył.');
-    if (typeof rider?.holdModel !== 'boolean') errors.push('Minimum wsparcia: wł./wył.');
+    if (typeof rider?.holdModel !== 'boolean') errors.push('Minimum asysty: wł./wył.');
     if (rider?.mapV2 !== undefined && typeof rider.mapV2 !== 'boolean') errors.push('Nowa mapa nacisku: wł./wył.');
     return errors;
 }
@@ -609,6 +619,7 @@ export function parseCaps(bytes) {
         riderHold: (caps & CAP_RIDER_HOLD) !== 0,
         riderMapV2: (caps & CAP_RIDER_MAP_V2) !== 0,
         assistCap800: (caps & CAP_ASSIST_800) !== 0,
+        carryV2: (caps & CAP_CARRY_V2) !== 0,
     };
 }
 
@@ -718,7 +729,7 @@ export function createModelClient(transport) {
             const blocked = blockedRider();
             if (blocked) return blocked;
             if (!!rider.legacy === !!caps.riderHold) {
-                return { ok: false, reason: 4, text: caps.riderHold ? 'Firmware ma minimum wsparcia (bit 12): odczytaj ustawienia ponownie.' : 'Firmware bez minimum wsparcia (brak bitu 12): wgraj nowe firmware, aby ustawić minimum i czas bez nacisku.' };
+                return { ok: false, reason: 4, text: caps.riderHold ? 'Firmware ma minimum asysty (bit 12): odczytaj ustawienia ponownie.' : 'Firmware bez minimum asysty (brak bitu 12): wgraj nowe firmware, aby ustawić minimum i czas bez nacisku.' };
             }
             const result = await transport.write(encodeRiderWrite(rider, { baseGeneration }));
             if (!result.ok) return failure(result);

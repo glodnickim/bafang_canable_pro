@@ -2,7 +2,7 @@
 // corrections and two limits, plus the rider/hardware object and live charts of what the settings do.
 //
 // Two views of the same model (owner 2026-11-16): "Prosty" (default) shows per level the mode,
-// Wsparcie, Moc maks. and Kop na starcie; "Zaawansowany" shows everything. Every setting is
+// Asysta, Moc maks. and Kop na starcie; "Zaawansowany" shows everything. Every setting is
 // explained ONCE (legend, or one "?" per section) — never repeated in the level cards.
 //
 // One source for the rider-facing character of the bike (design: integration/roadmap/
@@ -19,10 +19,10 @@ import { markUnsavedInRam, clearUnsavedInRam } from './global-actions.js';
 const LEVEL_COLORS = ['#16a34a', '#0ea5e9', '#6366f1', '#f59e0b', '#dc2626'];
 // Colour and one-line character per mode (index = P.MODES id).
 const MODE_STYLE = [
-    { color: '#16a34a', line: 'Spokojnie i oszczędnie: łagodne wsparcie, długi zasięg.' },
-    { color: '#0d9488', line: 'Równe, naturalne wsparcie na co dzień i w teren.' },
-    { color: '#ea580c', line: 'Żwawo: mocne wsparcie i szybsza reakcja.' },
-    { color: '#dc2626', line: 'Bardzo dynamicznie: wsparcie mocno rośnie z naciskiem.' },
+    { color: '#16a34a', line: 'Spokojnie i oszczędnie: łagodna asysta, długi zasięg.' },
+    { color: '#0d9488', line: 'Równa, naturalna asysta na co dzień i w teren.' },
+    { color: '#ea580c', line: 'Żwawo: mocna asysta i szybsza reakcja.' },
+    { color: '#dc2626', line: 'Bardzo dynamicznie: asysta mocno rośnie z naciskiem.' },
     { color: '#9333ea', line: 'Pełna moc już przy krótkim zakresie nacisku.' },
     { color: '#2563eb', line: 'Charakter jak TRAIL (punkt TRAIL), moc do 750 W.' },
 ];
@@ -30,7 +30,7 @@ const modeColor = (id) => MODE_STYLE[id]?.color ?? '#2563eb';
 
 // Corrections 0..100 (50 = factory for the mode). `simple` = shown in the simple view.
 const SLIDERS = [
-    { key: 'assist', label: 'Wsparcie', simple: true },
+    { key: 'assist', label: 'Asysta', simple: true },
     { key: 'attack', label: 'Narastanie' },
     { key: 'release', label: 'Opadanie' },
     { key: 'start', label: 'Kop na starcie', simple: true, off: true },
@@ -40,20 +40,20 @@ const SLIDERS = [
 
 // The ONE place every setting is explained. `adv` = only relevant in the advanced view.
 const LEGEND = [
-    { name: 'Wsparcie (Assist)', short: 'Ile silnik dokłada do Twojego nacisku.', full: 'Przełożenie wspomagania w % (ta sama liczba co na HMI): mnoży to, co daje mapa. W prawo więcej wsparcia przy tym samym nacisku. Tryb pozwala na ×0,5…×2 swojej wartości domyślnej.' },
+    { name: 'Asysta (Assist)', short: 'Ile silnik dokłada do Twojego nacisku.', full: 'Przełożenie wspomagania w % (ta sama liczba co na HMI): mnoży to, co daje mapa. W prawo więcej asysty przy tym samym nacisku. Tryb pozwala na ×0,5…×2 swojej wartości domyślnej.' },
     { name: 'Moc maks. (Max Power)', short: 'Sufit mocy z baterii na tym poziomie.', full: 'Sufit mocy pobieranej z baterii na tym poziomie. Limit baterii i prądu fazy zostają nadrzędne. Skrajnie w prawo albo „limit sprzętu” (65000) = bez limitu trybu. Mniej W = spokojniej przy wysokiej kadencji i prędkości. Zmiana trybu ustawia jego domyślną moc.' },
     { name: 'Kop na starcie (Start)', short: 'Dodatkowa siła przy ruszaniu z miejsca. 0 = wyłączony.', full: 'Kop przy ruszaniu (stan Start: tylko z postoju, poniżej 6 km/h, gaśnie do 50 obr/min). Liczba = nacisk, przy którym kop jest pełny: w lewo (mniej kg) mocniejszy kop, w prawo słabszy. Skrajnie w prawo = Start wyłączony.' },
     { name: 'Narastanie (Attack)', adv: true, short: 'Jak szybko silnik dochodzi do mocy.', full: 'Jak szybko silnik dochodzi do mocy po naciśnięciu pedału. Liczba = czas od zera do pełnej mocy: w lewo szybciej, w prawo łagodniej.' },
-    { name: 'Opadanie (Release)', adv: true, short: 'Jak szybko wsparcie gaśnie, gdy odpuszczasz.', full: 'Jak szybko wspomaganie opada, gdy odpuszczasz nacisk. Liczba = czas opadania: w lewo szybciej gaśnie, w prawo silnik dłużej trzyma moc.' },
-    { name: 'Dopych (Carry)', adv: true, short: 'Dopych po zatrzymaniu korby pod górę. 0 = wył.', full: 'Gdy mocno pedałujesz poniżej 10 km/h i zatrzymasz korbę (kamień, próg, ustawienie pedału), silnik pcha jeszcze chwilę, malejąco: najwyżej 1,2 s i 1,5 m. Przerywa hamulec, ruch korby albo szarpnięcie. W prawo mocniej (czas i droga do 50, potem tylko siła). 0 = wyłączone.' },
-    { name: 'Zakres (Range)', adv: true, short: 'Przy jakim nacisku wsparcie dochodzi do 100 %.', full: 'Jaki wysiłek daje pełne wyjście mapy wysiłku. Liczba = nacisk (przy 60 obr/min), przy którym wsparcie dochodzi do 100 %: w lewo pełne wsparcie przy lżejszym nacisku, w prawo trzeba mocniej nacisnąć. Działa tylko z włączoną mapą wysiłku.' },
+    { name: 'Opadanie (Release)', adv: true, short: 'Jak szybko asysta gaśnie, gdy odpuszczasz.', full: 'Jak szybko wspomaganie opada, gdy odpuszczasz nacisk. Liczba = czas opadania: w lewo szybciej gaśnie, w prawo silnik dłużej trzyma moc.' },
+    { name: 'Dopych (Carry)', adv: true },
+    { name: 'Zakres (Range)', adv: true, short: 'Przy jakim nacisku asysta dochodzi do 100 %.', full: 'Jaki wysiłek daje pełne wyjście mapy wysiłku. Liczba = nacisk (przy 60 obr/min), przy którym asysta dochodzi do 100 %: w lewo pełna asysta przy lżejszym nacisku, w prawo trzeba mocniej nacisnąć. Działa tylko z włączoną mapą wysiłku.' },
     { name: 'Max Torque', adv: true, short: 'Sufit momentu silnika (% dozwolonego Iq, nie Nm).', full: 'Sufit momentu silnika: ułamek dozwolonego prądu Iq. Obcina mapę i kop Start; najbardziej czuć go pod górę i przy ruszaniu. Zmiana trybu ustawia jego domyślny Max Torque.' },
-    { name: 'Miniwykres', short: 'Wsparcie, Kop i pasek Mocy w jednym polu (ilustracja).', full: 'Jeden wykres w karcie, poglądowy (serie nie mają wspólnej osi). Wsparcie (kolor trybu): wyjście mapy wysiłku od nacisku przy 60 obr/min, po korekcie Wsparcia i Zakresu, obcięte przez Max Torque. Kop (żółta przerywana linia z polem): dodatkowy prąd przy przykładowym ruszaniu z miejsca w czasie 0–4 s — nacisk 12 kg, kadencja rośnie o 15 obr/min na sekundę; narasta w ok. 0,3 s, gaśnie z kadencją między 25 a 50 obr/min (w firmware także przy 12 km/h) i kończy się najpóźniej po 4 s; wysokość zależy od Max Torque i korekty Kopu. Moc (szary pasek „W” na dole): ustawiona Moc maks. na tle mocy baterii (skonfigurowany prąd × napięcie; przed odczytem 15 A × 48 V); pionowa kreska = domyślna moc trybu; „bez limitu” = pełny, jaśniejszy pasek. Liczone z wartości na ekranie, nie z pomiaru.' },
+    { name: 'Miniwykres', short: 'Asysta, Kop i pasek Mocy w jednym polu (ilustracja).', full: 'Jeden wykres w karcie, poglądowy (serie nie mają wspólnej osi). Asysta (kolor trybu): wyjście mapy wysiłku od nacisku przy 60 obr/min, po korekcie Asysty i Zakresu, obcięte przez Max Torque. Kop (żółta przerywana linia z polem): dodatkowy prąd przy przykładowym ruszaniu z miejsca w czasie 0–4 s — nacisk 12 kg, kadencja rośnie o 15 obr/min na sekundę; narasta w ok. 0,3 s, gaśnie z kadencją między 25 a 50 obr/min (w firmware także przy 12 km/h) i kończy się najpóźniej po 4 s; wysokość zależy od Max Torque i korekty Kopu. Moc (szary pasek „W” na dole): ustawiona Moc maks. na tle mocy baterii (skonfigurowany prąd × napięcie; przed odczytem 15 A × 48 V); pionowa kreska = domyślna moc trybu; „bez limitu” = pełny, jaśniejszy pasek. Liczone z wartości na ekranie, nie z pomiaru.' },
     { name: 'Pierwszeństwo', short: 'Hamulec, błędy, stop i jazda wstecz zawsze wygrywają.', full: 'Hamulec, błędy, stop i jazda wstecz mają zawsze pierwszeństwo przed każdym ustawieniem trybu. Korekty są osobne dla każdego poziomu, także gdy kilka poziomów ma ten sam tryb.' },
 ];
 
 const PRESSURE_HELP = 'Start z miejsca: najmniejszy nacisk, przy którym wspomaganie rusza, gdy koło stoi (wymaga też obrotu korby). '
-    + 'Start w czasie jazdy: próg, gdy koło się toczy (powyżej 3 km/h); ten sam próg jest „trafieniem” dla minimum wsparcia — jadące wspomaganie gaśnie, gdy przez pełny obrót korby albo „Czas bez nacisku” nacisk ani razu go nie przekroczy. Nie może być większy niż start z miejsca. '
+    + 'Start w czasie jazdy: próg, gdy koło się toczy (powyżej 3 km/h); ten sam próg jest „trafieniem” dla minimum asysty — jadące wspomaganie gaśnie, gdy przez pełny obrót korby albo „Czas bez nacisku” nacisk ani razu go nie przekroczy. Nie może być większy niż start z miejsca. '
     + 'Wartości są faktycznym progiem zadziałania V3 (dokładność czujnika ok. ±0,3 kg); dolna granica obu progów to ok. 1,5 kg (szum czujnika 10 mV) — niższa wartość działa jak 1,5 kg.';
 
 const VIEW_KEY = 'evdProfilesView';
@@ -113,7 +113,7 @@ export function nativeValue(level, key, t0 = 30) {
     if (key === 'attack') return eff.attackMs / 1000;
     if (key === 'release') return eff.releaseMs / 1000;
     if (key === 'start') return P.startFullForceKg(level) ?? 0;
-    if (key === 'carry') return level.carry === 0 ? 0 : P.MODES[level.mode].carry * P.multiplier(level.carry);
+    if (key === 'carry') return P.carryLimits(level, !!model.caps?.carryV2).pct;
     return P.fullEffortKg(60, level, t0);
 }
 
@@ -147,15 +147,17 @@ const nativeText = (level, key, t0 = 30) => {
     const value = nativeValue(level, key, t0);
     if ((key === 'start' || key === 'carry') && value === 0) return 'wył.';
     const n = (v, digits = nativeDigits(key)) => String(Number(v.toFixed(digits))).replace('.', ',');
-    // Firmware caps carry at ASSIST_V3_CARRY_HARD_MAX_MS 1200 / _MM 1500 (assist_v3.h): above 50 only the force grows.
-    if (key === 'carry') return `${n(value)} % · ${n(Math.min(1.2, 1.2 * P.multiplier(level.carry)), 1)} s · ${n(Math.min(1.5, 1.5 * P.multiplier(level.carry)), 1)} m`;
+    if (key === 'carry') {
+        const limits = P.carryLimits(level, !!model.caps?.carryV2);
+        return `${n(limits.pct)} % · ${n(limits.s, 1)} s · ${n(limits.m, 1)} m${limits.m > 2 ? ' (poza EN 15194)' : ''}`;
+    }
     return `${n(value)} ${key === 'assist' ? '%' : key === 'attack' || key === 'release' ? 's' : 'kg'}`;
 };
 export function describeEffective(level, key) { return nativeText(level, key); }
 
 function capsSummary(caps) {
     const yes = (b, text) => `${text}: ${b ? 'tak' : 'nie'}`;
-    return [yes(caps.model, 'model (bit 8)'), yes(caps.modelWritable, 'zapis modelu (bit 10)'), yes(caps.rider, 'rowerzysta i sprzęt (bit 11)'), yes(caps.riderHold, 'minimum wsparcia (bit 12)'), yes(caps.riderMapV2, 'mapa nacisku v2 (bit 13)')].join(', ');
+    return [yes(caps.model, 'model (bit 8)'), yes(caps.modelWritable, 'zapis modelu (bit 10)'), yes(caps.rider, 'rowerzysta i sprzęt (bit 11)'), yes(caps.riderHold, 'minimum asysty (bit 12)'), yes(caps.riderMapV2, 'mapa nacisku v2 (bit 13)'), yes(caps.carryV2, 'Dopych do 20 km/h (bit 16)')].join(', ');
 }
 
 function statusText() {
@@ -350,8 +352,8 @@ function correctionSlider(index, spec) {
         afterLevelEdit(index);
     }
     function details() {
-        const label = spec.key === 'start' ? 'pełny kop przy ' : spec.key === 'range' ? 'pełne wsparcie przy ' : '';
-        const span = (v) => spec.key === 'carry' ? `${Number(nativeValue(at(v), 'carry', t0).toFixed(0))} %` : endpoint(v);
+        const label = spec.key === 'start' ? 'pełny kop przy ' : spec.key === 'range' ? 'pełna asysta przy ' : '';
+        const span = (v) => endpoint(v);
         const ends = [first, 100].sort((a, b) => nativeValue(at(a), spec.key, t0) - nativeValue(at(b), spec.key, t0));
         const preview = spec.key === 'range' && !model.riderBaseline ? ' · podgląd: siła domyślna' : '';
         const warning = spec.key === 'assist' && nativeValue(level, 'assist', t0) > 1000 ? ' · HMI: maks. 1000%' : '';
@@ -491,9 +493,9 @@ function limitsRow(index) {
     return wrap;
 }
 
-// ---- one mini chart per level card: Wsparcie + Kop na starcie + Moc maks. -----------------
+// ---- one mini chart per level card: Asysta + Kop na starcie + Moc maks. -----------------
 // Illustrative, not one physical axis (owner 2026-11-16). In one box:
-//  - Wsparcie: effort map output vs pedal force at 60 rpm (mode colour);
+//  - Asysta: effort map output vs pedal force at 60 rpm (mode colour);
 //  - Kop: extra start current over 0..4 s of an example start — rises, then fades with cadence
 //    (yellow, dashed, translucent fill), its own time axis across the same width;
 //  - Moc: thin horizontal bar along the bottom — set Max Power against the battery power
@@ -555,7 +557,7 @@ function miniChart(index) {
     box.append(svg, w);
     const legend = node('div', 'evd-v3-combo-legend');
     legend.setAttribute('aria-hidden', 'true');
-    [['is-support', 'Wsparcie'], ['is-kop', 'Kop'], ['is-power', 'Moc']].forEach(([cls, text]) => {
+    [['is-support', 'Asysta'], ['is-kop', 'Kop'], ['is-power', 'Moc']].forEach(([cls, text]) => {
         const item = node('span', cls);
         item.append(node('i'), text);
         legend.appendChild(item);
@@ -569,7 +571,7 @@ function drawMini(svg, index) {
     const level = model.levels[index];
     const color = modeColor(level.mode);
     const thin = { 'vector-effect': 'non-scaling-stroke' };
-    // Wsparcie
+    // Asysta
     const t0 = model.rider.riderStrengthX10kg / 10;
     const xMaxF = Math.max(10, P.effortOutput(0, 60, level, t0, mapV2()).tMax * 1.2);
     const support = sample((f) => P.effortOutput(f, 60, level, t0, mapV2()).output, xMaxF, 48);
@@ -596,7 +598,7 @@ function drawMini(svg, index) {
     const supportPeak = Math.round(100 * Math.max(...support.map((p) => p[1])));
     const kopPeak = Math.round(100 * Math.max(...kop.map((p) => p[1])));
     const watts = noLimit ? 'bez limitu trybu' : `${level.maxPowerW} W`;
-    svg.setAttribute('aria-label', `Poziom ${index + 1}: wsparcie do ${supportPeak} % skali, Kop do ${kopPeak} % i gaśnie, Moc maks. ${watts} z ${battery} W baterii`);
+    svg.setAttribute('aria-label', `Poziom ${index + 1}: asysta do ${supportPeak} % skali, Kop do ${kopPeak} % i gaśnie, Moc maks. ${watts} z ${battery} W baterii`);
 }
 
 function refreshMini(index) {
@@ -694,8 +696,11 @@ function legendSection() {
     const list = node('dl', 'evd-v3-legend-list');
     LEGEND.filter((item) => isAdvanced() || !item.adv).forEach((item) => {
         const dt = node('dt', '', item.name);
-        dt.appendChild(helpBadge(item.full));
-        list.append(dt, node('dd', '', item.short));
+        const v2 = !!model.caps?.carryV2;
+        const short = item.name === 'Dopych (Carry)' ? `Po mocnym nacisku i zatrzymaniu korby, do ${v2 ? '20' : '10'} km/h. 0 = wył.` : item.short;
+        const full = item.name === 'Dopych (Carry)' ? `Po mocnym nacisku i zatrzymaniu korby silnik jeszcze pcha do ${v2 ? '20' : '10'} km/h. Suwak: 0 = wył., 50 = 1,2 s / 1,5 m, 100 = ${v2 ? '3 s / 5 m' : '1,2 s / 1,5 m'}; rośnie też siła. Przerywa hamulec, ruch korby w dowolną stronę, gwałtowne przyspieszenie${v2 ? ' lub przekroczenie 20 km/h' : ''}.${v2 ? ' Ponad 2 m jest poza EN 15194 (test).' : ''}` : item.full;
+        dt.appendChild(helpBadge(full));
+        list.append(dt, node('dd', '', short));
     });
     box.append(modes, list);
     return box;
@@ -715,7 +720,7 @@ function checkRow(id, label, checked, help, onChange) {
 }
 
 function riderChart(kind, r) {
-    const svg = svgEl('svg', { viewBox: '0 0 200 70', class: 'evd-rider-chart', role: 'img', 'aria-label': kind === 'strength' ? 'Nacisk do pełnego wsparcia a kadencja' : kind === 'minimum' ? 'Minimalne wsparcie a kadencja' : 'Nacisk i czas wyłączenia przy 60 obr/min' });
+    const svg = svgEl('svg', { viewBox: '0 0 200 70', class: 'evd-rider-chart', role: 'img', 'aria-label': kind === 'strength' ? 'Nacisk do pełnej asysty a kadencja' : kind === 'minimum' ? 'Minimalna asysta a kadencja' : 'Nacisk i czas wyłączenia przy 60 obr/min' });
     const path = svgEl('path', { fill: 'none', stroke: '#2563eb', 'stroke-width': 2 });
     svg.appendChild(path);
     const labels = svgEl('text', { x: 4, y: 68, fill: '#64748b', 'font-size': 9 });
@@ -753,7 +758,7 @@ function riderChart(kind, r) {
 }
 
 function riderSection() {
-    const box = section('rider', 'Rowerzysta i minimum wsparcia', { id: 'evdV3Rider', className: 'evd-v3-rider' });
+    const box = section('rider', 'Rowerzysta i minimum asysty', { id: 'evdV3Rider', className: 'evd-v3-rider' });
     const read = !!model.riderBaseline;
     const supported = !!model.caps?.rider;
     const holdSupported = supported && !!model.caps?.riderHold && !model.rider.legacy;
@@ -779,27 +784,27 @@ function riderSection() {
         if (disabled) item.classList.add('is-preview');
         return item;
     };
-    grid.appendChild(toggle('evdV3EffortMap', 'Wsparcie wg wysiłku (zalecane)', 'Mapa wysiłku', r.effortMap,
-        'Wsparcie zależy od nacisku względem Twojej siły i kadencji. Po wyłączeniu działa stara mapa nacisk × kadencja; siła i Zakres nie działają.',
+    grid.appendChild(toggle('evdV3EffortMap', 'Asysta wg wysiłku (zalecane)', 'Mapa wysiłku', r.effortMap,
+        'Asysta zależy od nacisku względem Twojej siły i kadencji. Po wyłączeniu działa stara mapa nacisk × kadencja; siła i Zakres nie działają.',
         'wyłączone: stara mapa nacisk × kadencja', !read || !supported, (v) => { r.effortMap = v; model.levels.forEach((_, i) => refreshWarnings(i)); }));
     const mapV2Supported = supported && !!model.caps?.riderMapV2 && !model.rider.legacy;
     grid.appendChild(toggle('evdV3MapV2', 'Nowa mapa nacisku (zalecane)', 'Mapa v2 · firmware 0.709+', read ? r.mapV2 === true : true,
-        'Mniej wsparcia przy lekkim nacisku, mocne szczyty dają więcej, pełny nacisk sięga pełnego prądu silnika. Wyłączona: stara krzywa (maks. 65% prądu przy Wsparciu domyślnym).',
+        'Mniej asysty przy lekkim nacisku, mocne szczyty dają więcej, pełny nacisk sięga pełnego prądu silnika. Wyłączona: stara krzywa (maks. 65% prądu przy Asyście domyślnej).',
         'wyłączona: stara krzywa, sufit 65%', !read || !mapV2Supported, (v) => { r.mapV2 = v; model.levels.forEach((_, i) => refreshWarnings(i)); }));
-    grid.appendChild(slider({ id: 'evdV3RiderStrength', label: 'Twoja siła (kg)', technical: 'nacisk na pedał do pełnego wsparcia przy stojącej korbie',
-        help: 'Prawdziwe kg na pedale (tabela czujnika). Większa wartość wymaga mocniejszego nacisku do pełnego wsparcia; z kadencją próg maleje. Najwyżej ok. 26 kg = granica czujnika.', min: P.RIDER_LIMITS.strengthMin / 10, max: P.RIDER_LIMITS.strengthMax / 10, step: 0.5,
+    grid.appendChild(slider({ id: 'evdV3RiderStrength', label: 'Twoja siła (kg)', technical: 'nacisk na pedał do pełnej asysty przy stojącej korbie',
+        help: 'Prawdziwe kg na pedale (tabela czujnika). Większa wartość wymaga mocniejszego nacisku do pełnej asysty; z kadencją próg maleje. Najwyżej ok. 26 kg = granica czujnika.', min: P.RIDER_LIMITS.strengthMin / 10, max: P.RIDER_LIMITS.strengthMax / 10, step: 0.5,
         get: () => r.riderStrengthX10kg / 10, set: (v) => { r.riderStrengthX10kg = Math.round(v * 10); }, badge: (v) => `${fmtNum(P.ctrlKgToKg(v), 1)} kg`, kind: 'strength', disabled: !read || !supported }));
-    grid.appendChild(toggle('evdV3HoldModel', 'Bez terkotu: stałe minimum + szybkie wyłączenie', 'Minimum wsparcia', hold.holdModel,
-        'Po starcie utrzymuje minimum prądu i szybko wyłącza wsparcie po braku nacisku. Limity i hamulec nadal działają.',
+    grid.appendChild(toggle('evdV3HoldModel', 'Bez terkotu: stałe minimum + szybkie wyłączenie', 'Minimum asysty', hold.holdModel,
+        'Po starcie utrzymuje minimum prądu i szybko wyłącza asystę po braku nacisku. Limity i hamulec nadal działają.',
         'wyłączone: brak minimum i szybkiego wyłączenia', !read || !holdSupported, (v) => { hold.holdModel = v; }));
-    for (const [key, label, aria] of [['iqMinLow', 'Minimalne wsparcie przy wolnym kręceniu', 'Minimum Iq przy ≤30 obr/min'], ['iqMinHigh', 'Minimalne wsparcie przy szybkim kręceniu', 'Minimum Iq przy ≥60 obr/min']]) {
+    for (const [key, label, aria] of [['iqMinLow', 'Minimalna asysta przy wolnym kręceniu', 'Minimum Iq przy ≤30 obr/min'], ['iqMinHigh', 'Minimalna asysta przy szybkim kręceniu', 'Minimum Iq przy ≥60 obr/min']]) {
         grid.appendChild(slider({ id: `evdV3-${key}`, label, aria, technical: key === 'iqMinLow' ? 'Iq · do 30 obr/min' : 'Iq · od 60 obr/min',
             help: key === 'iqMinLow' ? 'Minimum do 30 obr/min, dalej rośnie liniowo do wartości przy 60 obr/min. Procent odnosi się do 700 Iq; pozostałe limity nadal działają.' : 'Minimum od 60 obr/min. Procent odnosi się do 700 Iq; pozostałe limity nadal ograniczają prąd.',
             min: 0, max: P.RIDER_LIMITS.iqMinMax, step: 1, get: () => hold[key], set: (v) => { hold[key] = Math.round(v); },
             badge: (v) => `${String(P.iqPercent(v)).replace('.', ',')} % (${v} Iq)`, kind: 'minimum', disabled: !read || !holdSupported }));
     }
     grid.appendChild(slider({ id: 'evdV3HoldTime', label: 'Wyłącz po … s bez nacisku', technical: 'Czas bez nacisku · przykład: 60 obr/min',
-        help: 'Czas oczekiwania to dłuższy z ustawionego czasu i jednego obrotu, najwyżej 4 s. Pełny obrót bez nacisku może też zakończyć wsparcie.',
+        help: 'Czas oczekiwania to dłuższy z ustawionego czasu i jednego obrotu, najwyżej 4 s. Pełny obrót bez nacisku może też zakończyć asystę.',
         min: P.RIDER_LIMITS.tHoldMin / 10, max: P.RIDER_LIMITS.tHoldMax / 10, step: 0.1, get: () => hold.tHold100ms / 10,
         set: (v) => { hold.tHold100ms = Math.round(v * 10); }, badge: (v) => `${fmtNum(v, 1)} s`, kind: 'timeout', disabled: !read || !holdSupported }));
     const errors = node('div', 'form-hint'); errors.id = 'evdV3RiderErrors';
@@ -809,7 +814,7 @@ function riderSection() {
     box.append(grid, errors, actions);
     if (model.caps && !supported) box.appendChild(node('div', 'evd-v3-muted', 'Ten firmware nie obsługuje ustawień rowerzysty — podgląd fabryczny.'));
     else if (!read) box.appendChild(node('div', 'evd-v3-muted', 'podgląd fabryczny — odczytaj ustawienia z roweru.'));
-    else if (!holdSupported) box.appendChild(node('div', 'evd-v3-muted', `Ten firmware nie obsługuje minimum wsparcia. C1: Iq_off ${r.lowAssistOffIq}, Iq_on ${r.lowAssistOnIq} — tylko do odczytu.`));
+    else if (!holdSupported) box.appendChild(node('div', 'evd-v3-muted', `Ten firmware nie obsługuje minimum asysty. C1: Iq_off ${r.lowAssistOffIq}, Iq_on ${r.lowAssistOnIq} — tylko do odczytu.`));
     return box;
 }
 
@@ -1009,13 +1014,13 @@ function chartsSection() {
         return fig;
     };
     grid.append(
-        chart('evdV3ChartEffort', 'Mapa wysiłku: wsparcie od nacisku',
-            'Oś X: nacisk w kg (szczyt suwu) przy wybranej kadencji. Oś Y: wyjście mapy w % pełnej skali po korekcie Wsparcia, obcięte przez Max Torque. Kolano: 60 % wysiłku daje 80 % wyjścia trybu.'),
+        chart('evdV3ChartEffort', 'Mapa wysiłku: asysta od nacisku',
+            'Oś X: nacisk w kg (szczyt suwu) przy wybranej kadencji. Oś Y: wyjście mapy w % pełnej skali po korekcie Asysty, obcięte przez Max Torque. Kolano: 60 % wysiłku daje 80 % wyjścia trybu.'),
         chart('evdV3ChartStart', 'Kop na starcie: cel momentu od nacisku',
             'Iq_start = Max Torque · min(1, F / F_full). Korekta Start skaluje F_full (więcej = pełny kop przy lżejszym nacisku), 0 = wyłączony.'),
         chart('evdV3ChartFade', 'Kop na starcie: wygaszanie z kadencją',
             'Kop pełny do 25 obr/min, zero przy 50 obr/min (gaśnie też przy 12 km/h i po 4 s). Linia: cel przy wybranym nacisku.'),
-        chart('evdV3ChartC1', 'Minimum wsparcia: Iq od kadencji',
+        chart('evdV3ChartC1', 'Minimum asysty: Iq od kadencji',
             'Oś X: kadencja. Oś Y: najmniejszy prąd silnika w czasie jazdy z naciskiem (przed limitami mocy, baterii, prędkości i Max Torque). Szare pole: pasmo terkotu wolnobiegu z logów. Linia przerywana: czas bez nacisku do zgaśnięcia (prawa skala w s × 10).'),
     );
     box.append(controls, grid);
@@ -1052,7 +1057,7 @@ export function refreshCharts() {
         }],
         vlines: [
             { x: selOut.kneeKg, label: 'kolano', color: '#64748b' },
-            { x: selOut.fullKg, label: `pełne wsparcie ${fmtNum(selOut.fullKg, 1)} kg`, color: LEVEL_COLORS[model.chartLevel] },
+            { x: selOut.fullKg, label: `pełna asysta ${fmtNum(selOut.fullKg, 1)} kg`, color: LEVEL_COLORS[model.chartLevel] },
             { x: tMax, label: 'T_max', color: '#94a3b8' },
         ],
         hlines: [{ y: sel.maxTorquePct, label: `Max Torque P${model.chartLevel + 1}`, color: '#dc2626' }],
@@ -1092,7 +1097,7 @@ export function refreshCharts() {
     // (d) hold model minimum by cadence
     const holdSeries = r.holdModel && r.iqMinHigh
         ? [{ label: 'minimum Iq', color: '#0ea5e9', width: 3, points: sample((c) => P.holdMinimumIq(c, r), 120, 240) }]
-        : [{ label: 'minimum wsparcia wyłączone / 0', color: '#64748b', width: 2, points: [[0, 0], [120, 0]] }];
+        : [{ label: 'minimum asysty wyłączone / 0', color: '#64748b', width: 2, points: [[0, 0], [120, 0]] }];
     if (r.holdModel) holdSeries.push({ label: 'czas bez nacisku [s × 10]', color: '#f59e0b', dash: true, width: 2, points: sample((c) => 10 * P.holdTimeoutS(c, r), 120, 240) });
     drawLineChart(el('evdV3ChartC1'), {
         xLabel: 'kadencja [obr/min]', yLabel: 'minimum [Iq]', xMax: 120, yMax: Math.max(80, Math.ceil((r.iqMinHigh + 20) / 20) * 20),
@@ -1139,11 +1144,11 @@ function hardwareSection() {
 // One bar on top of the panel says what the screen is versus the bike, lists every unsaved change,
 // and has ONE button that sends the changes, makes them permanent and checks them by a readback.
 const LEVEL_LABELS = Object.freeze({
-    mode: 'tryb', assist: 'Wsparcie', attack: 'Narastanie', release: 'Opadanie', start: 'Kop',
+    mode: 'tryb', assist: 'Asysta', attack: 'Narastanie', release: 'Opadanie', start: 'Kop',
     carry: 'Dopych', range: 'Zakres', maxPowerW: 'Moc maks.', maxTorquePct: 'Moment maks.',
 });
 const RIDER_LABELS = Object.freeze({
-    riderStrengthX10kg: 'Twoja siła', mapV2: 'Nowa mapa nacisku', effortMap: 'Wsparcie wg wysiłku',
+    riderStrengthX10kg: 'Twoja siła', mapV2: 'Nowa mapa nacisku', effortMap: 'Asysta wg wysiłku',
     holdModel: 'Bez terkotu', iqMinLow: 'Minimum przy wolnym kręceniu', iqMinHigh: 'Minimum przy szybkim kręceniu',
     tHold100ms: 'Wyłącz po … s bez nacisku',
 });

@@ -6,6 +6,10 @@
  - Canable with STM32F072 or STM32G431 processor and candlelight firmware ([Ebay](https://www.ebay.com/itm/156316405598),[Aliexpress](https://pl.aliexpress.com/item/1005006029234562.html))
  - 5 pin Cable with male and famale plugs ([Ebay](https://www.ebay.com/itm/197421023105),[Aliexpress](https://pl.aliexpress.com/item/1005005307670708.html))
 
+## v1.0.28
+
+- Dopych: zakres czasu i drogi zależny od możliwości firmware; nazwa ustawienia Asysta.
+
 ## Wire the Canable (UCAN module example)
 ![GUI](UCAN_wiring.JPG)
 
@@ -132,16 +136,16 @@ This program is free software: you can redistribute it and/or modify it under th
 Panel **Tryby V3**: tryb i korekty dla każdego poziomu, sekcja **Rowerzysta i sprzęt** (model podtrzymania: minimum Iq przy niskiej i wysokiej kadencji, czas bez nacisku) oraz **Progi nacisku (kg)**: start z miejsca i start w czasie jazdy. Z firmware v11 banku wartości są prawdziwymi kg; przy starszym firmware panel pokazuje je jako jednostki wewnętrzne, z ostrzeżeniem. Działa także w wersji przeglądarkowej (WebUSB).
 
 ### 1.0.11 — eVistDrive Profiles
-Zakładka **eVistDrive Profiles** (dawniej „Tryby V3”): widok **Prosty** (poziomy na górze, kolorowe tryby, trzy duże suwaki: Wsparcie, Moc maks., Kop na starcie; jedna para progów nacisku dla wszystkich poziomów) i **Zaawansowany** (wszystkie ustawienia, model podtrzymania, wykresy, narzędzia). Opisy raz, w legendzie i pod „?”. Podgląd mocy fabrycznej liczony jak w firmware: procent mocy baterii.
+Zakładka **eVistDrive Profiles** (dawniej „Tryby V3”): widok **Prosty** (poziomy na górze, kolorowe tryby, trzy duże suwaki: Asysta, Moc maks., Kop na starcie; jedna para progów nacisku dla wszystkich poziomów) i **Zaawansowany** (wszystkie ustawienia, model podtrzymania, wykresy, narzędzia). Opisy raz, w legendzie i pod „?”. Podgląd mocy fabrycznej liczony jak w firmware: procent mocy baterii.
 
 ### 1.0.12 — zakładki eVistDrive po audycie
 Live: „Profil (poziom HMI)”, poprawione opisy temperatury, przebiegu, prądu i mocy. System: diagnostyka v9 mapowana poprawnie, brakujące pola jako „brak w tym firmware”. Torque/System: czytelna informacja, gdy wsad NORMAL nie wysyła diagnostyki; kalibracja tylko po aktualnym odczycie. Ustawienia, które nie działają w torze V3 (kierunek, przełożenie, manetka), ukryte.
 
 ### 1.0.13 — wizualizacje w profilach
-Każda karta poziomu ma trzy miniwykresy: Wsparcie, Moc (ustawiona moc na tle mocy baterii, kreska = domyślna trybu) i Kop (dodatkowy prąd przy ruszaniu 0–4 s, wygaszany z kadencją). Odświeżają się przy ruchu suwaka.
+Każda karta poziomu ma trzy miniwykresy: Asysta, Moc (ustawiona moc na tle mocy baterii, kreska = domyślna trybu) i Kop (dodatkowy prąd przy ruszaniu 0–4 s, wygaszany z kadencją). Odświeżają się przy ruchu suwaka.
 
 ### 1.0.14 — jeden wykres na poziom
-Wsparcie, Moc maks. (pozioma linia limitu „W”, ucięta część krzywej blada) i Kop na starcie (żółta przerywana nakładka) na jednym wykresie w karcie poziomu; oś X = nacisk na pedał, ta sama skala dla wszystkich poziomów.
+Asysta, Moc maks. (pozioma linia limitu „W”, ucięta część krzywej blada) i Kop na starcie (żółta przerywana nakładka) na jednym wykresie w karcie poziomu; oś X = nacisk na pedał, ta sama skala dla wszystkich poziomów.
 
 ### 1.0.15 — prawdziwy zakres mocy
 Suwak Moc maks. sięga mocy baterii = limit prądu × napięcie systemu z P1 (jak w firmware; zmiany w zakładce Limits też się liczą), plus pozycja „bez limitu”. Domyślne moce trybów to procent tej mocy. Przed odczytem z roweru: wyraźnie oznaczone „przyjęto 15 A × 48 V”. Wykres: kop w czasie (narasta i gaśnie), moc jako poziomy pasek — w jednym polu.
@@ -150,7 +154,7 @@ Suwak Moc maks. sięga mocy baterii = limit prądu × napięcie systemu z P1 (ja
 Pola „Start z miejsca” i „Start w jeździe” są widoczne zawsze: przed odczytem jako podgląd fabryczny (2,5 / 1,5 kg, wyszarzone), przy firmware bez banku v11 zablokowane z informacją „wymaga 0.707 lub nowszego”.
 
 ### 1.0.17 — zrozumiałe ustawienia rowerzysty
-Sekcja „Rowerzysta i model podtrzymania”: nazwy opisują odczucie (Wsparcie wg wysiłku, Twoja siła, Bez terkotu, Minimalne wsparcie przy wolnym/szybkim kręceniu w %, Wyłącz po … s bez nacisku), przy każdym mały wykres na żywo, opis w jednej linii, szczegóły pod „?”. Przed odczytem widoczne wyszarzone z wartościami fabrycznymi.
+Sekcja „Rowerzysta i model podtrzymania”: nazwy opisują odczucie (Asysta wg wysiłku, Twoja siła, Bez terkotu, Minimalna asysta przy wolnym/szybkim kręceniu w %, Wyłącz po … s bez nacisku), przy każdym mały wykres na żywo, opis w jednej linii, szczegóły pod „?”. Przed odczytem widoczne wyszarzone z wartościami fabrycznymi.
 
 ### 1.0.18
 

@@ -122,7 +122,7 @@ mod.registerHooks({
             const level = { ...P.factoryLevels()[0], mode: mode.id, [key]: correction };
             const native = panel.nativeValue(level, key);
             const back = panel.nativeToCorrection(level, key, native);
-            // Wsparcie capped at 800 %: the roundtrip returns the lowest correction giving the same value.
+            // Asysta capped at 800 %: the roundtrip returns the lowest correction giving the same value.
             const same = back.correction === correction || (key === 'assist' && native === P.ASSIST_MAX_PCT
                 && panel.nativeValue({ ...level, assist: back.correction }, key) === native && back.correction < correction);
             check(`native roundtrip ${mode.name} ${key} ${correction}`, same && !back.clipped);
@@ -226,14 +226,14 @@ mod.registerHooks({
     const ps = byId('evdV3PressStart'); ps.value = '2.5'; ps.dispatch('input');
     check('shared start applied to all levels, riding clamped', S.lastBanks[0].levels.every((lv) => lv.minimum_pedal_load_kg === 2.5 && lv.riding_minimum_pedal_load_kg === 2.5));
 
-    // ---- one mini chart per card: Wsparcie + Kop (rise and fade) + Moc bar, redrawn live ----
+    // ---- one mini chart per card: Asysta + Kop (rise and fade) + Moc bar, redrawn live ----
     for (let i = 0; i < 5; i++) {
         const card = byId(`evdV3Card-${i}`);
         const charts = card.all((n) => n.tagName === 'SVG');
         check(`simple level ${i + 1}: exactly one chart`, charts.length === 1 && charts[0].id === `evdV3Mini-${i}`);
         const series = new Set(charts[0].children.map((n) => n.getAttribute('data-series')));
         check(`level ${i + 1}: chart has support, Kop and power bar`, ['support', 'kop', 'power', 'power-default'].every((k) => series.has(k)));
-        check(`level ${i + 1}: inline legend Wsparcie / Kop / Moc`, /Wsparcie.*Kop.*Moc/.test(card.all((n) => n.classList.contains('evd-v3-combo-legend'))[0]?.textContent || ''));
+        check(`level ${i + 1}: inline legend Asysta / Kop / Moc`, /Asysta.*Kop.*Moc/.test(card.all((n) => n.classList.contains('evd-v3-combo-legend'))[0]?.textContent || ''));
     }
     const part = (key) => byId('evdV3Mini-0').children.find((n) => n.getAttribute('data-series') === key);
     const barWidth = () => Number(part('power').getAttribute('width'));
@@ -275,6 +275,15 @@ mod.registerHooks({
 
     advancedBtn.click();
     check('click Zaawansowany -> stored', storage.get('evdProfilesView') === 'advanced' && root.dataset.view === 'advanced');
+    const carryCaption = () => byId('evdV3-0-carry').parent.all((n) => n.classList.contains('evd-v3-effective'))[0].textContent;
+    check('old carry caption includes time and distance', /tryb:.*%.*s.*m.*%.*s.*m/.test(carryCaption()) && carryCaption().includes('1,2 s'));
+    panel._modelForTests.caps.carryV2 = true;
+    panel.renderPanel();
+    check('new carry caption includes 3 s, 5 m and EN marker', carryCaption().includes('3 s') && carryCaption().includes('5 m') && carryCaption().includes('poza EN 15194'));
+    const carryLegend = byId('evdV3Legend').all((n) => n.tagName === 'DT' && n.textContent.includes('Dopych'))[0];
+    check('new carry legend mentions 20 km/h', carryLegend.children[0].getAttribute('data-help').includes('20 km/h'));
+    panel._modelForTests.caps.carryV2 = false;
+    panel.renderPanel();
     const advanced = new Set(controls());
     const required = [
         'BUTTON:evdV3WriteRider', 'INPUT:evdV3EffortMap', 'INPUT:evdV3HoldModel', 'INPUT:evdV3-iqMinLow', 'INPUT:evdV3-iqMinHigh',
@@ -285,7 +294,7 @@ mod.registerHooks({
         const c = `@evdV3Card-${i}`;
         P.MODES.forEach((m) => required.push(`BUTTON:${m.name}${c}`));
         ['assist', 'attack', 'release', 'start', 'carry', 'range'].forEach((k) => required.push(`INPUT:evdV3-${i}-${k}${c}`));
-        ['Wsparcie', 'Narastanie', 'Opadanie', 'Kop na starcie', 'Dopych', 'Zakres'].forEach((l) => required.push(`INPUT:${l}, poziom ${i + 1}${c}`));
+        ['Asysta', 'Narastanie', 'Opadanie', 'Kop na starcie', 'Dopych', 'Zakres'].forEach((l) => required.push(`INPUT:${l}, poziom ${i + 1}${c}`));
         required.push(`INPUT:Max Power w watach, poziom ${i + 1}${c}`, `INPUT:Moc maks.: limit sprzętu, poziom ${i + 1}${c}`, `INPUT:Max Torque w procentach, poziom ${i + 1}${c}`,
             `BUTTON:Fabryczne na ekranie${c}`, `BUTTON:Fabryczne w sterowniku${c}`, `BUTTON:evdV3WriteOne-${i}${c}`);
         const name = P.MODES[panel._modelForTests.levels[i].mode].name;

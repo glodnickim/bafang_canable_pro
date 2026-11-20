@@ -16,6 +16,15 @@ const throwsMsg = (name, fn, part) => {
 (async () => {
     const P = await import(pathToFileURL(path.join(__dirname, '..', 'ui', 'js', 'evistdrive', 'v3-model-protocol.js')).href);
 
+    for (const v2 of [false, true]) for (const c of [0, 1, 50, 100]) {
+        const got = P.carryLimits({ mode: 0, carry: c }, v2);
+        const factor = c ? Math.pow(2, (c - 50) / 50) : 0;
+        const scale = v2 ? factor * factor : factor;
+        const expected = [20 * factor, Math.min(v2 ? 3 : 1.2, 1.2 * scale), Math.min(v2 ? 5 : 1.5, 1.5 * scale)];
+        check(`carry limits ${c}, v2=${v2}`, [got.pct, got.s, got.m].every((x, i) => Math.abs(x - expected[i]) < 0.0002));
+    }
+    check('carry bit 16', P.CAP_CARRY_V2 === 65536);
+
     // CRC16-CCITT/FALSE reference vector.
     eq('crc16 "123456789" = 0x29B1', P.crc16(Uint8Array.from('123456789', (c) => c.charCodeAt(0))), 0x29B1);
 
@@ -160,8 +169,11 @@ const throwsMsg = (name, fn, part) => {
     // CAPS and the capability guard.
     const caps = new Uint8Array(30);
     caps[0] = 0x42; caps[1] = 0x56; caps[2] = 2; caps[3] = 2;
-    const setCaps = (value) => { caps[12] = value & 0xFF; caps[13] = (value >> 8) & 0xFF; caps[14] = 0; caps[15] = 0; seal(caps); return Uint8Array.from(caps); };
+    const setCaps = (value) => { caps[12] = value & 0xFF; caps[13] = (value >> 8) & 0xFF; caps[14] = (value >>> 16) & 0xFF; caps[15] = (value >>> 24) & 0xFF; seal(caps); return Uint8Array.from(caps); };
     const noModel = P.parseCaps(setCaps(0x7F));
+    check('carry capability absent', !noModel.carryV2);
+    check('carry capability bit 16 parsed', P.parseCaps(setCaps(P.CAP_CARRY_V2)).carryV2);
+    check('reserved bit 15 is not carry', !P.parseCaps(setCaps(1 << 15)).carryV2);
     eq('caps without bit 8 -> no model', noModel.model, false);
     const withModel = P.parseCaps(setCaps(0x7F | P.CAP_MODEL | P.CAP_MODEL_EFFECTIVE | P.CAP_MODEL_WRITABLE));
     eq('caps with bits 8..10 -> model, effective, writable', [withModel.model, withModel.modelEffective, withModel.modelWritable], [true, true, true]);

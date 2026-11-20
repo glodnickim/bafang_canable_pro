@@ -180,7 +180,7 @@ const throwsMsg = (name, fn, part) => {
     const v1w = await v1c.write(1, P.factoryLevels());
     check('schema 1 write is 68 B and readback ok', log.includes('write obj4 68') && v1w.ok === true, `${log.join(',')} ${JSON.stringify(v1w)}`);
 
-    // ---- Wsparcie cap 800 % (OWNER-DEC-20261118-ASSIST-800, firmware cap bit 14) ----
+    // ---- Asysta cap 800 % (OWNER-DEC-20261118-ASSIST-800, firmware cap bit 14) ----
     const lvB = P.factoryLevels();
     P.setAssistCap(true);
     eq('BOOST assist 100 capped at 800 %', P.effectiveValues({ ...lvB[4], assist: 100 }).ratioPct, 800);
