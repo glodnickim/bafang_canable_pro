@@ -757,6 +757,30 @@ function riderChart(kind, r) {
     return { svg, update };
 }
 
+// TASK-EVD-CANABLE-ANGLE-LS-SWITCH-001: object 5 bit 3, capability bit 15. The saved value is only
+// requested: firmware applies it at standstill (bridge off); the applied state is DIAG schema 8
+// page 15, which this app does not decode live, so nothing here claims activation. Shown in both
+// views (owner rule: every settable field visible); greyed before a read and without bit 15.
+function angleLsRow(afterChange) {
+    const read = !!model.riderBaseline;
+    const supported = !!model.caps?.rider && !!model.caps?.angleLs && !model.rider.legacy;
+    const row = checkRow('evdV3AngleLs', 'eVistDrive — kąt niskich obrotów', read && supported ? model.rider.angleLs === true : false,
+        'Nowy sposób liczenia kąta przy ruszaniu. Wył. = jak 0.709. Zmiana działa na postoju.',
+        (v) => { model.rider.angleLs = v; afterChange(); });
+    row.classList.add('evd-rider-toggle');
+    row.append(node('div', 'evd-v3-effective', 'Kąt LS · zapisane = żądane, aktywne po zatrzymaniu'), node('div', 'evd-v3-effective', 'wyłączone: jak 0.709'));
+    if (!read || !supported) lockPreview(row, '');
+    if (read && !supported && !model.rider.legacy) row.appendChild(node('div', 'evd-v3-oneline evd-v3-muted', 'Ten firmware nie ma tej opcji (brak bitu 15).'));
+    return row;
+}
+
+function angleLsSimpleSection() {
+    const box = node('div', 'ebics-card evd-v3-sec evd-v3-angle-simple');
+    box.id = 'evdV3AngleSimple';
+    box.appendChild(angleLsRow(riderEdited));
+    return box;
+}
+
 function riderSection() {
     const box = section('rider', 'Rowerzysta i minimum asysty', { id: 'evdV3Rider', className: 'evd-v3-rider' });
     const read = !!model.riderBaseline;
@@ -797,15 +821,7 @@ function riderSection() {
     grid.appendChild(toggle('evdV3HoldModel', 'Bez terkotu: stałe minimum + szybkie wyłączenie', 'Minimum asysty', hold.holdModel,
         'Po starcie utrzymuje minimum prądu i szybko wyłącza asystę po braku nacisku. Limity i hamulec nadal działają.',
         'wyłączone: brak minimum i szybkiego wyłączenia', !read || !holdSupported, (v) => { hold.holdModel = v; }));
-    // TASK-EVD-CANABLE-ANGLE-LS-SWITCH-001: object 5 bit 3, capability bit 15. The saved value is only
-    // requested: firmware applies it at standstill (bridge off); the applied state is DIAG schema 8
-    // page 15, which this app does not decode live, so nothing here claims activation.
-    const angleLsSupported = supported && !!model.caps?.angleLs && !model.rider.legacy;
-    const angleLsRow = toggle('evdV3AngleLs', 'eVistDrive — kąt niskich obrotów', 'Kąt LS · zapisane = żądane, aktywne po zatrzymaniu', read && angleLsSupported ? r.angleLs === true : false,
-        'Nowy sposób liczenia kąta przy ruszaniu. Wył. = jak 0.709. Zmiana działa na postoju.',
-        'wyłączone: jak 0.709', !read || !angleLsSupported, (v) => { r.angleLs = v; });
-    if (read && !angleLsSupported && !model.rider.legacy) angleLsRow.appendChild(node('div', 'evd-v3-oneline evd-v3-muted', 'Ten firmware nie ma tej opcji (brak bitu 15).'));
-    grid.appendChild(angleLsRow);
+    grid.appendChild(angleLsRow(refresh));
     for (const [key, label, aria] of [['iqMinLow', 'Minimalna asysta przy wolnym kręceniu', 'Minimum Iq przy ≤30 obr/min'], ['iqMinHigh', 'Minimalna asysta przy szybkim kręceniu', 'Minimum Iq przy ≥60 obr/min']]) {
         grid.appendChild(slider({ id: `evdV3-${key}`, label, aria, technical: key === 'iqMinLow' ? 'Iq · do 30 obr/min' : 'Iq · od 60 obr/min',
             help: key === 'iqMinLow' ? 'Minimum do 30 obr/min, dalej rośnie liniowo do wartości przy 60 obr/min. Procent odnosi się do 700 Iq; pozostałe limity nadal działają.' : 'Minimum od 60 obr/min. Procent odnosi się do 700 Iq; pozostałe limity nadal ograniczają prąd.',
@@ -1250,6 +1266,14 @@ export async function saveToBike() {
         renderPanel();
         return false;
     };
+    // Sent, but no fresh readback: never reported as saved.
+    const unconfirmed = (why) => {
+        model.saving = null;
+        model.saveResult = { ok: false, unconfirmed: true, text: `Zapis niepotwierdzony: ${why}. Wartości wysłano, ale nie sprawdzono ich odczytem — odczytaj ustawienia z roweru ponownie.` };
+        addLog('ERR', `Zapis na rowerze niepotwierdzony: ${why}.`);
+        renderPanel();
+        return false;
+    };
     if (errors.length) return fail(`popraw ${errors.join('; ')}`);
     try {
         if (levelsChanged) { step('Wysyłam poziomy…'); if (!(await writeAllLevels())) return fail(model.note || 'poziomy odrzucone'); }
@@ -1268,7 +1292,9 @@ export async function saveToBike() {
         step('Sprawdzam odczytem z roweru…');
         const sentLevels = P.cloneLevels(model.levels);
         const sentRider = { ...model.rider };
-        await readModelFromBike();
+        try { await readModelFromBike(); } catch (error) { model.readOk = { levels: false, rider: false }; addLog('ERR', `Odczyt kontrolny: ${error.message}`); }
+        const missing = [levelsChanged && !model.readOk?.levels ? 'poziomów' : null, riderChanged && !model.readOk?.rider ? 'rowerzysty' : null].filter(Boolean);
+        if (missing.length) return unconfirmed(`odczyt kontrolny ${missing.join(' i ')} nie powiódł się`);
         if (levelsChanged && !P.levelsEqual(model.levels, sentLevels)) return fail('odczyt poziomów różni się od wysłanych');
         if (riderChanged && !P.ridersEqual(model.rider, sentRider)) return fail('odczyt rowerzysty różni się od wysłanego');
         let flash = pressureChanged && !(levelsChanged || riderChanged) ? 'ok' : 'wait';
@@ -1349,6 +1375,7 @@ export function renderPanel() {
     model.levels.forEach((_, index) => grid.appendChild(levelCard(index)));
     const parts = [saveBar(), connectBanner(), grid, pressureSection()];
     if (advanced) parts.push(riderSection(), chartsSection(), hardwareSection());
+    else parts.push(angleLsSimpleSection());
     parts.push(legendSection());
     root.replaceChildren(...parts.filter(Boolean));
     model.levels.forEach((_, index) => refreshWarnings(index));
@@ -1379,6 +1406,8 @@ export async function discoverModel() {
 
 /** Read all five levels and the rider object (RAM view). Part of the top bar's "Read from bike". */
 export async function readModelFromBike() {
+    // Which objects this call read fresh from the bike; the save path requires them (review B).
+    model.readOk = { levels: false, rider: false };
     await discoverModel();
     if (!model.caps?.model && !model.caps?.rider) {
         model.note = '';
@@ -1394,6 +1423,7 @@ export async function readModelFromBike() {
             model.baseline = P.cloneLevels(back.levels);
             model.generation = back.generation;
             model.rangeKnown = back.rangeKnown;
+            model.readOk.levels = true;
             notes.push(back.rangeKnown ? 'Poziomy odczytane.' : 'Poziomy odczytane (obiekt w wersji 1, bez pola Zakres).');
             addLog('DATA', `Model V3 odczytany (generacja ${back.generation}, wersja ${back.schemaVersion}).`);
         } catch (error) {
@@ -1407,6 +1437,7 @@ export async function readModelFromBike() {
             model.rider = { ...back.rider };
             model.riderBaseline = { ...back.rider };
             model.generation = back.generation;
+            model.readOk.rider = true;
             notes.push('Rowerzysta i sprzęt odczytane.');
         } catch (error) {
             notes.push(`Odczyt „Rowerzysta i sprzęt” nie powiódł się: ${error.message}`);

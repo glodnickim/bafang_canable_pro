@@ -52,6 +52,7 @@ class Node {
     append(...nodes) { nodes.forEach((n) => this.appendChild(typeof n === 'string' ? Object.assign(new Node('#text'), { _text: n }) : n)); }
     appendChild(n) { n.parent = this; this.children.push(n); return n; }
     replaceChildren(...nodes) { this.children = []; this._text = ''; this.append(...nodes); }
+    replaceWith(n) { const p = this.parent; if (!p) return; const i = p.children.indexOf(this); n.parent = p; p.children[i] = n; this.parent = null; }
     add(option) { this.appendChild(option); }
     setAttribute(k, v) { this.attributes[k] = String(v); }
     getAttribute(k) { return this.attributes[k] ?? null; }
@@ -93,7 +94,7 @@ const STUBS = {
     '../shared.js': `export const socket = { readyState: 1 }; export const state = globalThis.__evdTestState;
         export function addLog() {}
         export function helpBadge(text) { const b = document.createElement('button'); b.className = 'ebics-help'; b.textContent = '?'; b.setAttribute('data-help', text); return b; }`,
-    './common.js': `export const el = (id) => document.getElementById(id); export const socketReady = () => false;
+    './common.js': `export const el = (id) => document.getElementById(id); export const socketReady = () => !!globalThis.__evdSocketReady;
         export const markReadNeeded = () => {}; export const writeBankAndWait = async () => ({ ok: true }); export const saveToFlashAndWait = async () => ({ ok: true });`,
     './global-actions.js': 'export const markUnsavedInRam = () => {}; export const clearUnsavedInRam = () => {};',
 };
@@ -156,6 +157,8 @@ mod.registerHooks({
     panel.setProfilesView('simple');
 
     // ---- before a read ----
+    check('simple: angle LS visible before read, greyed, off', !!byId('evdV3AngleSimple') && byId('evdV3AngleLs')?.disabled === true && !byId('evdV3AngleLs').checked
+        && byId('evdV3AngleLs').closestClass('evd-v3-row').classList.contains('is-preview'));
     const banner = byId('evdV3Banner');
     check('not connected: compact banner', !!banner && /Read from bike/.test(banner.textContent));
     check('cards show "podgląd fabryczny"', root.all((n) => n.classList.contains('evd-v3-tag')).filter((n) => n.textContent === 'podgląd fabryczny').length === 5);
@@ -217,6 +220,7 @@ mod.registerHooks({
     check('simple: link to advanced thresholds', simple.has('BUTTON:evdV3PressureToAdvanced'));
     check('simple: no attack/release/carry/range', ![0, 1, 2, 3, 4].some((i) => ['attack', 'release', 'carry', 'range'].some((k) => byId(`evdV3-${i}-${k}`))));
     check('simple support displays native percent', byId('evdV3-0-assist').getAttribute('aria-valuetext') === '95 %');
+    check('simple: angle LS present, greyed without bit 15', simple.has('INPUT:evdV3AngleLs') && byId('evdV3AngleLs').disabled && /brak bitu 15/.test(byId('evdV3AngleSimple').textContent));
     check('simple: no rider, charts, hardware', !byId('evdV3Rider') && !byId('evdV3ChartEffort') && !byId('evdV3Hardware'));
     for (let i = 0; i < 5; i++) {
         // owner 2026-11-18: one save path — the simple view has no per-level send button
@@ -292,7 +296,6 @@ mod.registerHooks({
     check('old firmware (no bit 15): angle LS visible, greyed, off', ls() && ls().disabled && !ls().checked && /brak bitu 15/.test(lsRow().textContent));
     check('angle LS hint text', lsRow().all(() => true).some((n) => (n.getAttribute('data-help') || '').includes('Nowy sposób liczenia kąta przy ruszaniu. Wył. = jak 0.709. Zmiana działa na postoju.')));
     check('angle LS: requested, active after stop (no DIAG claim)', /aktywne po zatrzymaniu/.test(lsRow().textContent));
-    check('angle LS not in simple view', !simple.has('INPUT:evdV3AngleLs'));
     const savedRider = { ...panel._modelForTests.rider };
     panel._modelForTests.caps.angleLs = true;
     for (const v of [false, true]) {
@@ -301,6 +304,12 @@ mod.registerHooks({
         panel.renderPanel();
         check(`new firmware: angle LS read ${v ? 1 : 0} shown, writable`, !ls().disabled && ls().checked === v);
     }
+    panel.setProfilesView('simple');
+    check('simple: angle LS writable with bit 15, shows read value', !ls().disabled && ls().checked === true && /Zmiana działa na postoju/.test(byId('evdV3AngleSimple').all(() => true).map((n) => n.getAttribute('data-help') || '').join('')));
+    ls().checked = false; ls().dispatch('change');
+    check('simple: toggling angle LS edits the rider', panel._modelForTests.rider.angleLs === false && panel.pendingChanges().some((t) => t.includes('Kąt niskich obrotów')));
+    panel._modelForTests.rider.angleLs = true;
+    panel.setProfilesView('advanced');
     ls().checked = false; ls().dispatch('change');
     check('new firmware: toggling angle LS edits rider, other flags kept', panel._modelForTests.rider.angleLs === false
         && panel._modelForTests.rider.effortMap === savedRider.effortMap && panel._modelForTests.rider.holdModel === savedRider.holdModel && panel._modelForTests.rider.mapV2 === savedRider.mapV2);
@@ -370,6 +379,34 @@ mod.registerHooks({
     S.lastBanks[0].levels[2].minimum_pedal_load_kg = 6;
     panel.renderPanel();
     check('different thresholds: "różne" line, no shared sliders', /różne progi/.test(byId('evdV3Pressure').textContent) && !byId('evdV3PressStart'));
+
+    // ---- review B: the save needs a fresh successful readback of every written object ----
+    {
+        const M = panel._modelForTests;
+        const capsLs = { model: false, rider: true, riderHold: true, riderMapV2: true, angleLs: true, persistState: 0 };
+        const base = { ...P.factoryRider(), angleLs: false };
+        const calls = [];
+        let readThrows = true;
+        M.client = {
+            async discover() { calls.push('caps'); return capsLs; },
+            async writeRider(r) { calls.push(`writeRider ${r.angleLs}`); return { ok: true, generation: 11 }; },
+            async persist() { calls.push('persist'); return { ok: true, generation: 12 }; },
+            async readRider() { calls.push('readRider'); if (readThrows) throw new Error('timeout'); return { rider: { ...base, angleLs: true }, generation: 12 }; },
+        };
+        M.caps = capsLs; M.baseline = P.cloneLevels(M.levels); M.pressureBaseline = null; S.lastBanks = null;
+        M.rider = { ...base }; M.riderBaseline = { ...base };
+        globalThis.__evdSocketReady = true;
+        panel.renderPanel();
+        M.rider.angleLs = true;
+        const failed = await panel.saveToBike();
+        check('readback throws -> save not reported as saved', failed === false && M.saveResult?.ok === false && /niepotwierdzony/.test(M.saveResult.text)
+            && calls.includes('writeRider true') && calls.includes('readRider'), JSON.stringify([M.saveResult, calls]));
+        readThrows = false;
+        M.rider = { ...base, angleLs: true }; M.riderBaseline = { ...base }; M.saveResult = null; M.saving = null;
+        const ok = await panel.saveToBike();
+        check('fresh readback ok -> saved and checked', ok === true && M.saveResult?.ok === true && /sprawdzono odczytem/.test(M.saveResult.text), JSON.stringify(M.saveResult));
+        globalThis.__evdSocketReady = false;
+    }
 
     if (failures) { console.error(`profiles_view_toggle: ${failures} failure(s)`); process.exit(1); }
     console.log('profiles_view_toggle: all checks passed');
