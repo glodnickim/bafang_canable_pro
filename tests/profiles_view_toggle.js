@@ -446,6 +446,45 @@ mod.registerHooks({
         globalThis.__evdSocketReady = false;
     }
 
+    // ---- review 3, item 1: readback returns the OLD values -> the edit stays on screen and pending, retry sends it ----
+    {
+        const M = panel._modelForTests;
+        const capsAll = { model: true, modelWritable: true, rider: true, riderHold: true, riderMapV2: true, angleLs: true, persistState: 0 };
+        const base = { ...P.factoryRider(), angleLs: false };
+        const oldLevels = P.factoryLevels();
+        let bikeIgnoresWrites = true;
+        let bikeLevels = P.cloneLevels(oldLevels);
+        let bikeRider = { ...base };
+        const sentLog = [];
+        M.client = {
+            async discover() { return capsAll; },
+            async write(first, levels) { sentLog.push({ assist: levels[0].assist }); if (!bikeIgnoresWrites) bikeLevels = P.cloneLevels(levels); return { ok: true, generation: 41 }; },
+            async read() { return { levels: P.cloneLevels(bikeLevels), generation: 41, rangeKnown: true, schemaVersion: 2 }; },
+            async writeRider(r) { sentLog.push({ angleLs: r.angleLs }); if (!bikeIgnoresWrites) bikeRider = { ...r }; return { ok: true, generation: 42 }; },
+            async readRider() { return { rider: { ...bikeRider }, generation: 42 }; },
+            async persist() { return { ok: true, generation: 43 }; },
+        };
+        M.caps = capsAll; S.lastBanks = null; M.pressureBaseline = null; M.saveResult = null; M.saving = null;
+        M.levels = P.cloneLevels(oldLevels); M.baseline = P.cloneLevels(oldLevels);
+        M.rider = { ...base }; M.riderBaseline = { ...base };
+        globalThis.__evdSocketReady = true;
+        panel.renderPanel();
+        const editedAssist = oldLevels[0].assist === 70 ? 60 : 70;
+        M.levels[0].assist = editedAssist;
+        M.rider.angleLs = true;
+        const res = await panel.saveToBike();
+        check('old values read back -> save failed', res === false && M.saveResult?.ok === false && /różni się/.test(M.saveResult.text), JSON.stringify(M.saveResult));
+        check('old values read back -> edited level still on screen', M.levels[0].assist === editedAssist);
+        check('old values read back -> edited rider still on screen', M.rider.angleLs === true);
+        check('old values read back -> edits pending', panel.pendingChanges().some((t) => t.startsWith('P1')) && panel.pendingChanges().some((t) => t.includes('Kąt niskich obrotów')), JSON.stringify(panel.pendingChanges()));
+        check('old values read back -> baseline = what the bike returned', M.baseline[0].assist === oldLevels[0].assist && M.riderBaseline.angleLs === false);
+        bikeIgnoresWrites = false; sentLog.length = 0;
+        const retry = await panel.saveToBike();
+        check('retry sends the edit again and confirms it', retry === true && sentLog.some((e) => e.assist === editedAssist) && sentLog.some((e) => e.angleLs === true)
+            && M.saveResult?.ok === true && panel.pendingChanges().length === 0, JSON.stringify([sentLog, M.saveResult]));
+        globalThis.__evdSocketReady = false;
+    }
+
     // ---- review 2, item 1: thresholds-only save reads the bank back and does not claim flash ----
     {
         const M = panel._modelForTests;

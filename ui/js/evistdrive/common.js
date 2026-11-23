@@ -449,18 +449,26 @@ export async function writeTuningAndWait(tuning, timeoutMs = WRITE_ACK_TIMEOUT_M
     return pending;
 }
 
-// Fresh READ_BANK of one bank, for the save path's readback. The reply replaces
-// state.lastBanks[index] with a new object (websocket.js), so a changed reference means a fresh
-// answer; the received flags are left alone, so a failed read never marks the bank as unread.
-export async function readBankAndWait(index, timeoutMs = 3000) {
-    const before = state.lastBanks?.[index];
-    state.ebicsBankReadError = '';
+// Fresh READ_BANK of one bank, for the save path's readback. Bound to THIS request: the receive
+// counter (state.bankRxSeq, counted in websocket.js) is captured before the request is sent, so an
+// answer that arrived earlier never counts. The bank answer has no request id, so an answer to an
+// older READ_BANK still in flight could arrive after the send; it comes before ours (one bus, one
+// server queue), hence after the first new answer we wait `settleMs` and the newest answer wins.
+// The received flags are left alone, so a failed read never marks the bank as unread.
+export async function readBankAndWait(index, timeoutMs = 3000, settleMs = 300) {
+    const sleepMs = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const seq = () => state.bankRxSeq?.[index] ?? 0;
+    const seqAtSend = seq();
+    const errorsAtSend = state.bankReadErrorSeq ?? 0;
     socket.send(`READ_BANK:${index}`);
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
-        if (state.lastBanks?.[index] && state.lastBanks[index] !== before) return { ok: true };
-        if (state.ebicsBankReadError) return { ok: false, reason: state.ebicsBankReadError };
-        await new Promise((resolve) => setTimeout(resolve, 50));
+        if (seq() > seqAtSend && state.lastBanks?.[index]) {
+            await sleepMs(settleMs);
+            return { ok: true };
+        }
+        if ((state.bankReadErrorSeq ?? 0) > errorsAtSend) return { ok: false, reason: state.ebicsBankReadError || 'bank read error' };
+        await sleepMs(20);
     }
     return { ok: false, reason: 'no answer from the controller' };
 }

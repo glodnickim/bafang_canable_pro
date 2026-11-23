@@ -265,11 +265,16 @@ socket.onmessage = (event) => {
                             JSON.parse(JSON.stringify(parsedEvent.data));
                         state.ebicsReceivedBanks = state.ebicsReceivedBanks || {};
                         state.ebicsReceivedBanks[parsedEvent.data.bank_index] = true;
+                        // Client-side receive counter (no protocol field): readBankAndWait accepts
+                        // only answers counted after its own request was sent.
+                        state.bankRxSeq = state.bankRxSeq || {};
+                        state.bankRxSeq[parsedEvent.data.bank_index] = (state.bankRxSeq[parsedEvent.data.bank_index] || 0) + 1;
                         state.ebicsBankReadError = '';
                         state.banksSynced = !!(state.ebicsReceivedBanks[0] && state.ebicsReceivedBanks[1]);
                         addLog('DATA', `Bank ${parsedEvent.data.bank_index + 1} received`);
                     } else {
                         state.ebicsBankReadError = parsedEvent.data?.error || 'unknown bank read error';
+                        state.bankReadErrorSeq = (state.bankReadErrorSeq || 0) + 1;
                         state.banksSynced = !!(state.ebicsReceivedBanks?.[0] && state.ebicsReceivedBanks?.[1]);
                         addLog('ERR', `Bank read failed: ${parsedEvent.data?.error}`);
                     }

@@ -1269,12 +1269,19 @@ export async function saveToBike() {
         rider: model.riderBaseline ? { ...model.riderBaseline } : null,
         pressure: model.pressureBaseline,
     };
+    // The user's edit. The readback overwrites the screen with the bike's values; when the save is
+    // not confirmed, the edit goes back on screen and the baseline becomes what the bike returned
+    // (if it answered), so the edit stays pending and a retry sends it (review 3).
+    const edited = { levels: P.cloneLevels(model.levels), rider: { ...model.rider } };
+    const bikeRead = { levels: null, rider: null, pressure: null };
     const NAMES = { levels: 'poziomy', rider: 'rowerzysta', pressure: 'progi nacisku' };
     const planned = [levelsChanged && 'levels', riderChanged && 'rider', pressureChanged && 'pressure'].filter(Boolean);
     const sent = [];
     let sentBank = null;
     const giveUp = (why, unconfirmedRead = false) => {
-        model.baseline = before.levels; model.riderBaseline = before.rider; model.pressureBaseline = before.pressure;
+        if (levelsChanged) { model.levels = P.cloneLevels(edited.levels); model.baseline = bikeRead.levels ? P.cloneLevels(bikeRead.levels) : before.levels; }
+        if (riderChanged) { model.rider = { ...edited.rider }; model.riderBaseline = bikeRead.rider ? { ...bikeRead.rider } : before.rider; }
+        if (pressureChanged) model.pressureBaseline = bikeRead.pressure ?? before.pressure;
         if (sentBank) state.lastBanks[sentBank.index] = sentBank.bank; // the edit stays on screen, still pending
         model.saving = null;
         const notSent = planned.filter((k) => !sent.includes(k));
@@ -1318,7 +1325,10 @@ export async function saveToBike() {
             try { pressureRead = await readBankAndWait(activeBankIndex()); } catch (error) { pressureRead = { ok: false, reason: error.message }; }
         }
         const pressureBack = pressureSnapshot();
+        if (pressureChanged && pressureRead.ok) bikeRead.pressure = pressureBack;
         try { await readModelFromBike(); } catch (error) { model.readOk = { levels: false, rider: false }; addLog('ERR', `Odczyt kontrolny: ${error.message}`); }
+        if (model.readOk?.levels) bikeRead.levels = P.cloneLevels(model.levels);
+        if (model.readOk?.rider) bikeRead.rider = { ...model.rider };
         const missing = [levelsChanged && !model.readOk?.levels ? 'poziomów' : null, riderChanged && !model.readOk?.rider ? 'rowerzysty' : null,
             pressureChanged && !pressureRead.ok ? 'progów nacisku' : null].filter(Boolean);
         if (missing.length) return unconfirmed(`odczyt kontrolny ${missing.join(' i ')} nie powiódł się`);
