@@ -465,6 +465,10 @@ export async function readBankAndWait(index, timeoutMs = 3000, settleMs = 300) {
     while (Date.now() - start < timeoutMs) {
         if (seq() > seqAtSend && state.lastBanks?.[index]) {
             await sleepMs(settleMs);
+            // Re-check after the settle window: a read error after the send means this request
+            // failed, even if an (older) answer arrived; otherwise state.lastBanks holds the newest
+            // answer received after the send, and that is what the caller compares.
+            if ((state.bankReadErrorSeq ?? 0) > errorsAtSend) return { ok: false, reason: state.ebicsBankReadError || 'bank read error' };
             return { ok: true };
         }
         if ((state.bankReadErrorSeq ?? 0) > errorsAtSend) return { ok: false, reason: state.ebicsBankReadError || 'bank read error' };

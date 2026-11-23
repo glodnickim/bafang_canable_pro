@@ -54,6 +54,13 @@ mod.registerHooks({
     sock.onSend = () => setTimeout(() => { S.ebicsBankReadError = 'crc'; S.bankReadErrorSeq += 1; }, 20);
     const err = await C.readBankAndWait(0, 500, 0);
     check('read error after the send reported', err.ok === false && err.reason === 'crc', JSON.stringify(err));
+    // A read error inside the settle window (after an answer arrived) is a failure, not a success.
+    sock.onSend = () => {
+        setTimeout(() => receive(bank(5)), 20);
+        setTimeout(() => { S.ebicsBankReadError = 'timeout on bank 1'; S.bankReadErrorSeq += 1; }, 60);
+    };
+    const settleErr = await C.readBankAndWait(0, 500, 150);
+    check('read error during the settle window -> failure', settleErr.ok === false && settleErr.reason === 'timeout on bank 1', JSON.stringify(settleErr));
     sock.onSend = null;
 
     // websocket.js counts the answers and the errors.

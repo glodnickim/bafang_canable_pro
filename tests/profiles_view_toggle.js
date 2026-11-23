@@ -95,7 +95,7 @@ const STUBS = {
         export function addLog() {}
         export function helpBadge(text) { const b = document.createElement('button'); b.className = 'ebics-help'; b.textContent = '?'; b.setAttribute('data-help', text); return b; }`,
     './common.js': `export const el = (id) => document.getElementById(id); export const socketReady = () => !!globalThis.__evdSocketReady;
-        export const markReadNeeded = () => {}; export const writeBankAndWait = async () => ({ ok: true }); export const saveToFlashAndWait = async () => ({ ok: true });
+        export const markReadNeeded = () => {}; export const writeBankAndWait = async (b) => (globalThis.__evdBankWrite ? globalThis.__evdBankWrite(b) : { ok: true }); export const saveToFlashAndWait = async () => ({ ok: true });
         export const readBankAndWait = async (i) => (globalThis.__evdBankRead ? globalThis.__evdBankRead(i) : { ok: true });`,
     './global-actions.js': 'export const markUnsavedInRam = () => {}; export const clearUnsavedInRam = () => {};',
 };
@@ -477,11 +477,61 @@ mod.registerHooks({
         check('old values read back -> edited level still on screen', M.levels[0].assist === editedAssist);
         check('old values read back -> edited rider still on screen', M.rider.angleLs === true);
         check('old values read back -> edits pending', panel.pendingChanges().some((t) => t.startsWith('P1')) && panel.pendingChanges().some((t) => t.includes('Kąt niskich obrotów')), JSON.stringify(panel.pendingChanges()));
-        check('old values read back -> baseline = what the bike returned', M.baseline[0].assist === oldLevels[0].assist && M.riderBaseline.angleLs === false);
+        check('old values read back -> baseline = pre-save (old) values', M.baseline[0].assist === oldLevels[0].assist && M.riderBaseline.angleLs === false);
         bikeIgnoresWrites = false; sentLog.length = 0;
         const retry = await panel.saveToBike();
         check('retry sends the edit again and confirms it', retry === true && sentLog.some((e) => e.assist === editedAssist) && sentLog.some((e) => e.angleLs === true)
             && M.saveResult?.ok === true && panel.pendingChanges().length === 0, JSON.stringify([sentLog, M.saveResult]));
+        globalThis.__evdSocketReady = false;
+    }
+
+    // ---- review 4 (Lead: all or nothing): one unconfirmed part keeps EVERY edit pending ----
+    {
+        const M = panel._modelForTests;
+        const base = { ...P.factoryRider(), angleLs: false };
+        const oldLevels = P.factoryLevels();
+        const run = async (name, { riderReadThrows = false, persistState = 0 }) => {
+            const caps = { model: true, modelWritable: true, rider: true, riderHold: true, riderMapV2: true, angleLs: true, persistState };
+            let bikeLevels = P.cloneLevels(oldLevels);
+            let bikeRider = { ...base };
+            const sentLog = [];
+            M.client = {
+                async discover() { return caps; },
+                async write(first, levels) { sentLog.push('levels'); bikeLevels = P.cloneLevels(levels); return { ok: true, generation: 51 }; },
+                async read() { return { levels: P.cloneLevels(bikeLevels), generation: 51, rangeKnown: true, schemaVersion: 2 }; },
+                async writeRider(r) { sentLog.push('rider'); bikeRider = { ...r }; return { ok: true, generation: 52 }; },
+                async readRider() { if (riderReadThrows && !caps.retry) throw new Error('timeout'); return { rider: { ...bikeRider }, generation: 52 }; },
+                async persist() { return { ok: true, generation: 53 }; },
+            };
+            globalThis.__evdBankWrite = () => { sentLog.push('bank'); return { ok: true }; };
+            globalThis.__evdBankRead = (i) => { const b = JSON.parse(JSON.stringify(S.lastBanks[i])); S.lastBanks[i] = b; return { ok: true }; };
+            M.caps = caps; M.saveResult = null; M.saving = null;
+            M.levels = P.cloneLevels(oldLevels); M.baseline = P.cloneLevels(oldLevels);
+            M.rider = { ...base }; M.riderBaseline = { ...base };
+            S.lastBanks = [{ active_bank: 0, bank_schema_version: 11, levels: Array.from({ length: 5 }, () => ({ minimum_pedal_load_kg: 4, riding_minimum_pedal_load_kg: 3 })) }];
+            S.ebicsReceivedBanks = [true];
+            globalThis.__evdSocketReady = true;
+            panel.renderPanel();
+            M.pressureBaseline = JSON.stringify(S.lastBanks[0].levels.map((lv) => [lv.minimum_pedal_load_kg, lv.riding_minimum_pedal_load_kg]));
+            const editedAssist = oldLevels[0].assist === 70 ? 60 : 70;
+            M.levels[0].assist = editedAssist; M.rider.angleLs = true; S.lastBanks[0].levels[0].minimum_pedal_load_kg = 5;
+            const res = await panel.saveToBike();
+            const firstText = M.saveResult?.text || '';
+            const pend = panel.pendingChanges();
+            check(`${name}: save not confirmed`, res === false && M.saveResult?.ok === false, JSON.stringify(M.saveResult));
+            check(`${name}: every edit still on screen`, M.levels[0].assist === editedAssist && M.rider.angleLs === true && S.lastBanks[0].levels[0].minimum_pedal_load_kg === 5);
+            check(`${name}: every edit still pending`, pend.some((t) => t.startsWith('P1')) && pend.some((t) => t.includes('Kąt niskich obrotów')) && pend.includes('Progi nacisku'), JSON.stringify(pend));
+            caps.retry = true; caps.persistState = 0; sentLog.length = 0;
+            const again = await panel.saveToBike();
+            check(`${name}: retry sends all three and confirms`, again === true && ['levels', 'rider', 'bank'].every((k) => sentLog.includes(k)) && panel.pendingChanges().length === 0,
+                JSON.stringify([sentLog, M.saveResult, panel.pendingChanges()]));
+            return firstText;
+        };
+        const t1 = await run('rider readback fails, levels and bank read back fine', { riderReadThrows: true });
+        check('failed part named in the message (rider readback)', /odczyt kontrolny rowerzysty nie powiódł się/.test(t1) && /wyśle ponownie wszystko/.test(t1), t1);
+        const t2 = await run('flash error after matching readback', { persistState: 3 });
+        check('failed part named in the message (flash)', /flash/.test(t2), t2);
+        globalThis.__evdBankWrite = null; globalThis.__evdBankRead = null;
         globalThis.__evdSocketReady = false;
     }
 
