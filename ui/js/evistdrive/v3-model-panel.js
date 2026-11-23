@@ -12,7 +12,7 @@
 import { socket, addLog, state, helpBadge } from '../shared.js';
 import * as P from './v3-model-protocol.js';
 import { drawLineChart, sample } from './v3-model-charts.js';
-import { el, socketReady, markReadNeeded, writeBankAndWait, saveToFlashAndWait } from './common.js';
+import { el, socketReady, markReadNeeded, writeBankAndWait, saveToFlashAndWait, readBankAndWait } from './common.js';
 import { markUnsavedInRam, clearUnsavedInRam } from './global-actions.js';
 
 // Chart colours per HMI level (the detailed charts draw five levels at once).
@@ -1224,6 +1224,8 @@ function saveBar() {
     let kind, icon, text;
     if (model.saving) { kind = 'is-busy'; icon = '…'; text = model.saving; }
     else if (!read) { kind = 'is-unread'; icon = 'i'; text = 'Nie odczytano z roweru. Naciśnij „Read from bike” — dopiero wtedy zmiany można zapisać.'; }
+    // A failed / unconfirmed / partial save stays visible next to the changes it left (review 2, item 3).
+    else if (changes.length && model.saveResult && !model.saveResult.ok) { kind = 'is-error'; icon = '✗'; text = `${model.saveResult.text} Niezapisane zmiany: ${changes.join(' · ')}`; }
     else if (changes.length) { kind = 'is-dirty'; icon = '●'; text = `Niezapisane zmiany: ${changes.join(' · ')}`; }
     else if (model.saveResult) { kind = model.saveResult.ok ? 'is-saved' : 'is-error'; icon = model.saveResult.ok ? '✓' : '✗'; text = model.saveResult.text; }
     else { kind = 'is-clean'; icon = '✓'; text = `Ekran = rower (odczyt ${model.readAt ?? '—'}). Brak zmian.`; }
@@ -1259,29 +1261,45 @@ export async function saveToBike() {
     const riderChanged = !!model.riderBaseline && riderDirty();
     const pressureChanged = pressureDirty();
     const step = (text) => { model.saving = text; refreshSaveBar(); };
-    const fail = (why) => {
+    // Baselines before the save. Until the whole save is confirmed (readback + persistence),
+    // a failure puts them back, so every object not confirmed stays "changed" and a retry
+    // sends it again (review 2, item 2).
+    const before = {
+        levels: model.baseline ? P.cloneLevels(model.baseline) : null,
+        rider: model.riderBaseline ? { ...model.riderBaseline } : null,
+        pressure: model.pressureBaseline,
+    };
+    const NAMES = { levels: 'poziomy', rider: 'rowerzysta', pressure: 'progi nacisku' };
+    const planned = [levelsChanged && 'levels', riderChanged && 'rider', pressureChanged && 'pressure'].filter(Boolean);
+    const sent = [];
+    let sentBank = null;
+    const giveUp = (why, unconfirmedRead = false) => {
+        model.baseline = before.levels; model.riderBaseline = before.rider; model.pressureBaseline = before.pressure;
+        if (sentBank) state.lastBanks[sentBank.index] = sentBank.bank; // the edit stays on screen, still pending
         model.saving = null;
-        model.saveResult = { ok: false, text: `Nie zapisano: ${why}. Zmiany są nadal na ekranie — spróbuj ponownie.` };
-        addLog('ERR', `Zapis na rowerze: ${why}.`);
+        const notSent = planned.filter((k) => !sent.includes(k));
+        const list = (keys) => keys.map((k) => NAMES[k]).join(', ');
+        let text;
+        if (unconfirmedRead) text = `Zapis niepotwierdzony: ${why}. Wartości wysłano, ale nie sprawdzono ich odczytem — „Zapisz na rowerze” wyśle je ponownie.`;
+        else if (sent.length && notSent.length) text = `Zapis częściowy: ${list(sent)} zapisane w RAM, ${list(notSent)} nie (${why}). Nic nie jest potwierdzone na stałe — „Zapisz na rowerze” wyśle ponownie wszystko.`;
+        else if (sent.length) text = `Zapis niepotwierdzony: ${why}. Wysłane bez potwierdzenia: ${list(sent)} — „Zapisz na rowerze” wyśle je ponownie.`;
+        else text = `Nie zapisano: ${why}. Zmiany są nadal na ekranie — spróbuj ponownie.`;
+        model.saveResult = { ok: false, unconfirmed: sent.length > 0, partial: sent.length > 0 && notSent.length > 0, text };
+        addLog('ERR', `Zapis na rowerze: ${text}`);
         renderPanel();
         return false;
     };
-    // Sent, but no fresh readback: never reported as saved.
-    const unconfirmed = (why) => {
-        model.saving = null;
-        model.saveResult = { ok: false, unconfirmed: true, text: `Zapis niepotwierdzony: ${why}. Wartości wysłano, ale nie sprawdzono ich odczytem — odczytaj ustawienia z roweru ponownie.` };
-        addLog('ERR', `Zapis na rowerze niepotwierdzony: ${why}.`);
-        renderPanel();
-        return false;
-    };
+    const fail = (why) => giveUp(why);
+    const unconfirmed = (why) => giveUp(why, true);
     if (errors.length) return fail(`popraw ${errors.join('; ')}`);
     try {
-        if (levelsChanged) { step('Wysyłam poziomy…'); if (!(await writeAllLevels())) return fail(model.note || 'poziomy odrzucone'); }
-        if (riderChanged) { step('Wysyłam ustawienia rowerzysty…'); if (!(await writeRider())) return fail(model.note || 'rowerzysta odrzucony'); }
+        if (levelsChanged) { step('Wysyłam poziomy…'); if (!(await writeAllLevels())) return fail(model.note || 'poziomy odrzucone'); sent.push('levels'); }
+        if (riderChanged) { step('Wysyłam ustawienia rowerzysty…'); if (!(await writeRider())) return fail(model.note || 'rowerzysta odrzucony'); sent.push('rider'); }
         if (pressureChanged) {
             step('Wysyłam progi nacisku…');
             const r = await writeBankAndWait(state.lastBanks[activeBankIndex()]);
             if (!r.ok) return fail(`progi nacisku (${r.reason})`);
+            sent.push('pressure');
         }
         step('Zapisuję na stałe…');
         if ((levelsChanged || riderChanged) && canPersist() && !(await persistModel())) return fail(model.note || 'zapis na stałe odrzucony');
@@ -1292,12 +1310,23 @@ export async function saveToBike() {
         step('Sprawdzam odczytem z roweru…');
         const sentLevels = P.cloneLevels(model.levels);
         const sentRider = { ...model.rider };
+        const sentPressure = pressureSnapshot();
+        let pressureRead = { ok: true };
+        if (pressureChanged) {
+            sentBank = { index: activeBankIndex(), bank: JSON.parse(JSON.stringify(state.lastBanks[activeBankIndex()])) };
+            // Fresh READ_BANK of the active bank, compared with what was sent (review 2, item 1).
+            try { pressureRead = await readBankAndWait(activeBankIndex()); } catch (error) { pressureRead = { ok: false, reason: error.message }; }
+        }
+        const pressureBack = pressureSnapshot();
         try { await readModelFromBike(); } catch (error) { model.readOk = { levels: false, rider: false }; addLog('ERR', `Odczyt kontrolny: ${error.message}`); }
-        const missing = [levelsChanged && !model.readOk?.levels ? 'poziomów' : null, riderChanged && !model.readOk?.rider ? 'rowerzysty' : null].filter(Boolean);
+        const missing = [levelsChanged && !model.readOk?.levels ? 'poziomów' : null, riderChanged && !model.readOk?.rider ? 'rowerzysty' : null,
+            pressureChanged && !pressureRead.ok ? 'progów nacisku' : null].filter(Boolean);
         if (missing.length) return unconfirmed(`odczyt kontrolny ${missing.join(' i ')} nie powiódł się`);
         if (levelsChanged && !P.levelsEqual(model.levels, sentLevels)) return fail('odczyt poziomów różni się od wysłanych');
         if (riderChanged && !P.ridersEqual(model.rider, sentRider)) return fail('odczyt rowerzysty różni się od wysłanego');
-        let flash = pressureChanged && !(levelsChanged || riderChanged) ? 'ok' : 'wait';
+        if (pressureChanged && pressureBack !== sentPressure) return fail('odczyt progów nacisku różni się od wysłanych');
+        // Banks have no flash-done report: the SAVE_BANKS ack only says the request was accepted.
+        let flash = pressureChanged && !(levelsChanged || riderChanged) ? 'bank' : 'wait';
         if (levelsChanged || riderChanged) {
             for (let s = 0; s < SAVE_FLASH_WAIT_S; s++) {
                 step(`Czekam na zapis we flash — zatrzymaj rower (${SAVE_FLASH_WAIT_S - s} s)…`);
@@ -1310,10 +1339,11 @@ export async function saveToBike() {
         model.saving = null;
         const what = changes.join(' · ');
         if (flash === 'error') return fail('sterownik odrzucił zapis we flash — ustawienia działają do wyłączenia');
-        model.saveResult = flash === 'ok'
-            ? { ok: true, text: `Zapisano na stałe i sprawdzono odczytem (${clockText()}): ${what}.` }
-            : { ok: true, text: `Wysłano i sprawdzono odczytem (${clockText()}): ${what}. Zapis na stałe nastąpi na postoju — zatrzymaj rower na chwilę.` };
-        if (flash === 'ok') clearUnsavedInRam();
+        const bankNote = pressureChanged ? ' Progi nacisku: zapisano i sprawdzono odczytem, trwałość niepotwierdzona (sterownik zapisuje je na postoju).' : '';
+        if (flash === 'bank') model.saveResult = { ok: true, text: `Progi nacisku zapisane i sprawdzone odczytem (${clockText()}); trwałość niepotwierdzona — sterownik zapisuje je na postoju.` };
+        else if (flash === 'ok') model.saveResult = { ok: true, text: `Zapisano na stałe i sprawdzono odczytem (${clockText()}): ${what}.${bankNote}` };
+        else model.saveResult = { ok: true, text: `Wysłano i sprawdzono odczytem (${clockText()}): ${what}. Zapis na stałe nastąpi na postoju — zatrzymaj rower na chwilę.${bankNote}` };
+        if (flash === 'ok' && !pressureChanged) clearUnsavedInRam();
         addLog('SAVE_REQ', `Zapis na rowerze: ${model.saveResult.text}`);
         renderPanel();
         return true;

@@ -449,8 +449,24 @@ export async function writeTuningAndWait(tuning, timeoutMs = WRITE_ACK_TIMEOUT_M
     return pending;
 }
 
+// Fresh READ_BANK of one bank, for the save path's readback. The reply replaces
+// state.lastBanks[index] with a new object (websocket.js), so a changed reference means a fresh
+// answer; the received flags are left alone, so a failed read never marks the bank as unread.
+export async function readBankAndWait(index, timeoutMs = 3000) {
+    const before = state.lastBanks?.[index];
+    state.ebicsBankReadError = '';
+    socket.send(`READ_BANK:${index}`);
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+        if (state.lastBanks?.[index] && state.lastBanks[index] !== before) return { ok: true };
+        if (state.ebicsBankReadError) return { ok: false, reason: state.ebicsBankReadError };
+        await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    return { ok: false, reason: 'no answer from the controller' };
+}
+
 // The controller defers the actual flash write to full standstill; this only confirms it
-// accepted the request.
+// accepted the request (there is no flash-done report for banks).
 export async function saveToFlashAndWait(timeoutMs = WRITE_ACK_TIMEOUT_MS) {
     const pending = waitForResult(() => state.lastBankSaveResult,
         () => { state.lastBankSaveResult = null; }, timeoutMs);

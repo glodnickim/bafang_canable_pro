@@ -95,7 +95,8 @@ const STUBS = {
         export function addLog() {}
         export function helpBadge(text) { const b = document.createElement('button'); b.className = 'ebics-help'; b.textContent = '?'; b.setAttribute('data-help', text); return b; }`,
     './common.js': `export const el = (id) => document.getElementById(id); export const socketReady = () => !!globalThis.__evdSocketReady;
-        export const markReadNeeded = () => {}; export const writeBankAndWait = async () => ({ ok: true }); export const saveToFlashAndWait = async () => ({ ok: true });`,
+        export const markReadNeeded = () => {}; export const writeBankAndWait = async () => ({ ok: true }); export const saveToFlashAndWait = async () => ({ ok: true });
+        export const readBankAndWait = async (i) => (globalThis.__evdBankRead ? globalThis.__evdBankRead(i) : { ok: true });`,
     './global-actions.js': 'export const markUnsavedInRam = () => {}; export const clearUnsavedInRam = () => {};',
 };
 mod.registerHooks({
@@ -405,6 +406,73 @@ mod.registerHooks({
         M.rider = { ...base, angleLs: true }; M.riderBaseline = { ...base }; M.saveResult = null; M.saving = null;
         const ok = await panel.saveToBike();
         check('fresh readback ok -> saved and checked', ok === true && M.saveResult?.ok === true && /sprawdzono odczytem/.test(M.saveResult.text), JSON.stringify(M.saveResult));
+        globalThis.__evdSocketReady = false;
+    }
+
+    // ---- review 2, item 2 + 3: partial save is reported, nothing unconfirmed advances its baseline ----
+    {
+        const M = panel._modelForTests;
+        const capsAll = { model: true, modelWritable: true, rider: true, riderHold: true, riderMapV2: true, angleLs: true, persistState: 0 };
+        const base = { ...P.factoryRider(), angleLs: false };
+        const calls = [];
+        let riderFails = true;
+        let bikeLevels = P.factoryLevels();
+        let bikeRider = { ...base };
+        M.client = {
+            async discover() { return capsAll; },
+            async write(first, levels) { calls.push(`write ${first} ${levels.length}`); bikeLevels = P.cloneLevels(levels); return { ok: true, generation: 21 }; },
+            async read() { return { levels: P.cloneLevels(bikeLevels), generation: 21, rangeKnown: true, schemaVersion: 2 }; },
+            async writeRider(r) { calls.push('writeRider'); if (riderFails) return { ok: false, text: 'odrzucone' }; bikeRider = { ...r }; return { ok: true, generation: 22 }; },
+            async readRider() { return { rider: { ...bikeRider }, generation: 22 }; },
+            async persist() { calls.push('persist'); return { ok: true, generation: 23 }; },
+        };
+        M.caps = capsAll; S.lastBanks = null; M.pressureBaseline = null; M.saveResult = null; M.saving = null;
+        M.levels = P.factoryLevels(); M.baseline = P.factoryLevels();
+        M.rider = { ...base }; M.riderBaseline = { ...base };
+        globalThis.__evdSocketReady = true;
+        panel.renderPanel();
+        M.levels[0].assist = M.levels[0].assist === 70 ? 60 : 70;
+        M.rider.angleLs = true;
+        const partial = await panel.saveToBike();
+        check('partial save reported explicitly', partial === false && M.saveResult?.partial === true
+            && /Zapis częściowy: poziomy zapisane w RAM, rowerzysta nie/.test(M.saveResult.text), JSON.stringify(M.saveResult));
+        check('partial save: levels baseline not advanced (still pending)', panel.pendingChanges().some((t) => t.startsWith('P1')) && panel.pendingChanges().some((t) => t.includes('Kąt niskich obrotów')), JSON.stringify(panel.pendingChanges()));
+        const bar = () => byId('evdV3SaveBar');
+        check('error stays visible next to pending changes', bar().classList.contains('is-error') && /Zapis częściowy/.test(bar().textContent) && /Niezapisane zmiany/.test(bar().textContent), bar().textContent);
+        riderFails = false; calls.length = 0;
+        const retry = await panel.saveToBike();
+        check('retry re-sends the levels and the rider', retry === true && calls.includes('write 1 5') && calls.includes('writeRider') && M.saveResult?.ok === true, JSON.stringify([calls, M.saveResult]));
+        check('after confirmed retry nothing pending', panel.pendingChanges().length === 0, JSON.stringify(panel.pendingChanges()));
+        globalThis.__evdSocketReady = false;
+    }
+
+    // ---- review 2, item 1: thresholds-only save reads the bank back and does not claim flash ----
+    {
+        const M = panel._modelForTests;
+        const capsRider = { model: false, rider: true, riderHold: true, riderMapV2: true, angleLs: true, persistState: 0 };
+        M.client = { async discover() { return capsRider; }, async readRider() { return { rider: { ...M.rider }, generation: 30 }; } };
+        M.caps = capsRider; M.saveResult = null; M.saving = null; M.riderBaseline = { ...M.rider };
+        S.lastBanks = [{ active_bank: 0, bank_schema_version: 11, levels: Array.from({ length: 5 }, () => ({ minimum_pedal_load_kg: 4, riding_minimum_pedal_load_kg: 3 })) }];
+        S.ebicsReceivedBanks = [true];
+        const resetBank = () => { S.lastBanks[0].levels.forEach((lv) => { lv.minimum_pedal_load_kg = 4; lv.riding_minimum_pedal_load_kg = 3; }); };
+        const reads = [];
+        const answer = (kg) => (i) => { reads.push(i); const b = JSON.parse(JSON.stringify(S.lastBanks[i])); if (kg !== undefined) b.levels[0].minimum_pedal_load_kg = kg; S.lastBanks[i] = b; return { ok: true }; };
+        globalThis.__evdSocketReady = true;
+        for (const [name, reader, okWanted, pattern] of [
+            ['bank readback equal -> saved, persistence unconfirmed', answer(), true, /sprawdzone odczytem.*trwałość niepotwierdzona/],
+            ['bank readback differs -> failed', answer(2), false, /odczyt progów nacisku różni się/],
+            ['bank readback missing -> unconfirmed', () => { reads.push('x'); return { ok: false, reason: 'timeout' }; }, false, /niepotwierdzony.*progów nacisku/],
+        ]) {
+            resetBank(); M.saveResult = null; M.saving = null;
+            panel.renderPanel();
+            M.pressureBaseline = JSON.stringify(S.lastBanks[0].levels.map((lv) => [lv.minimum_pedal_load_kg, lv.riding_minimum_pedal_load_kg]));
+            S.lastBanks[0].levels[0].minimum_pedal_load_kg = 5;
+            reads.length = 0; globalThis.__evdBankRead = reader;
+            const res = await panel.saveToBike();
+            check(name, res === okWanted && reads.length === 1 && pattern.test(M.saveResult?.text || '') && !/Zapisano na stałe/.test(M.saveResult?.text || ''), JSON.stringify([res, reads, M.saveResult]));
+            if (!okWanted) check(`${name}: thresholds still pending`, panel.pendingChanges().includes('Progi nacisku'), JSON.stringify(panel.pendingChanges()));
+        }
+        globalThis.__evdBankRead = null;
         globalThis.__evdSocketReady = false;
     }
 
