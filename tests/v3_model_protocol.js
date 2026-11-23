@@ -173,7 +173,10 @@ const throwsMsg = (name, fn, part) => {
     const noModel = P.parseCaps(setCaps(0x7F));
     check('carry capability absent', !noModel.carryV2);
     check('carry capability bit 16 parsed', P.parseCaps(setCaps(P.CAP_CARRY_V2)).carryV2);
-    check('reserved bit 15 is not carry', !P.parseCaps(setCaps(1 << 15)).carryV2);
+    check('bit 15 is not carry', !P.parseCaps(setCaps(1 << 15)).carryV2);
+    check('angle LS bit 15', P.CAP_ANGLE_LS === 0x8000 && P.RIDER_FLAG_ANGLE_LS === 0x08);
+    check('angle LS capability bit 15 parsed', P.parseCaps(setCaps(P.CAP_ANGLE_LS)).angleLs && !P.parseCaps(setCaps(P.CAP_ANGLE_LS)).carryV2);
+    check('angle LS capability absent (carry only)', !P.parseCaps(setCaps(P.CAP_CARRY_V2)).angleLs && !noModel.angleLs);
     eq('caps without bit 8 -> no model', noModel.model, false);
     const withModel = P.parseCaps(setCaps(0x7F | P.CAP_MODEL | P.CAP_MODEL_EFFECTIVE | P.CAP_MODEL_WRITABLE));
     eq('caps with bits 8..10 -> model, effective, writable', [withModel.model, withModel.modelEffective, withModel.modelWritable], [true, true, true]);

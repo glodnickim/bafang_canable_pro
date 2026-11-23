@@ -62,7 +62,7 @@ const throwsMsg = (name, fn, part) => {
     eq('rider decode', [dec.view, dec.generation, dec.rider], [3, 7, rider707]);
     const badCrc = Uint8Array.from(reply); badCrc[17] ^= 1;
     throwsMsg('rider bad CRC', () => P.decodeRiderObject(badCrc), 'CRC');
-    throwsMsg('rider reserved flag bit', () => P.decodeRiderObject(seal(Uint8Array.from(reply.map((v, i) => (i === 22 ? 0x0F : v))))), 'zarezerwowane');
+    throwsMsg('rider reserved flag bit', () => P.decodeRiderObject(seal(Uint8Array.from(reply.map((v, i) => (i === 22 ? 0x1F : v))))), 'zarezerwowane');
     throwsMsg('hold layout with t_hold byte 0 is invalid', () => P.decodeRiderObject(seal(Uint8Array.from(reply.map((v, i) => (i === 23 ? 0 : v))))), 'niepoprawny');
     // Old firmware (no capability bit 12): the C1 layout decodes as a legacy rider, nothing rejected.
     const oldBody = '42560501' + '1a00' + '00010800' + '00080000' + 'ffff' + '2c01' + '2800' + '3700' + '01' + '00';
@@ -153,6 +153,52 @@ const throwsMsg = (name, fn, part) => {
     await liar.discover();
     const lied = await liar.writeRider(edited);
     check('rider readback mismatch reported', lied.ok === false && /różni/.test(lied.text));
+
+    // ---- eVistDrive - kat niskich obrotow: object 5 flag bit 3, capability bit 15 ----
+    eq('angle LS absent from factory rider and 0.709 reply', ['angleLs' in rider, 'angleLs' in P.decodeRiderObject(wV2).rider], [false, false]);
+    for (const v of [false, true]) {
+        const wLs = P.encodeRiderWrite({ ...rider, angleLs: v });
+        eq(`angle LS ${v ? 1 : 0}: caps 11+12+13+15, flags ${v ? 15 : 7}`, [...wLs.slice(10, 14), wLs[22]], [0x00, 0xB8, 0, 0, v ? 15 : 7]);
+        eq(`angle LS ${v ? 1 : 0}: decode roundtrip keeps every flag`, P.decodeRiderObject(wLs).rider, { ...rider, angleLs: v });
+        const others = P.encodeRiderWrite({ ...rider, effortMap: false, holdModel: true, mapV2: false, angleLs: v });
+        eq(`angle LS ${v ? 1 : 0}: other bits preserved`, others[22], 0x02 | (v ? 0x08 : 0));
+    }
+    eq('riders differ only by angleLs', P.ridersEqual({ ...rider, angleLs: false }, { ...rider, angleLs: true }), false);
+    check('angleLs must be boolean', P.validateRider({ ...rider, angleLs: 1 }).length > 0);
+    throwsMsg('reserved flag bit 4 still rejected', () => P.decodeRiderObject(seal(Uint8Array.from(reply.map((v, i) => (i === 22 ? 0x13 : v))))), 'zarezerwowane');
+
+    const HOLD = P.CAP_RIDER | P.CAP_RIDER_HOLD | P.CAP_RIDER_MAP_V2;
+    // Old firmware (0.709, no bit 15): no angleLs read, an angleLs write refused locally, plain write ok.
+    log = [];
+    const lsOldT = makeTransport(capsWith(HOLD), log);
+    let lsOldStored = Uint8Array.from(wV2); lsOldStored[9] = 3; seal(lsOldStored);
+    lsOldT.read = async (req) => { log.push(`read ${req.join('/')}`); return lsOldStored; };
+    lsOldT.write = async (obj) => { log.push(`write obj${obj[2]} ${obj.length}`); lsOldStored = Uint8Array.from(obj); lsOldStored[9] = 3; seal(lsOldStored); return { ok: true, generation: 4 }; };
+    const lsOld = P.createModelClient(lsOldT);
+    await lsOld.discover();
+    check('no bit 15: caps angleLs false', lsOld.capabilities.angleLs === false);
+    const lsOldRead = await lsOld.readRider();
+    check('no bit 15: rider read has no angleLs', !('angleLs' in lsOldRead.rider));
+    const lsRefused = await lsOld.writeRider({ ...lsOldRead.rider, angleLs: true });
+    check('no bit 15: angle LS write refused, nothing sent', lsRefused.ok === false && /bit/.test(lsRefused.text) && !log.some((l) => l.startsWith('write obj5')), JSON.stringify(lsRefused));
+    const lsOldOk = await lsOld.writeRider({ ...lsOldRead.rider, riderStrengthX10kg: 410 });
+    check('no bit 15: plain write without bit 15 / flag 3', lsOldOk.ok === true && (lsOldStored[11] & 0x80) === 0 && (lsOldStored[22] & 0x08) === 0, JSON.stringify(lsOldOk));
+
+    // New firmware (bit 15): read 0/1, write 0/1 with readback, the other flags kept.
+    for (const start of [false, true]) {
+        log = [];
+        const lsT = makeTransport(capsWith(HOLD | P.CAP_ANGLE_LS), log);
+        let lsStored = P.encodeRiderWrite({ ...rider, effortMap: false, angleLs: start }); lsStored[9] = 3; seal(lsStored);
+        lsT.read = async (req) => { log.push(`read ${req.join('/')}`); return lsStored; };
+        lsT.write = async (obj) => { log.push(`write obj${obj[2]} ${obj.length}`); lsStored = Uint8Array.from(obj); lsStored[9] = 3; seal(lsStored); return { ok: true, generation: 5 }; };
+        const lsC = P.createModelClient(lsT);
+        await lsC.discover();
+        const got = await lsC.readRider();
+        check(`bit 15: read angleLs ${start ? 1 : 0}`, got.rider.angleLs === start && got.rider.effortMap === false && got.rider.mapV2 === true);
+        const res = await lsC.writeRider({ ...got.rider, angleLs: !start });
+        check(`bit 15: write angleLs ${start ? 0 : 1} + readback ok`, res.ok === true && log.includes('read 5/0/3/0'), JSON.stringify(res));
+        check(`bit 15: written flags ${start ? 6 : 14}, bit 15 announced`, lsStored[22] === (start ? 0x06 : 0x0E) && (lsStored[11] & 0x80) !== 0);
+    }
 
     // Old firmware (bit 11 without bit 12): legacy read, hold-layout write refused locally, legacy write ok.
     log = [];

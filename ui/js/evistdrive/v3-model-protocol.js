@@ -8,7 +8,7 @@
 //   capability bit 11 = object 5. Since OWNER-DEC-20261115-PRESSURE-HOLD (model podtrzymania,
 //   integration/roadmap/V3_NACISK_PODTRZYMANIE_20261115_PL.md) the same 26 bytes carry
 //   strength u16 | Iq_min at <= 30 rpm u16 | Iq_min at >= 60 rpm u16 | flags (bit 0 effort map,
-//   bit 1 hold model v2) | t_hold in 100 ms (5..40; formerly a reserved zero byte), announced by
+//   bit 1 hold model v2, bit 2 map v2, bit 3 low-speed angle with capability bit 15) | t_hold in 100 ms (5..40; formerly a reserved zero byte), announced by
 //   capability bit 12 (LEAD-DEC-20261115-HOLD-FIX M3). Without bit 12 the firmware has the C1 layout
 //   (Iq_off / Iq_on, byte 7 reserved zero): this tool shows it, keeps Iq_off / Iq_on read-only and
 //   writes it back unchanged with the strength / effort-map edits.
@@ -48,6 +48,10 @@ export const CAP_RIDER_MAP_V2 = 1 << 13;
 /** Firmware 0.709+: Asysta (mode ratio x Assist multiplier) capped at ASSIST_MAX_PCT
  *  (OWNER-DEC-20261118-ASSIST-800). Without the bit the controller applies the full x2. */
 export const CAP_ASSIST_800 = 1 << 14;
+/** Object 5 flag bit 3 = low-speed rotor angle (TASK-EVD-CANABLE-ANGLE-LS-SWITCH-001,
+ *  LEAD-DEC-20261120-ANGLE-LS-BITS). The firmware applies a change only with the bridge off
+ *  (standstill), so a value written while riding is requested, not yet active. */
+export const CAP_ANGLE_LS = 1 << 15;
 export const CAP_CARRY_V2 = 1 << 16;
 /** Predicted carry strength, duration and distance for the advertised firmware. */
 export function carryLimits(level, carryV2) {
@@ -131,6 +135,7 @@ export function cloneLevels(levels) {
 export const RIDER_FLAG_EFFORT_MAP = 0x01;
 export const RIDER_FLAG_HOLD_MODEL = 0x02;
 export const RIDER_FLAG_MAP_V2 = 0x04;
+export const RIDER_FLAG_ANGLE_LS = 0x08;
 /** Firmware PH_CURRENT_MAX: the Iq scale the minimum percentages refer to. */
 export const PHASE_CURRENT_MAX_IQ = 700;
 export const RIDER_LIMITS = Object.freeze({
@@ -165,13 +170,14 @@ export function validateRider(rider) {
     if (typeof rider?.effortMap !== 'boolean') errors.push('Mapa wysiłku: wł./wył.');
     if (typeof rider?.holdModel !== 'boolean') errors.push('Minimum asysty: wł./wył.');
     if (rider?.mapV2 !== undefined && typeof rider.mapV2 !== 'boolean') errors.push('Nowa mapa nacisku: wł./wył.');
+    if (rider?.angleLs !== undefined && typeof rider.angleLs !== 'boolean') errors.push('Kąt niskich obrotów: wł./wył.');
     return errors;
 }
 
 export function ridersEqual(a, b) {
     if (!a || !b || !!a.legacy !== !!b.legacy) return false;
     const keys = a.legacy ? ['riderStrengthX10kg', 'lowAssistOffIq', 'lowAssistOnIq', 'effortMap']
-        : ['riderStrengthX10kg', 'iqMinLow', 'iqMinHigh', 'effortMap', 'holdModel', 'tHold100ms', 'mapV2'];
+        : ['riderStrengthX10kg', 'iqMinLow', 'iqMinHigh', 'effortMap', 'holdModel', 'tHold100ms', 'mapV2', 'angleLs'];
     return keys.every((k) => a[k] === b[k]);
 }
 
@@ -454,8 +460,10 @@ export function encodeRiderWrite(rider, { baseGeneration = 0xFFFF, requiredCaps 
     if (errors.length) throw new Error(`Rowerzysta i sprzęt: ${errors.join('; ')}`);
     // Bit 2 (map v2) only for a firmware that announced it (rider.mapV2 defined): older firmware
     // rejects unknown flag bits and the capability, so the write stays acceptable there.
+    // Bit 3 (low-speed angle) the same way, only with rider.angleLs defined (capability bit 15).
     const caps = requiredCaps ?? (rider.legacy ? CAP_RIDER
-        : (CAP_RIDER | CAP_RIDER_HOLD | (rider.mapV2 !== undefined ? CAP_RIDER_MAP_V2 : 0)));
+        : (CAP_RIDER | CAP_RIDER_HOLD | (rider.mapV2 !== undefined ? CAP_RIDER_MAP_V2 : 0)
+            | (rider.angleLs !== undefined ? CAP_ANGLE_LS : 0)));
     const out = header(RIDER_LEN, {
         objectId: OBJECT_RIDER, schemaVersion: RIDER_SCHEMA_VERSION, index: 0, count: 1, stride: RIDER_STRIDE, flags: 0, caps, generation: baseGeneration,
     });
@@ -471,7 +479,7 @@ export function encodeRiderWrite(rider, { baseGeneration = 0xFFFF, requiredCaps 
     out[o + 2] = rider.iqMinLow & 0xFF; out[o + 3] = rider.iqMinLow >> 8;
     out[o + 4] = rider.iqMinHigh & 0xFF; out[o + 5] = rider.iqMinHigh >> 8;
     out[o + 6] = (rider.effortMap ? RIDER_FLAG_EFFORT_MAP : 0) | (rider.holdModel ? RIDER_FLAG_HOLD_MODEL : 0)
-        | (rider.mapV2 ? RIDER_FLAG_MAP_V2 : 0);
+        | (rider.mapV2 ? RIDER_FLAG_MAP_V2 : 0) | (rider.angleLs ? RIDER_FLAG_ANGLE_LS : 0);
     out[o + 7] = rider.tHold100ms;
     return sealCrc(out);
 }
@@ -589,7 +597,7 @@ export function decodeRiderObject(bytes, { holdLayout = true } = {}) {
         if (legacyErrors.length) throw new Error(`Obiekt 5 w odpowiedzi jest niepoprawny: ${legacyErrors.join('; ')}`);
         return { view: bytes[9], rider: legacy, caps: u32(bytes, 10), generation: u16(bytes, 14) };
     }
-    if ((flags & ~(RIDER_FLAG_EFFORT_MAP | RIDER_FLAG_HOLD_MODEL | RIDER_FLAG_MAP_V2)) !== 0) throw new Error('obiekt 5: ustawione zarezerwowane bity');
+    if ((flags & ~(RIDER_FLAG_EFFORT_MAP | RIDER_FLAG_HOLD_MODEL | RIDER_FLAG_MAP_V2 | RIDER_FLAG_ANGLE_LS)) !== 0) throw new Error('obiekt 5: ustawione zarezerwowane bity');
     const caps = u32(bytes, 10);
     const rider = {
         riderStrengthX10kg: u16(bytes, o), iqMinLow: u16(bytes, o + 2), iqMinHigh: u16(bytes, o + 4),
@@ -598,6 +606,8 @@ export function decodeRiderObject(bytes, { holdLayout = true } = {}) {
     };
     // Map v2 exists only on firmware announcing capability bit 13 (or reporting the bit itself).
     if ((caps & CAP_RIDER_MAP_V2) !== 0 || (flags & RIDER_FLAG_MAP_V2) !== 0) rider.mapV2 = (flags & RIDER_FLAG_MAP_V2) !== 0;
+    // Low-speed angle: the requested (saved) value, not the applied state (that is DIAG schema 8 page 15).
+    if ((caps & CAP_ANGLE_LS) !== 0 || (flags & RIDER_FLAG_ANGLE_LS) !== 0) rider.angleLs = (flags & RIDER_FLAG_ANGLE_LS) !== 0;
     const errors = validateRider(rider);
     if (errors.length) throw new Error(`Obiekt 5 w odpowiedzi jest niepoprawny: ${errors.join('; ')}`);
     return { view: bytes[9], rider, caps, generation: u16(bytes, 14) };
@@ -619,6 +629,7 @@ export function parseCaps(bytes) {
         riderHold: (caps & CAP_RIDER_HOLD) !== 0,
         riderMapV2: (caps & CAP_RIDER_MAP_V2) !== 0,
         assistCap800: (caps & CAP_ASSIST_800) !== 0,
+        angleLs: (caps & CAP_ANGLE_LS) !== 0,
         carryV2: (caps & CAP_CARRY_V2) !== 0,
     };
 }
@@ -730,6 +741,9 @@ export function createModelClient(transport) {
             if (blocked) return blocked;
             if (!!rider.legacy === !!caps.riderHold) {
                 return { ok: false, reason: 4, text: caps.riderHold ? 'Firmware ma minimum asysty (bit 12): odczytaj ustawienia ponownie.' : 'Firmware bez minimum asysty (brak bitu 12): wgraj nowe firmware, aby ustawić minimum i czas bez nacisku.' };
+            }
+            if (rider.angleLs !== undefined && !caps.angleLs) {
+                return { ok: false, reason: 4, text: 'Firmware bez kąta niskich obrotów (brak bitu 15): odczytaj ustawienia ponownie.' };
             }
             const result = await transport.write(encodeRiderWrite(rider, { baseGeneration }));
             if (!result.ok) return failure(result);

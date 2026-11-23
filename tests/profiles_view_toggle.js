@@ -167,7 +167,9 @@ mod.registerHooks({
         && /podgląd fabryczny/.test(pressureEmpty.textContent));
     panel.setProfilesView('advanced');
     const riderPreview = byId('evdV3Rider');
-    check('rider factory preview has all disabled fields', riderPreview.all((n) => n.tagName === 'INPUT').length === 7
+    check('angle LS visible before read, greyed, off', !!byId('evdV3AngleLs') && byId('evdV3AngleLs').disabled && !byId('evdV3AngleLs').checked
+        && byId('evdV3AngleLs').closestClass('evd-v3-row').classList.contains('is-preview'));
+    check('rider factory preview has all disabled fields', riderPreview.all((n) => n.tagName === 'INPUT').length === 8
         && riderPreview.all((n) => n.tagName === 'INPUT').every((n) => n.disabled)
         && /podgląd fabryczny/.test(riderPreview.textContent));
     panel.setProfilesView('simple');
@@ -284,9 +286,32 @@ mod.registerHooks({
     check('new carry legend mentions 20 km/h', carryLegend.children[0].getAttribute('data-help').includes('20 km/h'));
     panel._modelForTests.caps.carryV2 = false;
     panel.renderPanel();
+    // ---- eVistDrive - kat niskich obrotow (object 5 bit 3, capability bit 15) ----
+    const ls = () => byId('evdV3AngleLs');
+    const lsRow = () => ls().closestClass('evd-v3-row');
+    check('old firmware (no bit 15): angle LS visible, greyed, off', ls() && ls().disabled && !ls().checked && /brak bitu 15/.test(lsRow().textContent));
+    check('angle LS hint text', lsRow().all(() => true).some((n) => (n.getAttribute('data-help') || '').includes('Nowy sposób liczenia kąta przy ruszaniu. Wył. = jak 0.709. Zmiana działa na postoju.')));
+    check('angle LS: requested, active after stop (no DIAG claim)', /aktywne po zatrzymaniu/.test(lsRow().textContent));
+    check('angle LS not in simple view', !simple.has('INPUT:evdV3AngleLs'));
+    const savedRider = { ...panel._modelForTests.rider };
+    panel._modelForTests.caps.angleLs = true;
+    for (const v of [false, true]) {
+        panel._modelForTests.rider = { ...savedRider, angleLs: v };
+        panel._modelForTests.riderBaseline = { ...savedRider, angleLs: v };
+        panel.renderPanel();
+        check(`new firmware: angle LS read ${v ? 1 : 0} shown, writable`, !ls().disabled && ls().checked === v);
+    }
+    ls().checked = false; ls().dispatch('change');
+    check('new firmware: toggling angle LS edits rider, other flags kept', panel._modelForTests.rider.angleLs === false
+        && panel._modelForTests.rider.effortMap === savedRider.effortMap && panel._modelForTests.rider.holdModel === savedRider.holdModel && panel._modelForTests.rider.mapV2 === savedRider.mapV2);
+    check('angle LS change listed as unsaved', panel.pendingChanges().some((t) => t.includes('Kąt niskich obrotów')), JSON.stringify(panel.pendingChanges()));
+    panel._modelForTests.rider = { ...savedRider };
+    panel._modelForTests.riderBaseline = { ...savedRider };
+    panel._modelForTests.caps.angleLs = false;
+    panel.renderPanel();
     const advanced = new Set(controls());
     const required = [
-        'BUTTON:evdV3WriteRider', 'INPUT:evdV3EffortMap', 'INPUT:evdV3HoldModel', 'INPUT:evdV3-iqMinLow', 'INPUT:evdV3-iqMinHigh',
+        'BUTTON:evdV3WriteRider', 'INPUT:evdV3EffortMap', 'INPUT:evdV3HoldModel', 'INPUT:evdV3AngleLs', 'INPUT:evdV3-iqMinLow', 'INPUT:evdV3-iqMinHigh',
         'BUTTON:Fabryczne na ekranie', 'BUTTON:evdV3WritePressure', 'SELECT:evdV3ChartLevel', 'INPUT:evdV3ChartCadence', 'INPUT:evdV3ChartForce',
         'BUTTON:Otwórz: Torque', 'BUTTON:Otwórz: Limits', 'BUTTON:Otwórz: System', 'BUTTON:Otwórz: Walk',
     ];

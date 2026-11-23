@@ -6,6 +6,10 @@
  - Canable with STM32F072 or STM32G431 processor and candlelight firmware ([Ebay](https://www.ebay.com/itm/156316405598),[Aliexpress](https://pl.aliexpress.com/item/1005006029234562.html))
  - 5 pin Cable with male and famale plugs ([Ebay](https://www.ebay.com/itm/197421023105),[Aliexpress](https://pl.aliexpress.com/item/1005005307670708.html))
 
+## v1.0.29
+
+- Nowe pole „eVistDrive — kąt niskich obrotów” (wł./wył.) w ustawieniach rowerzysty (widok zaawansowany). Nowy sposób liczenia kąta przy ruszaniu; wył. = jak 0.709. Wymaga firmware z bitem możliwości 15; na starszym firmware pole jest wyszarzone i nie jest zapisywane. Zapis przez „Zapisz na rowerze” z odczytem kontrolnym; zapisana wartość to żądanie — sterownik włącza ją dopiero na postoju.
+
 ## v1.0.28
 
 - Dopych: zakres czasu i drogi zależny od możliwości firmware; nazwa ustawienia Asysta.

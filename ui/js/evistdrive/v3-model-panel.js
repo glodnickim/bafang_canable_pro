@@ -157,7 +157,7 @@ export function describeEffective(level, key) { return nativeText(level, key); }
 
 function capsSummary(caps) {
     const yes = (b, text) => `${text}: ${b ? 'tak' : 'nie'}`;
-    return [yes(caps.model, 'model (bit 8)'), yes(caps.modelWritable, 'zapis modelu (bit 10)'), yes(caps.rider, 'rowerzysta i sprzęt (bit 11)'), yes(caps.riderHold, 'minimum asysty (bit 12)'), yes(caps.riderMapV2, 'mapa nacisku v2 (bit 13)'), yes(caps.carryV2, 'Dopych do 20 km/h (bit 16)')].join(', ');
+    return [yes(caps.model, 'model (bit 8)'), yes(caps.modelWritable, 'zapis modelu (bit 10)'), yes(caps.rider, 'rowerzysta i sprzęt (bit 11)'), yes(caps.riderHold, 'minimum asysty (bit 12)'), yes(caps.riderMapV2, 'mapa nacisku v2 (bit 13)'), yes(caps.angleLs, 'kąt niskich obrotów (bit 15)'), yes(caps.carryV2, 'Dopych do 20 km/h (bit 16)')].join(', ');
 }
 
 function statusText() {
@@ -797,6 +797,15 @@ function riderSection() {
     grid.appendChild(toggle('evdV3HoldModel', 'Bez terkotu: stałe minimum + szybkie wyłączenie', 'Minimum asysty', hold.holdModel,
         'Po starcie utrzymuje minimum prądu i szybko wyłącza asystę po braku nacisku. Limity i hamulec nadal działają.',
         'wyłączone: brak minimum i szybkiego wyłączenia', !read || !holdSupported, (v) => { hold.holdModel = v; }));
+    // TASK-EVD-CANABLE-ANGLE-LS-SWITCH-001: object 5 bit 3, capability bit 15. The saved value is only
+    // requested: firmware applies it at standstill (bridge off); the applied state is DIAG schema 8
+    // page 15, which this app does not decode live, so nothing here claims activation.
+    const angleLsSupported = supported && !!model.caps?.angleLs && !model.rider.legacy;
+    const angleLsRow = toggle('evdV3AngleLs', 'eVistDrive — kąt niskich obrotów', 'Kąt LS · zapisane = żądane, aktywne po zatrzymaniu', read && angleLsSupported ? r.angleLs === true : false,
+        'Nowy sposób liczenia kąta przy ruszaniu. Wył. = jak 0.709. Zmiana działa na postoju.',
+        'wyłączone: jak 0.709', !read || !angleLsSupported, (v) => { r.angleLs = v; });
+    if (read && !angleLsSupported && !model.rider.legacy) angleLsRow.appendChild(node('div', 'evd-v3-oneline evd-v3-muted', 'Ten firmware nie ma tej opcji (brak bitu 15).'));
+    grid.appendChild(angleLsRow);
     for (const [key, label, aria] of [['iqMinLow', 'Minimalna asysta przy wolnym kręceniu', 'Minimum Iq przy ≤30 obr/min'], ['iqMinHigh', 'Minimalna asysta przy szybkim kręceniu', 'Minimum Iq przy ≥60 obr/min']]) {
         grid.appendChild(slider({ id: `evdV3-${key}`, label, aria, technical: key === 'iqMinLow' ? 'Iq · do 30 obr/min' : 'Iq · od 60 obr/min',
             help: key === 'iqMinLow' ? 'Minimum do 30 obr/min, dalej rośnie liniowo do wartości przy 60 obr/min. Procent odnosi się do 700 Iq; pozostałe limity nadal działają.' : 'Minimum od 60 obr/min. Procent odnosi się do 700 Iq; pozostałe limity nadal ograniczają prąd.',
@@ -809,7 +818,7 @@ function riderSection() {
         set: (v) => { hold.tHold100ms = Math.round(v * 10); }, badge: (v) => `${fmtNum(v, 1)} s`, kind: 'timeout', disabled: !read || !holdSupported }));
     const errors = node('div', 'form-hint'); errors.id = 'evdV3RiderErrors';
     const actions = node('div', 'evd-v3-actions');
-    actions.append(button('Fabryczne na ekranie', 'btn btn-secondary btn-sm', () => { model.rider = model.rider.legacy ? P.factoryLegacyRider() : P.factoryRider(); riderEdited(); renderPanel(); }, { disabled: !read || !supported }),
+    actions.append(button('Fabryczne na ekranie', 'btn btn-secondary btn-sm', () => { model.rider = model.rider.legacy ? P.factoryLegacyRider() : { ...P.factoryRider(), ...(model.caps?.angleLs ? { angleLs: false } : {}) }; riderEdited(); renderPanel(); }, { disabled: !read || !supported }),
         button('Wyślij tylko rowerzystę (do wyłączenia)', 'btn btn-secondary btn-sm', () => { void writeRider(); }, { id: 'evdV3WriteRider', disabled: !read || !supported, title: 'Test: tylko RAM, zniknie po wyłączeniu. Na stałe: „Zapisz na rowerze” u góry.' }));
     box.append(grid, errors, actions);
     if (model.caps && !supported) box.appendChild(node('div', 'evd-v3-muted', 'Ten firmware nie obsługuje ustawień rowerzysty — podgląd fabryczny.'));
@@ -1149,7 +1158,7 @@ const LEVEL_LABELS = Object.freeze({
 });
 const RIDER_LABELS = Object.freeze({
     riderStrengthX10kg: 'Twoja siła', mapV2: 'Nowa mapa nacisku', effortMap: 'Asysta wg wysiłku',
-    holdModel: 'Bez terkotu', iqMinLow: 'Minimum przy wolnym kręceniu', iqMinHigh: 'Minimum przy szybkim kręceniu',
+    holdModel: 'Bez terkotu', angleLs: 'Kąt niskich obrotów', iqMinLow: 'Minimum przy wolnym kręceniu', iqMinHigh: 'Minimum przy szybkim kręceniu',
     tHold100ms: 'Wyłącz po … s bez nacisku',
 });
 const SAVE_FLASH_WAIT_S = 20;
