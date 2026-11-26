@@ -41,7 +41,8 @@ After the first visit it opens without internet and can be installed from the br
 until you press **Stop**. Keep the page on screen; it keeps the screen on, and a red bar
 means frames stopped or storage failed. After **Stop** the page opens **Logs**: **Save all**
 gives the whole session as one `.zip` file, or save and share single files. A file is split
-every 32 MB (`can-trace-p001.log`, `-p002`, ...).
+every 32 MB (`can-trace-p001.log`, `-p002`, ...). During a ride, **Frames** in the top bar shows the frames live (the latest
+frames or one row per ID); it writes nothing to the log.
 If the adapter drops off USB during the ride (on Android it then has to be picked again),
 the bar says **ADAPTER DISCONNECTED** with a **Reconnect** button: press it, pick the adapter,
 and recording continues in the same files. `can-trace` marks the gap with

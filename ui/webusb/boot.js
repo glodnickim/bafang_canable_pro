@@ -219,6 +219,15 @@ function buildPanel() {
       #webusb-ride-banner span { flex: 1; min-width: 0; }
       #webusb-ride-banner button { font: inherit; padding: 4px 12px; border-radius: 6px; border: 1px solid #fff;
         background: transparent; color: #fff; cursor: pointer; }
+      #webusb-live { position: fixed; top: 48px; left: 8px; right: 8px; z-index: 10000; max-height: 45vh; overflow: auto;
+        box-sizing: border-box; padding: 8px; border-radius: 8px; background: #111827; color: #f3f4f6;
+        font: 12px/1.5 ui-monospace, Consolas, monospace; overflow-wrap: anywhere; }
+      #webusb-live[hidden] { display: none; }
+      #webusb-live .header { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+      #webusb-live button { font: inherit; padding: 2px 6px; border: 1px solid #60a5fa; border-radius: 4px;
+        background: transparent; color: #bfdbfe; cursor: pointer; }
+      #webusb-live button.active { background: #2563eb; color: #fff; }
+      #webusb-live .changed { background: #1e3a8a; }
       #webusb-logs .session { margin-top: 8px; padding-top: 6px; border-top: 1px solid #374151; }
       #webusb-logs .session:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
       #webusb-logs .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
@@ -253,8 +262,58 @@ function buildPanel() {
     const ride = document.createElement('div');
     ride.id = 'webusb-ride-banner';
     ride.hidden = true;
-    ride.innerHTML = '<span id="webusb-ride-text">RIDE LOG starting...</span><button id="webusb-ride-reconnect" hidden>Reconnect</button><button id="webusb-ride-stop">Stop</button>';
-    document.body.append(panel, logs, fw, ride);
+    ride.innerHTML = '<span id="webusb-ride-text">RIDE LOG starting...</span><button id="webusb-ride-reconnect" hidden>Reconnect</button><button id="webusb-ride-frames">Frames</button><button id="webusb-ride-stop">Stop</button>';
+    const livePanel = document.createElement('div');
+    livePanel.id = 'webusb-live';
+    livePanel.hidden = true;
+    livePanel.innerHTML = '<div class="header"><button data-view="latest">Latest</button><button data-view="ids" class="active">By ID</button><button data-pause>Pause</button><span data-stats>0 frames/s · 0 IDs</span><button data-close>Close</button></div><div data-rows></div>';
+    document.body.append(panel, logs, fw, ride, livePanel);
+    let liveView = 'ids', livePaused = false, liveData = null;
+    const latest = livePanel.querySelector('[data-view="latest"]');
+    const byId = livePanel.querySelector('[data-view="ids"]');
+    const pause = livePanel.querySelector('[data-pause]');
+    const rows = livePanel.querySelector('[data-rows]');
+    function renderLive() {
+        if (!liveData || livePaused || livePanel.hidden) return;
+        livePanel.querySelector('[data-stats]').textContent = `${liveData.rate.toFixed(1)} frames/s · ${liveData.ids.length} IDs`;
+        const fragment = document.createDocumentFragment();
+        for (const frame of liveView === 'latest' ? liveData.recent : liveData.ids) {
+            const row = document.createElement('div');
+            row.textContent = liveView === 'latest' ?
+                `${(frame.t / 1000).toFixed(3)} ${frame.dir} ${frame.id} [${frame.dlc}] ${frame.data}` :
+                `${frame.id} ${frame.count} [${frame.dlc}] ${frame.data} ${(frame.ageMs / 1000).toFixed(1)}s`;
+            if (liveView === 'ids' && frame.changed) row.className = 'changed';
+            fragment.appendChild(row);
+        }
+        rows.replaceChildren(fragment);
+    }
+    function setView(view) {
+        liveView = view;
+        latest.classList.toggle('active', view === 'latest');
+        byId.classList.toggle('active', view === 'ids');
+        renderLive();
+    }
+    function toggleLive() {
+        const on = livePanel.hidden;
+        livePanel.hidden = !on;
+        if (on) {
+            livePanel.style.top = `${Math.max(48, Math.ceil(ride.getBoundingClientRect().bottom))}px`;
+            liveData = null;
+            rows.replaceChildren();
+            livePanel.querySelector('[data-stats]').textContent = '0 frames/s · 0 IDs';
+        }
+        worker.postMessage({ type: 'live', on });
+    }
+    latest.onclick = () => setView('latest');
+    byId.onclick = () => setView('ids');
+    pause.onclick = () => {
+        livePaused = !livePaused;
+        pause.textContent = livePaused ? 'Resume' : 'Pause';
+        renderLive();
+    };
+    livePanel.querySelector('[data-close]').onclick = toggleLive;
+    ride.querySelector('#webusb-ride-frames').onclick = toggleLive;
+    ui.showLive = (data) => { liveData = data; renderLive(); };
 
     Object.assign(ui, {
         state: panel.querySelector('#webusb-state'),
@@ -520,6 +579,7 @@ function start() {
         case 'log': if (m.batch) settleBatch(m); else saveLog(m); break;
         case 'logError': if (m.batch) settleBatch(m); else alert(`Log: ${m.message}`); break;
         case 'stats': showRideStats(m); break;
+        case 'liveFrames': ui.showLive(m); break;
         case 'flushed': break;
         case 'released': finishStart(); finishStop(); break;
         }

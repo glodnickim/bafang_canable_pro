@@ -11,10 +11,11 @@
 //
 // boot.js talks to this worker with messages carrying the same strings the UI and
 // server exchange over a WebSocket in the Node build.
-/* global NodeShim, importScripts */
+/* global NodeShim, LiveFrames, importScripts */
 'use strict';
 
 importScripts('node-shim.js');
+importScripts('live-frames.js');
 
 const MODULES = [
     'server.js', 'canbus.js', 'gsusb.js', 'canframe.js', 'bafang-parser.js', 'bafang-serializer.js',
@@ -117,6 +118,8 @@ async function refreshDevices() {
 // what we sent) and every frame received, with a timestamp. This is the full capture:
 // no ID filter and no merging of repeated frames.
 let canbus = null;
+let live = null;
+let liveTimer = null;
 const traffic = { rx: 0, tx: 0, lastRxAt: 0 };
 function traceCanTraffic(canbus) {
     const lines = NodeShim.logs.open('logs/can-trace.log');
@@ -130,6 +133,7 @@ function traceCanTraffic(canbus) {
         const id = ((f.can_id >>> 0) & 0x1FFFFFFF).toString(16).toUpperCase().padStart(8, '0');
         lines.push(`${((performance.now() - t0) / 1000).toFixed(4)} ${dir} ${id} [${n}] ${bytes.join(' ')}`);
         if (dir === 'RX') { traffic.rx++; traffic.lastRxAt = Date.now(); } else traffic.tx++;
+        if (live) live.add(dir, id, n, bytes.join(' '), Date.now());
     };
     canbus.on('raw_frame_sent', (f) => add('TX', f));
     canbus.on('raw_frame_received', (f) => add('RX', f));
@@ -188,6 +192,16 @@ onmessage = (e) => {
         break;
     case 'release':
         releaseAdapter();
+        break;
+    case 'live':
+        if (m.on === true && !live) {
+            live = LiveFrames.createLiveFrames();
+            liveTimer = setInterval(() => postMessage({ type: 'liveFrames', ...live.snapshot(Date.now()) }), 500);
+        } else if (m.on === false) {
+            clearInterval(liveTimer);
+            liveTimer = null;
+            live = null;
+        }
         break;
     case 'stats':
         postStats();
